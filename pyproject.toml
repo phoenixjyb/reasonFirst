@@ -13,6 +13,10 @@ dependencies = [
 gitlab-agent = "gitlab_agent.cli:main"
 actual-coder = "gitlab_agent.actual_coder_cli:main"
 codingagent = "gitlab_agent.codingagent_cli:main"
+actual-coder-migrate-https = "gitlab_agent.https_migration:main"
+
+[dependency-groups]
+dev = ["cryptography>=43"]
 
 [build-system]
 requires = ["hatchling"]
