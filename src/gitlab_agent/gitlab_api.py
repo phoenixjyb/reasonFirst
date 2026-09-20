@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from urllib.parse import quote
 
 import httpx
 
-from .config import AgentSettings
+if TYPE_CHECKING:
+    from .config import AgentSettings
+from .log_evidence import MAX_TAIL_BYTES, read_trace_tail
 
 
 class GitLabAPI:
@@ -79,40 +81,10 @@ class GitLabAPI:
         *,
         tail_bytes: int,
     ) -> dict[str, object]:
-        """Stream a text response while retaining only a bounded UTF-8 tail."""
-
+        """Return shared bounded, sanitized trace evidence (not raw log text)."""
         url = f"{self.settings.gitlab_base_url}/api/v4{path}"
-        cap = max(1_000, min(int(tail_bytes), 80_000))
-        tail = bytearray()
-        total = 0
-
-        try:
-            with self._client() as client:
-                with client.stream("GET", url) as response:
-                    if response.is_error:
-                        detail_raw = response.read()[:2000]
-                        detail = detail_raw.decode("utf-8", errors="replace")
-                        raise RuntimeError(
-                            f"GitLab API returned HTTP {response.status_code} "
-                            f"for {path}: {detail}"
-                        )
-
-                    for chunk in response.iter_bytes():
-                        if not chunk:
-                            continue
-                        total += len(chunk)
-                        tail.extend(chunk)
-                        if len(tail) > cap:
-                            del tail[:-cap]
-        except httpx.HTTPError as exc:
-            raise RuntimeError(f"GitLab API request failed for {url}: {exc}") from exc
-
-        return {
-            "content": bytes(tail).decode("utf-8", errors="ignore"),
-            "truncated": total > cap,
-            "original_text_bytes": total,
-            "tail_bytes": cap,
-        }
+        with self._client() as client:
+            return read_trace_tail(client, url, tail_bytes=tail_bytes)
 
     def merge_request(self, project: str, iid: int) -> dict[str, Any]:
         encoded = quote(project.strip(), safe="")
@@ -179,8 +151,8 @@ class GitLabAPI:
         )
 
     def job_trace(self, project: str, job_id: int) -> str:
-        encoded = quote(project.strip(), safe="")
-        return self.get_text(f"/projects/{encoded}/jobs/{job_id}/trace")
+        """Compatibility text-only view; use job_trace_tail for scope metadata."""
+        return str(self.job_trace_tail(project, job_id, tail_bytes=MAX_TAIL_BYTES)["content"])
 
     def job_trace_tail(
         self,

@@ -120,11 +120,15 @@ class GitLabAPITests(unittest.TestCase):
 
     def test_job_trace_reads_text(self) -> None:
         response = MagicMock()
-        response.is_error = False
-        response.text = "build failed\n"
+        response.status_code = 200
+        response.headers = {}
+        response.iter_raw.return_value = [b"build failed\n"]
 
+        stream_cm = MagicMock()
+        stream_cm.__enter__.return_value = response
+        stream_cm.__exit__.return_value = False
         client = MagicMock()
-        client.get.return_value = response
+        client.stream.return_value = stream_cm
         client_cm = MagicMock()
         client_cm.__enter__.return_value = client
         client_cm.__exit__.return_value = False
@@ -134,14 +138,17 @@ class GitLabAPITests(unittest.TestCase):
             result = api.job_trace("team/project", 99)
 
         self.assertEqual(result, "build failed\n")
-        client.get.assert_called_once_with(
-            "http://gitlab.example.internal/api/v4/projects/team%2Fproject/jobs/99/trace"
+        client.stream.assert_called_once_with(
+            "GET",
+            "http://gitlab.example.internal/api/v4/projects/team%2Fproject/jobs/99/trace",
+            headers={"Accept-Encoding": "identity"}, follow_redirects=False, timeout=10.0,
         )
 
     def test_job_trace_tail_streams_and_caps_memory(self) -> None:
         response = MagicMock()
-        response.is_error = False
-        response.iter_bytes.return_value = [
+        response.status_code = 200
+        response.headers = {}
+        response.iter_raw.return_value = [
             b"0123456789",
             b"abcdefghij",
             b"KLMNOPQRST",
@@ -174,12 +181,14 @@ class GitLabAPITests(unittest.TestCase):
         client.stream.assert_called_once_with(
             "GET",
             "http://gitlab.example.internal/api/v4/projects/team%2Fproject/jobs/99/trace",
+            headers={"Accept-Encoding": "identity"}, follow_redirects=False, timeout=10.0,
         )
 
     def test_job_trace_tail_truncates_to_requested_bound(self) -> None:
         response = MagicMock()
-        response.is_error = False
-        response.iter_bytes.return_value = [
+        response.status_code = 200
+        response.headers = {}
+        response.iter_raw.return_value = [
             b"a" * 800,
             b"b" * 800,
         ]
