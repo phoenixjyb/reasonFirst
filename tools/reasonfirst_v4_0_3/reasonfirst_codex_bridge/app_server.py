@@ -487,17 +487,24 @@ class AppServerClient:
             return {}
         return result if isinstance(result, dict) else {}
 
-    def assert_noninteractive_policy_allowed(self, *, sandbox_mode: str = "workspace-write") -> None:
+    def assert_noninteractive_policy_allowed(
+        self,
+        *,
+        sandbox_mode: str = "workspace-write",
+        approval_policy: str = "unlessTrusted",
+    ) -> None:
         data = self.admin_requirements()
         req = data.get("requirements") if isinstance(data, dict) else None
         if not isinstance(req, dict):
             return
         allowed = req.get("allowedApprovalPolicies")
-        if isinstance(allowed, list) and allowed and "never" not in allowed:
-            raise AppServerError(
-                "Codex admin requirements do not allow approvalPolicy=never. "
-                "This bridge fails closed instead of auto-approving requests."
-            )
+        if isinstance(allowed, list) and allowed:
+            normalized = {str(item).replace("-", "").lower() for item in allowed}
+            wanted = str(approval_policy).replace("-", "").lower()
+            if wanted not in normalized:
+                raise AppServerError(
+                    f"Codex admin requirements do not allow approvalPolicy={approval_policy}."
+                )
         sandbox_modes = req.get("allowedSandboxModes")
         if isinstance(sandbox_modes, list) and sandbox_modes:
             normalized = {str(item).replace("_", "-").replace("workspaceWrite", "workspace-write").replace("readOnly", "read-only").lower() for item in sandbox_modes}
@@ -529,10 +536,14 @@ class AppServerClient:
     ) -> str:
         resolved = policy or default_worker_policy("codex")
         mode = self._sandbox_mode(resolved, sandbox_mode)
-        self.assert_noninteractive_policy_allowed(sandbox_mode=mode)
+        approval = self._approval_policy(resolved)
+        self.assert_noninteractive_policy_allowed(
+            sandbox_mode=mode,
+            approval_policy=approval,
+        )
         params: dict[str, Any] = {
             "cwd": cwd,
-            "approvalPolicy": self._approval_policy(resolved),
+            "approvalPolicy": approval,
             "sandbox": "readOnly" if mode == "read-only" else "workspaceWrite",
             "serviceName": "reasonfirst_codex_desktop",
             "threadSource": "user",
