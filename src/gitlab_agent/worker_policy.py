@@ -57,9 +57,9 @@ class WorkerPolicy:
 def default_worker_policy(backend: str) -> WorkerPolicy:
     """Return stable defaults used when a handoff is built outside loaded settings."""
 
-    if backend == "codex":
+    if backend in {"codex", "codex-desktop"}:
         return WorkerPolicy(
-            backend="codex",
+            backend=backend,
             model="gpt-5.6-sol",
             reasoning_effort="high",
             execution_mode="interactive",
@@ -82,9 +82,9 @@ def default_worker_policy(backend: str) -> WorkerPolicy:
 def resolve_worker_policy(settings: AgentSettings, backend: str) -> WorkerPolicy:
     """Resolve the user-owned worker policy for the selected provider."""
 
-    if backend == "codex":
+    if backend in {"codex", "codex-desktop"}:
         return WorkerPolicy(
-            backend="codex",
+            backend=backend,
             model=settings.codex_model,
             reasoning_effort=settings.codex_reasoning_effort,
             execution_mode=settings.codex_execution_mode,
@@ -171,6 +171,10 @@ def build_worker_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
 
     if policy.backend == "codex":
         return _codex_argv(policy, prompt)
+    if policy.backend == "codex-desktop":
+        raise ValueError(
+            "codex-desktop is launched through the App Server adapter, not CLI argv"
+        )
     if policy.backend == "copilot":
         return _copilot_argv(policy, prompt)
     raise ValueError(f"Unsupported coding backend {policy.backend!r}")
@@ -180,5 +184,7 @@ def display_worker_argv(policy: WorkerPolicy) -> list[str]:
     """Return the policy-bearing argv shape without embedding the task prompt."""
 
     marker = "<agent_prompt>"
+    if policy.backend == "codex-desktop":
+        return ["codex-desktop", "app-server", marker]
     argv = build_worker_argv(policy, marker)
     return argv
