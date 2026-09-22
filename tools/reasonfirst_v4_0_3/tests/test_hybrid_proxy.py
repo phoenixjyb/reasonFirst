@@ -3,6 +3,7 @@ import os, pathlib, subprocess, tempfile, sys, time
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
+from gitlab_agent.worker_policy import default_worker_policy
 from reasonfirst_codex_bridge.bridge_config import ExecutionTarget
 from reasonfirst_codex_bridge.remote_workspace import RemoteWorkspaceManager
 from reasonfirst_codex_bridge.controller import BridgeController
@@ -44,6 +45,7 @@ def main():
             legacy_target=ExecutionTarget(type='ssh',name='fake',host='fake-host',repo=str(repo),codex_backend='remote-ssh')
             rec={**ws,'task':'hybrid','goal':'test hybrid','target':legacy_target.to_dict(),'kind':'ssh','updated_at':int(time.time())}
             ctrl=BridgeController()
+            ctrl._codex_policy=lambda: default_worker_policy("codex")
             class ManagerProxy:
                 def __getattr__(self, name):
                     return getattr(mgr, name)
