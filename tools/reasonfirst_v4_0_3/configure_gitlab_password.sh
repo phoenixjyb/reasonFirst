@@ -80,7 +80,7 @@ export RF_GITLAB_AUTH_MODE=git-only
 cd "$RF_DIR"
 
 echo "== ReasonFirst offline doctor =="
-uv run actual-coder doctor --offline
+uv run actual-coder doctor --offline --git-only
 
 if [ -n "$PROJECT" ]; then
   echo "== Git-only project check =="
