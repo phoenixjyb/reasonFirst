@@ -9,12 +9,12 @@ This preview adds an optional local MCP / Codex Desktop App Server surface aroun
 ReasonFirst supports three explicit worker surfaces:
 
 ```text
---agent codex          # Codex CLI
---agent copilot        # GitHub Copilot CLI
+--agent codex-cli      # Codex CLI
+--agent copilot-cli    # GitHub Copilot CLI
 --agent codex-desktop  # managed Codex Desktop App Server
 ```
 
-`codex` and `codex-desktop` consume the same user-owned Codex `WorkerPolicy` (model, reasoning effort, sandbox, approval and network policy). The bridge does not replace the CLI backends.
+`codex-cli` and `codex-desktop` consume the same user-owned Codex `WorkerPolicy` (model, reasoning effort, sandbox, approval and network policy). Historical `codex` and `copilot` names remain compatibility aliases for `codex-cli` and `copilot-cli`. The bridge does not replace the CLI backends.
 
 ## Safe installation flow
 
