@@ -303,6 +303,11 @@ agents:
         self.assertEqual(args.command, "doctor")
         self.assertTrue(args.offline)
 
+    def test_targets_parser_is_read_only_and_needs_no_project(self) -> None:
+        parser = _build_parser(prog="actual-coder")
+        args = parser.parse_args(["targets"])
+        self.assertEqual(args.command, "targets")
+
     def test_project_config_parser_accepts_ref_and_validate(self) -> None:
         parser = _build_parser(prog="actual-coder")
         args = parser.parse_args(
