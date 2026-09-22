@@ -1,5 +1,5 @@
 from __future__ import annotations
-import pathlib, sys, tempfile, types
+import os, pathlib, sys, tempfile, types
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -31,8 +31,17 @@ expected={
  'reasonfirst_doctor','reasonfirst_target_probe','reasonfirst_dispatch','reasonfirst_workspace_status',
  'reasonfirst_files','reasonfirst_read','reasonfirst_diff','reasonfirst_codex_start','reasonfirst_codex_continue',
  'reasonfirst_codex_steer','reasonfirst_codex_interrupt','reasonfirst_codex_status','reasonfirst_codex_events',
- 'reasonfirst_review_bundle','reasonfirst_artifacts','reasonfirst_authorize_push'
+ 'reasonfirst_review_bundle','reasonfirst_artifacts'
 }
 assert expected.issubset(server.tools.keys()), sorted(server.tools)
+assert 'reasonfirst_authorize_push' not in server.tools
 assert 'ChatGPT is the planner/reviewer' in server.instructions
+
+os.environ['RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH']='true'
+try:
+    enabled=mod.build_server()
+    assert 'reasonfirst_authorize_push' in enabled.tools
+finally:
+    os.environ.pop('RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH',None)
+
 print('v4 MCP tool registration: OK')
