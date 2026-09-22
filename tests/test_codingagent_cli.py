@@ -257,6 +257,30 @@ agents:
         )
         self.assertEqual(auto_args.agent, "auto")
 
+        codex_cli = parser.parse_args(
+            [
+                "task",
+                "team/project",
+                "--agent",
+                "codex-cli",
+                "--goal",
+                "Inspect",
+            ]
+        )
+        self.assertEqual(codex_cli.agent, "codex-cli")
+
+        copilot_cli = parser.parse_args(
+            [
+                "task",
+                "team/project",
+                "--agent",
+                "copilot-cli",
+                "--goal",
+                "Inspect",
+            ]
+        )
+        self.assertEqual(copilot_cli.agent, "copilot-cli")
+
     def test_actual_coder_parser_accepts_codex_desktop_backend(self) -> None:
         parser = _build_parser(prog="actual-coder")
         args = parser.parse_args(
@@ -490,6 +514,25 @@ mr:
                 "hello",
             ],
         )
+
+    def test_explicit_cli_aliases_map_to_same_provider_policy(self) -> None:
+        self.assertEqual(
+            _agent_launch_argv("codex-cli", "hello"),
+            _agent_launch_argv("codex", "hello"),
+        )
+        self.assertEqual(
+            _agent_launch_argv("copilot-cli", "hello"),
+            _agent_launch_argv("copilot", "hello"),
+        )
+
+        handoff = _handoff(
+            FakeManager(),  # type: ignore[arg-type]
+            "abc123",
+            "Inspect",
+            agent="codex-cli",
+        )
+        self.assertEqual(handoff["worker_policy"]["backend"], "codex")
+        self.assertEqual(handoff["codex_prompt"], handoff["agent_prompt"])
 
     def test_launch_argv_supports_noninteractive_provider_controls(self) -> None:
         codex = WorkerPolicy(
