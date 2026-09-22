@@ -74,7 +74,7 @@ GITLAB_REQUIRE_WRITE_ALLOWLIST=true
 GITLAB_WORKSPACE_ROOT=~/.local/share/chatgpt-gitlab-mcp
 ```
 
-Use a dedicated read API credential (`read_api` and, where needed, `read_repository`). For Git writes, prefer a separate `GITLAB_GIT_TOKEN` with `write_repository`, not a broad `api` token. Empty Git-token configuration falls back to the API token; that does not magically give it push rights. Restrict the project allowlist to exact intended `path_with_namespace` values. Install/authenticate Codex CLI or Copilot CLI separately using the provider's supported flow; ReasonFirst does not manage their accounts.
+Use a dedicated read API credential (`read_api` and, where needed, `read_repository`) when API/MCP/CI features are required. For Git writes, prefer a separate `GITLAB_GIT_TOKEN` with `write_repository`, not a broad `api` token. Approved self-managed deployments may instead set `GITLAB_GIT_PASSWORD` with `GITLAB_GIT_USERNAME`. Credential precedence is `GITLAB_GIT_TOKEN` > `GITLAB_GIT_PASSWORD` > `GITLAB_TOKEN` fallback. Restrict the project allowlist to exact intended `path_with_namespace` values. Install/authenticate Codex CLI or Copilot CLI separately using the provider's supported flow; ReasonFirst does not manage their accounts.
 
 ### Coding-worker policy
 
@@ -127,7 +127,7 @@ uv run actual-coder doctor
 uv run actual-coder project-config team/project-a --validate
 ```
 
-Inspect `config` locally; even token-free diagnostics can expose private hostnames and paths. `agents` checks executable presence, not authentication/quota. `doctor` checks API authentication unless `--offline`; it does not test Git push rights. `project-config` performs managed Git fetch/read and validates the contract, without creating a worktree or pushing.
+Inspect `config` locally; even token-free diagnostics can expose private hostnames and paths. `agents` checks executable presence, not authentication/quota. `doctor` checks API authentication unless `--offline`; it does not test Git push rights. When intentionally operating without `GITLAB_TOKEN`, use `actual-coder doctor --git-only` and `actual-coder start ... --git-only`; this disables GitLab REST/MCP/CI API expectations but still requires a valid Git credential and every other safety check. `project-config` performs managed Git fetch/read and validates the contract, without creating a worktree or pushing.
 
 `found: false, valid: true` means `.actualcoder.yaml` is absent, not that application tests passed. No project-specific validation commands were loaded. Copy and adapt [the example contract](../.actualcoder.example.yaml) **in the target GitLab project**, use its actual test commands, and review it through that project's normal process. Validate a candidate without fetching it:
 
