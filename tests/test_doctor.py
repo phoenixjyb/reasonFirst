@@ -82,6 +82,60 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(checks["gitlab_api_connectivity"]["status"], "skip")
         self.assertEqual(checks["project_allowlist"]["status"], "pass")
 
+    def test_git_only_mode_allows_missing_api_token_when_git_credential_exists(self) -> None:
+        git_only = AgentSettings(
+            **{
+                **self.settings.__dict__,
+                "api_token": "",
+                "git_token": "git-password",
+                "git_credential_source": "git_password",
+            }
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            result = run_doctor(
+                offline=True,
+                git_only=True,
+                settings_loader=lambda: git_only,
+                which=self.which,
+                api_factory=lambda settings: FakeAPI(settings, fail=True),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["git_only"])
+        self.assertEqual(result["operating_mode"], "git-only")
+        checks = {item["name"]: item for item in result["checks"]}
+        self.assertEqual(checks["gitlab_api_token"]["status"], "skip")
+        self.assertEqual(checks["git_credential"]["status"], "pass")
+        self.assertEqual(
+            checks["git_credential"]["details"]["credential_source"],
+            "git_password",
+        )
+        self.assertEqual(checks["gitlab_api_connectivity"]["status"], "skip")
+
+    def test_git_only_mode_still_fails_without_git_credential(self) -> None:
+        broken = AgentSettings(
+            **{
+                **self.settings.__dict__,
+                "api_token": "",
+                "git_token": "",
+                "git_credential_source": "none",
+            }
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            result = run_doctor(
+                offline=True,
+                git_only=True,
+                settings_loader=lambda: broken,
+                which=self.which,
+            )
+
+        self.assertFalse(result["ok"])
+        checks = {item["name"]: item for item in result["checks"]}
+        self.assertEqual(checks["gitlab_api_token"]["status"], "skip")
+        self.assertEqual(checks["git_credential"]["status"], "fail")
+
     def test_doctor_fails_without_backend_and_required_allowlist(self) -> None:
         broken = AgentSettings(
             **{
