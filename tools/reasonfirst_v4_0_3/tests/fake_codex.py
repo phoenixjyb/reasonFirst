@@ -11,6 +11,12 @@ for line in sys.stdin:
     m = json.loads(line)
     method = m.get("method")
     rid = m.get("id")
+    if rid == 901 and method is None:
+        result = m.get("result") or {}
+        decision = result.get("decision") if isinstance(result, dict) else None
+        print(json.dumps({"method":"item/agentMessage/delta","params":{"threadId":thread,"turnId":turn,"itemId":"i1","delta":"approval:"+str(decision)}}), flush=True)
+        print(json.dumps({"method":"turn/completed","params":{"threadId":thread,"turn":{"id":turn,"status":"completed"}}}), flush=True)
+        continue
     if rid == 900 and method is None:
         result = m.get("result") or {}
         ok = bool(result.get("success"))
@@ -85,7 +91,26 @@ for line in sys.stdin:
             continue
         print(json.dumps({"id":rid,"result":{"turn":{"id":turn,"status":"inProgress","items":[]}}}), flush=True)
         print(json.dumps({"method":"turn/started","params":{"threadId":thread,"turn":{"id":turn,"status":"inProgress"}}}), flush=True)
-        if has_dynamic_tools:
+        prompt_text=" ".join(
+            str(item.get("text") or "")
+            for item in (params.get("input") or [])
+            if isinstance(item, dict)
+        )
+        if "approval-command" in prompt_text:
+            print(json.dumps({
+                "id":901,
+                "method":"item/commandExecution/requestApproval",
+                "params":{
+                    "threadId":thread,
+                    "turnId":turn,
+                    "itemId":"cmd1",
+                    "command":"echo approved",
+                    "cwd":params.get("cwd"),
+                    "reason":"test approval",
+                    "availableDecisions":["accept","decline"]
+                }
+            }), flush=True)
+        elif has_dynamic_tools:
             print(json.dumps({"method":"item/started","params":{"threadId":thread,"turnId":turn,"item":{"id":"dyn1","type":"dynamicToolCall","namespace":"reasonfirst_remote","tool":"status","arguments":{},"status":"inProgress"}}}), flush=True)
             print(json.dumps({"id":900,"method":"item/tool/call","params":{"threadId":thread,"turnId":turn,"callId":"dyn1","namespace":"reasonfirst_remote","tool":"status","arguments":{}}}), flush=True)
         else:
