@@ -52,8 +52,10 @@ cat <<EOF
 Installed ReasonFirst v4.0.3 to: $TARGET
 
 Primary execution state: one local MCP process
-Unified configuration and startup:
+Core configuration (safe default; does not enable persistent services/plugins):
   $TARGET/configure_v4.sh
+Review optional persistent actions first:
+  $TARGET/configure_v4.sh --plan --install-codex-plugin --enable-login-service
 Doctor:
   $TARGET/run_reasonfirst.sh --doctor
 Local MCP URL: http://127.0.0.1:8765/mcp
