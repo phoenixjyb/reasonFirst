@@ -314,8 +314,8 @@ def _select_agent(
 
     if not installed:
         raise RuntimeError(
-            "No supported coding backend is installed for --agent auto. "
-            "Run 'actual-coder agents' and install Codex CLI or GitHub Copilot CLI."
+            "No supported coding backend is available for --agent auto. "
+            "Run 'actual-coder agents' and install/sign in to Codex CLI, GitHub Copilot CLI, or Codex Desktop."
         )
 
     selected = installed[0]
@@ -620,7 +620,7 @@ def _available_agents() -> dict[str, object]:
     return {
         "agents": agents,
         "note": (
-            "Availability checks only whether the CLI executable is installed. "
+            "Availability checks only whether each backend runtime can be resolved. "
             "It does not invoke the backend, verify authentication, or consume model quota."
         ),
     }
