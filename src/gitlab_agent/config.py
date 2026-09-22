@@ -124,6 +124,7 @@ class AgentSettings:
     copilot_disable_builtin_mcps: bool = True
     copilot_allow_tools: tuple[str, ...] = ()
     copilot_deny_tools: tuple[str, ...] = ("shell(git push)",)
+    git_credential_source: str = "api-token"
 
     @classmethod
     def load(cls) -> "AgentSettings":
@@ -139,7 +140,22 @@ class AgentSettings:
         base_url = validate_base_url(base_url)
 
         api_token = os.getenv("GITLAB_TOKEN", "").strip()
-        git_token = os.getenv("GITLAB_GIT_TOKEN", "").strip() or api_token
+        git_scoped_token = os.getenv("GITLAB_GIT_TOKEN", "").strip()
+        git_password = os.getenv("GITLAB_GIT_PASSWORD", "").strip()
+        if git_scoped_token and git_password:
+            raise RuntimeError(
+                "Set only one of GITLAB_GIT_TOKEN or GITLAB_GIT_PASSWORD; "
+                "ReasonFirst refuses ambiguous Git credential sources"
+            )
+        if git_scoped_token:
+            git_token = git_scoped_token
+            git_credential_source = "git-token"
+        elif git_password:
+            git_token = git_password
+            git_credential_source = "git-password"
+        else:
+            git_token = api_token
+            git_credential_source = "api-token"
 
         root = Path(
             os.getenv(
@@ -162,6 +178,7 @@ class AgentSettings:
             git_token=git_token,
             git_username=os.getenv("GITLAB_GIT_USERNAME", "oauth2").strip() or "oauth2",
             git_trust_env=env_bool("GITLAB_GIT_TRUST_ENV", False),
+            git_credential_source=git_credential_source,
             allowed_projects=csv_set("GITLAB_ALLOWED_PROJECTS"),
             require_write_allowlist=env_bool("GITLAB_REQUIRE_WRITE_ALLOWLIST", True),
             workspace_root=root,
