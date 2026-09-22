@@ -216,6 +216,9 @@ class BridgeController:
                 gitlab_host=host,
                 git_username=settings.git_username,
                 git_password=settings.git_token,
+                allowed_executables=set(settings.allowed_executables),
+                max_command_timeout_seconds=settings.command_timeout_seconds,
+                max_output_bytes=settings.max_output_bytes,
             )
         except Exception:
             return RemoteWorkspaceManager(target)
@@ -546,7 +549,10 @@ class BridgeController:
         ).strip().lower() in {"1", "true", "yes", "on"}
 
     @classmethod
-    def _remote_dynamic_tools(cls) -> list[dict[str, Any]]:
+    def _remote_dynamic_tools(
+        cls,
+        target: ExecutionTarget | None = None,
+    ) -> list[dict[str, Any]]:
         def fn(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
             schema: dict[str, Any] = {
                 "type": "object",
@@ -582,6 +588,33 @@ class BridgeController:
             fn("snapshot", "Read the exact remote review snapshot digest.", {}),
             fn("diff", "Read the real remote Git diff against the pinned base SHA.", {}),
         ]
+        if (
+            target is not None
+            and target.validation_engine
+            and target.validation_image
+            and target.validation_allowed_executables
+        ):
+            tools.append(
+                fn(
+                    "run",
+                    "Run one structured validation command inside the user-configured remote container sandbox.",
+                    {
+                        "argv": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                            "maxItems": 64,
+                        },
+                        "cwd": {"type": "string"},
+                        "timeout_seconds": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1800,
+                        },
+                    },
+                    ["argv"],
+                )
+            )
         if cls._remote_push_enabled():
             tools.append(
                 fn(
@@ -640,6 +673,19 @@ class BridgeController:
         elif tool == "apply_patch":
             with self._bridge_mutation_lock(rec):
                 result = manager.apply_patch(rec, str(args.get("patch") or ""))
+        elif tool == "run":
+            raw_argv = args.get("argv")
+            if not isinstance(raw_argv, list) or not all(
+                isinstance(item, str) for item in raw_argv
+            ):
+                raise BridgeError("remote run argv must be a list of strings")
+            with self._bridge_mutation_lock(rec):
+                result = manager.run_argv(
+                    rec,
+                    list(raw_argv),
+                    cwd=str(args.get("cwd") or "."),
+                    timeout_seconds=int(args.get("timeout_seconds") or 300),
+                )
         elif tool == "snapshot":
             result = manager.snapshot(rec)
         elif tool == "commit_push":
@@ -951,7 +997,7 @@ class BridgeController:
             if self._is_remote_proxy_target(target):
                 prompt = self._hybrid_remote_prompt(rec, goal)
                 codex_cwd = self._proxy_workspace(wid, rec)
-                dynamic_tools = self._remote_dynamic_tools()
+                dynamic_tools = self._remote_dynamic_tools(target)
                 sandbox_mode = "read-only"
             else:
                 prompt = self._remote_prompt(rec, goal)
