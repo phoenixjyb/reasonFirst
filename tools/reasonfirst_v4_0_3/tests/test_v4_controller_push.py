@@ -29,6 +29,7 @@ def main():
         os.environ['GITLAB_GIT_TOKEN']='test-token'
         os.environ['GITLAB_ALLOWED_PROJECTS']='g/p'
         os.environ['GITLAB_WORKSPACE_ROOT']=str(root/'local-workspaces')
+        os.environ['RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH']='true'
         try:
             target=ExecutionTarget(type='ssh',name='fake',host='fake-host',repo=str(repo),codex_backend='desktop-proxy')
             mgr=RemoteWorkspaceManager(target)
