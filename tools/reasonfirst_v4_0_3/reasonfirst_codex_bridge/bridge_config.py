@@ -23,6 +23,10 @@ class ExecutionTarget:
     remote_codex: str = "codex"
     ssh_connect_timeout: int = 8
     network_access: bool = False
+    validation_engine: str = ""
+    validation_image: str = ""
+    validation_allowed_executables: tuple[str, ...] = ()
+    validation_network_access: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -173,6 +177,42 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
             network_access=bool(raw.get("network_access", False)),
         )
 
+    validation = raw.get("validation")
+    if validation is None:
+        validation = {}
+    if not isinstance(validation, dict):
+        raise BridgeConfigError("SSH target validation must be a YAML object")
+
+    validation_engine = str(validation.get("engine") or "").strip().lower()
+    validation_image = str(validation.get("image") or "").strip()
+    raw_validation_execs = validation.get("allowed_executables") or []
+    if not isinstance(raw_validation_execs, list) or any(
+        not isinstance(item, str) or not item.strip()
+        for item in raw_validation_execs
+    ):
+        raise BridgeConfigError(
+            "validation.allowed_executables must be a list of non-empty command names"
+        )
+    validation_execs = tuple(dict.fromkeys(item.strip() for item in raw_validation_execs))
+    if validation_engine or validation_image or validation_execs:
+        if validation_engine not in {"docker", "podman"}:
+            raise BridgeConfigError(
+                "validation.engine must be docker or podman when remote validation is enabled"
+            )
+        if not validation_image or any(ch.isspace() for ch in validation_image):
+            raise BridgeConfigError(
+                "validation.image must be one non-empty container image reference"
+            )
+        if not validation_execs:
+            raise BridgeConfigError(
+                "validation.allowed_executables must be non-empty when remote validation is enabled"
+            )
+        for executable in validation_execs:
+            if "/" in executable or "\\" in executable:
+                raise BridgeConfigError(
+                    "validation.allowed_executables entries must be bare command names"
+                )
+
     host = str(raw.get("host") or "").strip()
     repo = str(raw.get("repo") or raw.get("project_root") or "").strip()
     if not host or host.startswith("-"):
@@ -191,4 +231,8 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
         remote_codex=str(raw.get("remote_codex") or "codex").strip() or "codex",
         ssh_connect_timeout=max(1, min(int(raw.get("ssh_connect_timeout") or 8), 30)),
         network_access=bool(raw.get("network_access", False)),
+        validation_engine=validation_engine,
+        validation_image=validation_image,
+        validation_allowed_executables=validation_execs,
+        validation_network_access=bool(validation.get("network_access", False)),
     )
