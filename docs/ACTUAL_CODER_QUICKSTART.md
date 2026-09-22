@@ -120,6 +120,23 @@ $env:GITLAB_AGENT_ENV_FILE = Join-Path $HOME ".config\gitlab-agent\.env"
 
 ## 3. Verify API and Git separately
 
+Normal mode uses both GitLab API metadata and Git. If an approved self-managed deployment intentionally has Git HTTPS credentials but no GitLab API token, use the explicit Git-only mode rather than patching ReasonFirst source:
+
+```dotenv
+GITLAB_TOKEN=
+GITLAB_GIT_TOKEN=
+GITLAB_GIT_PASSWORD=YOUR_PRIVATE_GIT_HTTPS_PASSWORD
+GITLAB_GIT_USERNAME=YOUR_GITLAB_USERNAME
+```
+
+Set only one of `GITLAB_GIT_TOKEN` or `GITLAB_GIT_PASSWORD`. A scoped Git token is preferred where available. Git-only mode intentionally disables API/MCP/CI metadata features; it still requires the normal project allowlist and a working Git credential.
+
+```bash
+uv run actual-coder doctor --offline --git-only
+uv run actual-coder project-config team/project-a --validate
+uv run actual-coder start team/project-a --task inspect --goal "Inspect safely" --git-only --no-launch
+```
+
 ```bash
 uv run actual-coder config
 uv run actual-coder agents
