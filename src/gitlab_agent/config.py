@@ -124,6 +124,7 @@ class AgentSettings:
     copilot_disable_builtin_mcps: bool = True
     copilot_allow_tools: tuple[str, ...] = ()
     copilot_deny_tools: tuple[str, ...] = ("shell(git push)",)
+    git_credential_source: str = "api-token"
 
     @classmethod
     def load(cls) -> "AgentSettings":
@@ -139,7 +140,17 @@ class AgentSettings:
         base_url = validate_base_url(base_url)
 
         api_token = os.getenv("GITLAB_TOKEN", "").strip()
-        git_token = os.getenv("GITLAB_GIT_TOKEN", "").strip() or api_token
+        explicit_git_token = os.getenv("GITLAB_GIT_TOKEN", "").strip()
+        git_password = os.getenv("GITLAB_GIT_PASSWORD", "").strip()
+        if explicit_git_token:
+            git_token = explicit_git_token
+            git_credential_source = "git-token"
+        elif git_password:
+            git_token = git_password
+            git_credential_source = "git-password"
+        else:
+            git_token = api_token
+            git_credential_source = "api-token" if api_token else "none"
 
         root = Path(
             os.getenv(
@@ -225,6 +236,7 @@ class AgentSettings:
                 "REASONFIRST_COPILOT_DENY_TOOLS",
                 ("shell(git push)",),
             ),
+            git_credential_source=git_credential_source,
         )
 
     def assert_project_allowed_for_workspace(self, project: str) -> None:
