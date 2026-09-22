@@ -194,8 +194,8 @@ def run_doctor(
             f"Configuration could not be loaded: {exc}",
         )
         result = _finish(checks, offline=offline)
-    result["git_only"] = git_only
-    return result
+        result["git_only"] = git_only
+        return result
 
     config_file = settings.config_file
     if config_file.is_file():
@@ -428,7 +428,9 @@ def run_doctor(
                 f"GitLab API authentication/connectivity failed: {exc}",
             )
 
-    return _finish(checks, offline=offline)
+    result = _finish(checks, offline=offline)
+    result["git_only"] = git_only
+    return result
 
 
 def _finish(checks: list[dict[str, object]], *, offline: bool) -> dict[str, object]:
