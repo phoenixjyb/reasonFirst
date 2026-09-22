@@ -9,6 +9,7 @@ def main():
         bridge=root/'bridge.yaml'; codex=root/'config.toml'
         bridge.write_text('version: 3\ndefaults:\n  target: local\n  worker_backend: copilot-cli\ntargets:\n  gpu:\n    type: ssh\n    host: gpu\n    repo: /work/app\n')
         codex.write_text('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"\n\n[mcp_servers.context7]\nurl = "https://example.invalid/mcp"\n\n[mcp_servers.reasonfirst]\ncommand = "/old/reasonfirst"\n')
+        original_codex=codex.read_text()
         subprocess.run([
             'python',str(ROOT/'configure_v4.py'),
             '--bridge-dir',str(ROOT),
@@ -22,6 +23,19 @@ def main():
         assert b['defaults']['codex_backend']=='global-config-local'
         assert b['defaults']['worker_backend']=='copilot-cli'
         assert b['targets']['local']['worker_backend']=='copilot-cli'
+        # A CLI backend must not silently mutate Codex global configuration.
+        assert codex.read_text()==original_codex
+
+        # Switching explicitly to Codex Desktop updates only the ReasonFirst MCP
+        # stanza while preserving unrelated model/MCP configuration.
+        subprocess.run([
+            'python',str(ROOT/'configure_v4.py'),
+            '--bridge-dir',str(ROOT),
+            '--bridge-config',str(bridge),
+            '--codex-config',str(codex),
+            '--backup-dir',str(root/'backups'),
+            '--worker-backend','codex-desktop',
+        ],check=True,capture_output=True,text=True)
         text=codex.read_text()
         assert 'model = "gpt-5.6-sol"' in text
         assert '[mcp_servers.context7]' in text
