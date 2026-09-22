@@ -33,17 +33,26 @@ from .workspace import WorkspaceManager
 
 SUPPORTED_CODING_AGENTS = {
     "codex": "codex",
+    "codex-cli": "codex",
     "copilot": "copilot",
+    "copilot-cli": "copilot",
     "codex-desktop": "codex",
 }
 DEFAULT_AGENT_ORDER = ["codex", "copilot"]
-AGENT_CHOICES = ["auto", "codex", "copilot", "codex-desktop"]
+AGENT_CHOICES = [
+    "auto",
+    "codex",
+    "codex-cli",
+    "copilot",
+    "copilot-cli",
+    "codex-desktop",
+]
 
 
 def _policy_backend_for_agent(agent: str) -> str:
-    if agent in {"codex", "codex-desktop"}:
+    if agent in {"codex", "codex-cli", "codex-desktop"}:
         return "codex"
-    if agent == "copilot":
+    if agent in {"copilot", "copilot-cli"}:
         return "copilot"
     raise ValueError(f"Unsupported coding agent {agent!r}")
 
@@ -284,7 +293,7 @@ def _handoff(
     }
 
     # Alpha.1-alpha.3 compatibility for existing Codex integrations.
-    if agent == "codex":
+    if agent in {"codex", "codex-cli"}:
         result["codex_command"] = result["agent_command"]
         result["codex_prompt"] = result["agent_prompt"]
 
@@ -667,6 +676,11 @@ def _available_agents() -> dict[str, object]:
         agents.append(
             {
                 "agent": name,
+                "aliases": (
+                    ["codex-cli"]
+                    if name == "codex"
+                    else (["copilot-cli"] if name == "copilot" else [])
+                ),
                 "surface": (
                     "desktop-app-server"
                     if name == "codex-desktop"
@@ -711,6 +725,10 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
             "codex-desktop": {
                 **resolve_worker_policy(settings, "codex").to_dict(),
                 "execution_surface": "desktop-app-server",
+            },
+            "aliases": {
+                "codex-cli": "codex",
+                "copilot-cli": "copilot",
             },
         },
     }
