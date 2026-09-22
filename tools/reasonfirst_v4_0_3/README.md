@@ -12,6 +12,20 @@ cd reasonfirst_v4_0_3
 安装程序会备份并迁移 v3/v4 `bridge.yaml`，仅新增或更新 `~/.codex/config.toml` 的 ReasonFirst MCP 与插件条目，保留其他全局模型、profile、MCP、skills、rules 和登录态。它还会安装 ChatGPT Desktop 插件、启动本地 MCP LaunchAgent，并在现有 GitHub CLI 登录有效时启动网页控制 relay。重复运行可安全更新 ReasonFirst 配置。
 为兼容 macOS 系统代理，安装程序只给本机登录环境追加 `127.0.0.1,localhost` 的 `NO_PROXY` 例外；外网代理保持开启。新例外在重启 ChatGPT Desktop/Codex 后生效。
 
+## 选择 coding backend
+
+ReasonFirst 保留用户对实际 coding worker 的选择，不会把 Codex Desktop/App Server 设为唯一后端。
+
+```bash
+./configure_v4.sh --worker-backend codex-cli
+./configure_v4.sh --worker-backend copilot-cli
+./configure_v4.sh --worker-backend codex-desktop
+```
+
+也可以设置 `RF_WORKER_BACKEND`。配置会写入 `bridge.yaml` 的 `defaults.worker_backend`。三种后端共享上游 `WorkerPolicy` 的模型、reasoning effort、sandbox/network/permission 语义；若某一后端无法表达请求的策略，应明确失败，不得静默降级。
+
+当前本 PR 中的 App Server 专用 MCP 启动/线程工具只用于 `codex-desktop`。选择 `codex-cli` 或 `copilot-cli` 时，继续使用 ActualCoder 的 CLI worker 路径，不能被 App Server 路径悄悄替换。
+
 ## 启动与检查
 
 本地 MCP 在用户登录后由 `com.reasonfirst.v4-mcp` 自动启动，地址为 `http://127.0.0.1:8765/mcp`。Codex 插件和网页控制 relay 共用这个 MCP 进程及 `~/.local/share/reasonfirst/codex-web-bridge/state.json`。普通 ChatGPT Desktop 聊天不会因本地安装而自动获得该 MCP 工具。
