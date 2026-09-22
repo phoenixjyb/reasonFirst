@@ -509,6 +509,7 @@ def _launch_handoff(
                 cwd=str(cwd),
                 prompt=prompt,
             )
+            completed = client.wait_for_turn(str(started["turn_id"]))
         finally:
             client.close()
         return {
@@ -518,6 +519,7 @@ def _launch_handoff(
             "cwd": str(cwd),
             "returncode": 0,
             **started,
+            **completed,
         }
 
     launch = runner or subprocess.run
