@@ -15,7 +15,29 @@ def handler(ws):
         rid=msg['id']; method=msg.get('method')
         if method=='initialize': result={'userAgent':'fake-managed','codexHome':'/tmp/fake'}
         elif method=='configRequirements/read': result={'requirements':None}
-        elif method=='thread/start': result={'thread':{'id':'thr_managed'}}
+        elif method=='model/list':
+            result={'data':[{
+                'id':'gpt-5.6-sol','model':'gpt-5.6-sol',
+                'displayName':'GPT-5.6 Sol','description':'fake',
+                'hidden':False,'isDefault':True,
+                'defaultReasoningEffort':'high',
+                'supportedReasoningEfforts':[
+                    {'reasoningEffort':'high','description':'high'}
+                ],
+            }],'nextCursor':None}
+        elif method=='thread/start':
+            params=msg.get('params') or {}
+            result={
+                'thread':{
+                    'id':'thr_managed',
+                    'model':params.get('model'),
+                    'reasoningEffort':'high',
+                },
+                'model':params.get('model'),
+                'reasoningEffort':'high',
+                'approvalPolicy':params.get('approvalPolicy'),
+                'sandbox':{'type':params.get('sandbox')},
+            }
         elif method=='turn/start': result={'turn':{'id':'turn_managed','status':'inProgress'}}
         elif method in {'thread/name/set','thread/goal/set','thread/metadata/update'}: result={}
         elif method=='thread/read': result={'thread':{'id':'thr_managed'}}
