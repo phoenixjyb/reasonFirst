@@ -7,7 +7,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
-- Add user-owned coding-worker policy controls: Codex defaults to GPT-5.6 Sol / High and receives explicit sandbox/approval/network settings; Copilot can receive explicit model/effort plus allow/deny tool rules, with git push denied by default. Interactive behavior remains the default unless a non-interactive execution mode is explicitly configured.
+- Extract controlled-finish blocker/warning semantics into a transport-neutral evaluator shared by the local finish path and future remote adapters. Required validation, protected paths, reviewability/truncation, history coverage, secret findings, empty-candidate and publication-state rules remain unchanged.\n- Add user-owned coding-worker policy controls: Codex defaults to GPT-5.6 Sol / High and receives explicit sandbox/approval/network settings; Copilot can receive explicit model/effort plus allow/deny tool rules, with git push denied by default. Interactive behavior remains the default unless a non-interactive execution mode is explicitly configured.
 - Preserve unpublished commits during normal workspace cleanup and abandoned-branch recovery using fresh publication evidence and compare-and-delete refs (#5).
 - Propagate failed child commands/timeouts to shell exit status while retaining structured results (#7).
 - Scan bounded base-to-HEAD commit-history additions, including merge parents, before controlled finish; remove whole-line placeholder exemptions and sanitize findings/display diffs (#8).
