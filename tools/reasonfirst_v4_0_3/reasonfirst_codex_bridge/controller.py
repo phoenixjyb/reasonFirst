@@ -331,11 +331,6 @@ class BridgeController:
                 fn("apply_patch", "Apply a unified Git patch to the remote managed worktree.", {
                     "patch": {"type": "string"},
                 }, ["patch"]),
-                fn("run", "Run a build/test/inspection command on the remote host with cwd constrained to this worktree. Destructive/admin/network-hop commands are blocked.", {
-                    "command": {"type": "string"},
-                    "cwd": {"type": "string"},
-                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800},
-                }, ["command"]),
                 fn("snapshot", "Read the exact remote review snapshot digest. Use before requesting ChatGPT push approval.", {}),
                 fn("commit_push", "Commit and push the exact ChatGPT-approved snapshot. This succeeds only after an explicit ReasonFirst push approval for the unchanged digest; force-push and protected branches are never allowed.", {}),
                 fn("diff", "Read the real remote Git diff against the pinned base SHA.", {}),
@@ -379,13 +374,6 @@ class BridgeController:
             result = manager.write_file(rec, str(args.get("path") or ""), str(args.get("content") or ""))
         elif tool == "apply_patch":
             result = manager.apply_patch(rec, str(args.get("patch") or ""))
-        elif tool == "run":
-            result = manager.run_command(
-                rec,
-                str(args.get("command") or ""),
-                cwd=str(args.get("cwd") or "."),
-                timeout_seconds=int(args.get("timeout_seconds") or 300),
-            )
         elif tool == "snapshot":
             result = manager.snapshot(rec)
         elif tool == "commit_push":
@@ -662,7 +650,7 @@ class BridgeController:
             "- Do not push, merge, deploy, reset --hard, clean, stash, sudo, or open nested SSH sessions.\n"
             "- Inspect the real remote code before editing.\n"
             "- Use reasonfirst_remote.write or apply_patch for edits.\n"
-            "- Use reasonfirst_remote.run for build/tests and report exact commands and exit codes.\n"
+            "- Remote arbitrary command execution is intentionally disabled until a real sandboxed runner is configured; do not claim remote tests ran through ReasonFirst.\n"
             "- Use reasonfirst_remote.diff before finishing.\n"
             "- Keep changes scoped to the reviewed ChatGPT plan and acceptance criteria.\n"
         )
