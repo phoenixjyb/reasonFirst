@@ -322,54 +322,62 @@ raise SystemExit(proc.returncode)
             "stderr": proc.stderr[-12000:],
         }
 
-    @staticmethod
-    def _command_block_reason(command: str) -> str | None:
-        text = str(command or "").strip()
-        if not text:
-            return "empty command"
-        lowered = " " + re.sub(r"\s+", " ", text.lower()) + " "
-        blocked = [
-            (r"(^|[;&| ])sudo([ ;&|]|$)", "sudo is not allowed"),
-            (r"(^|[;&| ])su([ ;&|]|$)", "su is not allowed"),
-            (r"(^|[;&| ])ssh([ ;&|]|$)", "nested ssh is not allowed"),
-            (r"(^|[;&| ])scp([ ;&|]|$)", "scp is not allowed"),
-            (r"(^|[;&| ])sftp([ ;&|]|$)", "sftp is not allowed"),
-            (r"(^|[;&| ])git\s+push([ ;&|]|$)", "git push is not allowed"),
-            (r"(^|[;&| ])git\s+reset\s+--hard([ ;&|]|$)", "git reset --hard is not allowed"),
-            (r"(^|[;&| ])git\s+clean([ ;&|]|$)", "git clean is not allowed"),
-            (r"(^|[;&| ])shutdown([ ;&|]|$)", "shutdown is not allowed"),
-            (r"(^|[;&| ])reboot([ ;&|]|$)", "reboot is not allowed"),
-            (r"(^|[;&| ])poweroff([ ;&|]|$)", "poweroff is not allowed"),
-            (r"(^|[;&| ])systemctl\s+(stop|disable|mask)([ ;&|]|$)", "service stopping is not allowed"),
-        ]
-        for pattern, reason in blocked:
-            if re.search(pattern, lowered):
-                return reason
-        if "rm -rf /" in lowered or "rm -fr /" in lowered:
-            return "destructive root deletion is not allowed"
-        return None
-
-    def run_command(
+    def run_argv(
         self,
         state: dict[str, Any],
-        command: str,
+        argv: list[str],
         *,
         cwd: str = ".",
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        reason = self._command_block_reason(command)
-        if reason:
-            raise RemoteWorkspaceError(f"Remote command blocked by ReasonFirst policy: {reason}")
+        """Run one explicitly allowed executable without a shell.
+
+        This is an executable-policy boundary, not a general OS sandbox. The
+        target defaults to no executable authority; operators must explicitly
+        configure remote_allowed_executables for trusted build/test entrypoints.
+        """
+        if not isinstance(argv, list) or not argv or any(
+            not isinstance(item, str) or not item for item in argv
+        ):
+            raise RemoteWorkspaceError("Remote argv must be a non-empty list of strings")
+        executable = argv[0]
+        if "/" in executable or "\\" in executable or executable.startswith("-"):
+            raise RemoteWorkspaceError("Remote executable must be a bare command name")
+        allowed = set(self.target.remote_allowed_executables)
+        if executable not in allowed:
+            raise RemoteWorkspaceError(
+                f"Remote executable {executable!r} is not approved for target "
+                f"{self.target.name!r}; configure remote_allowed_executables locally"
+            )
+        if len(argv) > 128:
+            raise RemoteWorkspaceError("Remote argv contains too many arguments")
+        if any(len(item.encode("utf-8", errors="replace")) > 8192 for item in argv):
+            raise RemoteWorkspaceError("Remote argv argument exceeds 8192 bytes")
+
         rel = _safe_relative(cwd)
         timeout_seconds = max(1, min(int(timeout_seconds), 1800))
+        import base64
+        payload = base64.b64encode(
+            json.dumps(argv, ensure_ascii=False).encode("utf-8")
+        ).decode("ascii")
         script = r'''
-import json, os, pathlib, subprocess, sys, time
-root=pathlib.Path(sys.argv[1]).resolve(); rel=sys.argv[2]; command=sys.argv[3]; timeout=int(sys.argv[4])
+import base64, json, os, pathlib, subprocess, sys, time
+root=pathlib.Path(sys.argv[1]).resolve(); rel=sys.argv[2]; payload=sys.argv[3]; timeout=int(sys.argv[4])
 cwd=(root/rel).resolve(); cwd.relative_to(root)
 if not cwd.is_dir(): raise SystemExit("cwd is not a directory")
+argv=json.loads(base64.b64decode(payload.encode("ascii")).decode("utf-8"))
+if not isinstance(argv,list) or not argv or not all(isinstance(x,str) and x for x in argv):
+    raise SystemExit("invalid argv")
+tmp=root/".reasonfirst-tmp"; tmp.mkdir(exist_ok=True)
+env={
+    "PATH": os.environ.get("PATH","/usr/local/bin:/usr/bin:/bin"),
+    "HOME": str(root),
+    "TMPDIR": str(tmp),
+    "LANG": os.environ.get("LANG","C.UTF-8"),
+}
 start=time.monotonic()
 try:
-    proc=subprocess.run(["bash","-lc",command],cwd=str(cwd),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,check=False)
+    proc=subprocess.run(argv,cwd=str(cwd),env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,check=False)
     result={"returncode":proc.returncode,"timed_out":False,"stdout":proc.stdout[-60000:],"stderr":proc.stderr[-60000:],"duration_ms":int((time.monotonic()-start)*1000)}
 except subprocess.TimeoutExpired as exc:
     out=exc.stdout or ""; err=exc.stderr or ""
@@ -382,11 +390,31 @@ print(json.dumps(result))
             shlex.quote(script),
             shlex.quote(str(state["worktree_path"])),
             shlex.quote(rel),
-            shlex.quote(str(command)),
+            shlex.quote(payload),
             timeout_seconds,
         )
         proc = self._ssh(cmd, timeout=timeout_seconds + 30)
         return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def run_command(
+        self,
+        state: dict[str, Any],
+        command: str,
+        *,
+        cwd: str = ".",
+        timeout_seconds: int = 300,
+    ) -> dict[str, Any]:
+        """Compatibility wrapper: parse shell-like text but never invoke a shell."""
+        try:
+            argv = shlex.split(str(command or ""))
+        except ValueError as exc:
+            raise RemoteWorkspaceError(f"Invalid remote command syntax: {exc}") from exc
+        return self.run_argv(
+            state,
+            argv,
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+        )
 
     def diff(self, state: dict[str, Any], *, max_chars: int = 120000) -> dict[str, Any]:
         wt = shlex.quote(str(state["worktree_path"]))
