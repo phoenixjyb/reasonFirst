@@ -54,7 +54,10 @@ jobs:
             echo "== $script =="
             "$PY" "$script"
           done
-          bash "$V4/tests/test_first_run_config.sh"
+          for script in "$V4"/tests/test_*.sh; do
+            echo "== $script =="
+            bash "$script"
+          done
           for script in "$V4"/*.sh; do
             bash -n "$script"
           done
