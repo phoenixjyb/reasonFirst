@@ -13,26 +13,9 @@ from .project_config import (
     parse_project_config,
 )
 from .runner import CommandRunner
-from .secret_scan import scan_added_diff_for_secrets, redact_sensitive_text
+from .review_gates import evaluate_review_gates
 from .history_scan import HistoryScanError, scan_history_secrets
 from .workspace import WorkspaceManager
-
-
-_BUILTIN_PROTECTED_PATHS = {PROJECT_CONFIG_FILENAME}
-
-
-def _path_is_protected(path: str, protected: list[str]) -> bool:
-    normalized = path.replace("\\", "/").lstrip("./")
-    for rule in protected:
-        item = rule.replace("\\", "/").lstrip("./")
-        if not item:
-            continue
-        if item.endswith("/"):
-            if normalized.startswith(item):
-                return True
-        elif normalized == item or normalized.startswith(item + "/"):
-            return True
-    return False
 
 
 def _load_base_contract(
@@ -91,17 +74,6 @@ def build_finish_plan(
         settings,
         manager,
         workspace_id,
-    )
-
-    protected_rules = sorted(
-        {
-            *[
-                str(item)
-                for item in project_context.get("protected_paths", [])
-                if isinstance(item, str)
-            ],
-            *_BUILTIN_PROTECTED_PATHS,
-        }
     )
 
     validations: list[dict[str, object]] = []
@@ -164,7 +136,6 @@ def build_finish_plan(
     if bool(reviewability.get("ok")):
         diff_result = manager.diff(workspace_id)
         security_diff = manager.security_diff(workspace_id)
-        secret_findings = scan_added_diff_for_secrets(security_diff)
         try:
             history_scan = scan_history_secrets(
                 worktree=Path(str(status["worktree_path"])),
@@ -173,14 +144,13 @@ def build_finish_plan(
                 timeout_seconds=settings.command_timeout_seconds,
             )
         except HistoryScanError as exc:
-            history_scan = {"coverage_complete": False, "findings": [], "error": str(exc)}
-        secret_findings.extend(history_scan["findings"])
-        # Keep raw content solely for the reviewed-state fingerprint, not output.
-        redacted_diff, redactions = redact_sensitive_text(str(diff_result["diff"]))
-        diff_result = {**diff_result, "diff": redacted_diff, "redactions": redactions}
+            history_scan = {
+                "coverage_complete": False,
+                "findings": [],
+                "error": str(exc),
+            }
     else:
         security_diff = ""
-        secret_findings = []
         diff_result = {
             "workspace_id": workspace_id,
             "base_sha": status.get("base_sha"),
@@ -192,16 +162,22 @@ def build_finish_plan(
             ),
         }
 
-    protected_changes = [
-        path
-        for path in changed_paths
-        if _path_is_protected(path, protected_rules)
-    ]
+    gates = evaluate_review_gates(
+        project_context=project_context,
+        validations=validations,
+        changed_paths=changed_paths,
+        reviewability=reviewability,
+        diff_result=diff_result,
+        security_diff=security_diff,
+        history_scan=history_scan,
+        allow_protected=allow_protected,
+        allow_secret_match=allow_secret_match,
+    )
 
     dirty = bool(status["dirty"])
     ahead = int(status["commits_ahead_of_base"])
-    blockers: list[str] = []
-    warnings: list[str] = []
+    blockers: list[str] = list(gates["blockers"])
+    warnings: list[str] = list(gates["warnings"])
 
     if dirty and not (commit_message or "").strip():
         blockers.append(
@@ -210,38 +186,6 @@ def build_finish_plan(
 
     if not dirty and ahead <= 0:
         blockers.append("Workspace has no changes or commits to finish.")
-
-    if validation_blocked:
-        blockers.append("One or more required project validation commands failed.")
-
-    if not bool(reviewability.get("ok")):
-        blockers.append(
-            "One or more changed paths cannot be fully reviewed/secret-scanned "
-            "by ActualCoder; inspect the reviewability issues and use the low-level "
-            "workflow intentionally if this change must be handled."
-        )
-
-    if bool(reviewability.get("ok")) and bool(diff_result.get("truncated")):
-        blockers.append(
-            "The human-facing review diff was truncated by the configured output cap. "
-            "Increase GITLAB_COMMAND_MAX_OUTPUT_BYTES or split the change before finish."
-        )
-
-    if protected_changes and not allow_protected:
-        blockers.append(
-            "Protected paths changed; review them and rerun with --allow-protected "
-            "only when the scope is intentional."
-        )
-
-    if not bool(history_scan["coverage_complete"]):
-        blockers.append("Commit-history secret coverage is incomplete; finish is blocked.")
-
-    if secret_findings and not allow_secret_match:
-        blockers.append(
-            "Potential credentials/secrets were detected in candidate or commit-history additions; "
-            "remove them from the candidate AND unpublished history, or use "
-            "--allow-secret-match only after explicit false-positive review."
-        )
 
     if state.pushed and not state.merge_request_url:
         blockers.append(
@@ -285,14 +229,6 @@ def build_finish_plan(
             "No .actualcoder.yaml was present at the workspace base; finish is using default project policy."
         )
 
-    if protected_changes and allow_protected:
-        warnings.append(
-            "Protected-path changes were explicitly allowed for this finish invocation."
-        )
-    if secret_findings and allow_secret_match:
-        warnings.append(
-            "Secret-scan findings were explicitly overridden for this finish invocation."
-        )
 
     snapshot_payload = {
         "head": status.get("head"),
@@ -323,17 +259,11 @@ def build_finish_plan(
         },
         "changed_paths": changed_paths,
         "reviewability": reviewability,
-        "protected_paths": protected_rules,
-        "protected_path_changes": protected_changes,
-        "secret_scan": {
-            "ok": bool(reviewability.get("ok")) and bool(history_scan["coverage_complete"]) and not secret_findings,
-            "coverage_complete": bool(reviewability.get("ok")) and bool(history_scan["coverage_complete"]),
-            "history": history_scan,
-            "findings": secret_findings,
-            "overridden": bool(secret_findings and allow_secret_match),
-        },
+        "protected_paths": gates["protected_paths"],
+        "protected_path_changes": gates["protected_path_changes"],
+        "secret_scan": gates["secret_scan"],
         "validations": validations,
-        "review_diff": diff_result,
+        "review_diff": gates["review_diff"],
         "snapshot": {
             "digest": snapshot_digest,
             **snapshot_payload,

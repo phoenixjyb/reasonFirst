@@ -5,10 +5,12 @@ import json
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
 from .ci_feedback import collect_ci_feedback
+from .codex_app_server import AppServerClient, managed_app_server_socket
 from .config import AgentSettings
 from .doctor import run_doctor
 from .finish import build_finish_plan, execute_finish
@@ -24,6 +26,7 @@ from .worker_policy import (
     build_worker_argv,
     default_worker_policy,
     display_worker_argv,
+    launch_policy_evidence,
     resolve_worker_policy,
 )
 from .workspace import WorkspaceManager
@@ -31,10 +34,40 @@ from .workspace import WorkspaceManager
 
 SUPPORTED_CODING_AGENTS = {
     "codex": "codex",
+    "codex-cli": "codex",
     "copilot": "copilot",
+    "copilot-cli": "copilot",
+    "codex-desktop": "codex",
 }
 DEFAULT_AGENT_ORDER = ["codex", "copilot"]
-AGENT_CHOICES = ["auto", *DEFAULT_AGENT_ORDER]
+AGENT_CHOICES = [
+    "auto",
+    "codex",
+    "codex-cli",
+    "copilot",
+    "copilot-cli",
+    "codex-desktop",
+]
+
+
+def _policy_backend_for_agent(agent: str) -> str:
+    if agent in {"codex", "codex-cli", "codex-desktop"}:
+        return "codex"
+    if agent in {"copilot", "copilot-cli"}:
+        return "copilot"
+    raise ValueError(f"Unsupported coding agent {agent!r}")
+
+
+def _policy_for_agent(settings: AgentSettings, agent: str) -> WorkerPolicy:
+    return resolve_worker_policy(settings, _policy_backend_for_agent(agent))
+
+
+def _backend_path(agent: str, *, which: Any = None) -> str | None:
+    if agent == "codex-desktop":
+        socket_path = managed_app_server_socket()
+        return str(socket_path) if socket_path.exists() else None
+    resolver = which or shutil.which
+    return resolver(SUPPORTED_CODING_AGENTS[agent])
 
 
 def _print(data: Any) -> None:
@@ -213,10 +246,12 @@ def _handoff(
 
     status = manager.status(workspace_id)
     executable = SUPPORTED_CODING_AGENTS[agent]
-    policy = worker_policy or default_worker_policy(agent)
-    if policy.backend != agent:
+    policy_backend = _policy_backend_for_agent(agent)
+    policy = worker_policy or default_worker_policy(policy_backend)
+    if policy.backend != policy_backend:
         raise ValueError(
-            f"Worker policy backend {policy.backend!r} does not match selected agent {agent!r}"
+            f"Worker policy backend {policy.backend!r} does not match selected "
+            f"agent provider {policy_backend!r}"
         )
     result: dict[str, object] = {
         "workspace": status,
@@ -236,9 +271,35 @@ def _handoff(
                 "reason": "explicit backend selection",
             }
         ),
-        "agent_command": f"cd {status['worktree_path']} && {executable}",
+        "agent_command": (
+            f"codex-desktop://managed-app-server?cwd={status['worktree_path']}"
+            if agent == "codex-desktop"
+            else f"cd {status['worktree_path']} && {executable}"
+        ),
         "worker_policy": policy.to_dict(),
-        "agent_argv_shape": display_worker_argv(policy),
+        "worker_policy_evidence": (
+            {
+                "status": "pending_runtime_verification",
+                "verification_scope": "app-server-runtime",
+                "runtime_verified": False,
+                "surface": "codex-desktop",
+                "requested": policy.to_dict(),
+            }
+            if agent == "codex-desktop"
+            else launch_policy_evidence(
+                policy,
+                surface=(
+                    "codex-cli"
+                    if policy_backend == "codex"
+                    else "copilot-cli"
+                ),
+            )
+        ),
+        "agent_argv_shape": (
+            ["codex-desktop", "<managed-app-server>", "<agent_prompt>"]
+            if agent == "codex-desktop"
+            else display_worker_argv(policy)
+        ),
         "agent_prompt": _agent_prompt(
             status,
             goal,
@@ -251,7 +312,7 @@ def _handoff(
     }
 
     # Alpha.1-alpha.3 compatibility for existing Codex integrations.
-    if agent == "codex":
+    if agent in {"codex", "codex-cli"}:
         result["codex_command"] = result["agent_command"]
         result["codex_prompt"] = result["agent_prompt"]
 
@@ -274,7 +335,7 @@ def _select_agent(
                 f"Choose one of: {', '.join(AGENT_CHOICES)}"
             )
         executable = SUPPORTED_CODING_AGENTS[requested]
-        resolved = resolver(executable)
+        resolved = _backend_path(requested, which=resolver)
         return {
             "requested": requested,
             "selected": requested,
@@ -295,7 +356,7 @@ def _select_agent(
     installed_paths: dict[str, str] = {}
     for agent in candidates:
         executable = SUPPORTED_CODING_AGENTS[agent]
-        resolved = resolver(executable)
+        resolved = _backend_path(agent, which=resolver)
         if resolved is not None:
             installed.append(agent)
             installed_paths[agent] = resolved
@@ -303,7 +364,8 @@ def _select_agent(
     if not installed:
         raise RuntimeError(
             "No supported coding backend is installed for --agent auto. "
-            "Run 'actual-coder agents' and install Codex CLI or GitHub Copilot CLI."
+            "Run 'actual-coder agents' and install/sign in to Codex CLI, "
+            "GitHub Copilot CLI, or start Codex Desktop."
         )
 
     selected = installed[0]
@@ -390,10 +452,23 @@ def _prepare_start(
         for item in project_context.get("preferred_agents", [])
         if isinstance(item, str)
     ]
-    selection = _select_agent(
-        requested_agent,
-        preferred_agents=preferred if requested_agent == "auto" else preferred,
-    )
+    if requested_agent == "auto" and settings.default_backend != "auto":
+        selection = _select_agent(
+            settings.default_backend,
+            preferred_agents=preferred,
+        )
+        selection["requested"] = "auto"
+        selection["user_default_backend"] = settings.default_backend
+        selection["preference_source"] = "user"
+        selection["reason"] = (
+            "selected the user-configured default backend "
+            f"{settings.default_backend!r}"
+        )
+    else:
+        selection = _select_agent(
+            requested_agent,
+            preferred_agents=preferred,
+        )
     selection["project_config"] = {
         "found": parsed.found,
         "ref": parsed.source_ref,
@@ -422,7 +497,7 @@ def _prepare_start(
         agent=selected_agent,
         agent_selection=selection,
         project_context=project_context,
-        worker_policy=resolve_worker_policy(settings, selected_agent),
+        worker_policy=_policy_for_agent(settings, selected_agent),
     )
 
     return {
@@ -448,31 +523,211 @@ def _agent_launch_argv(
     *,
     worker_policy: WorkerPolicy | None = None,
 ) -> list[str]:
-    policy = worker_policy or default_worker_policy(agent)
-    if policy.backend != agent:
+    if agent == "codex-desktop":
+        raise ValueError("codex-desktop is launched through App Server, not subprocess argv")
+    policy_backend = _policy_backend_for_agent(agent)
+    policy = worker_policy or default_worker_policy(policy_backend)
+    if policy.backend != policy_backend:
         raise ValueError(
-            f"Worker policy backend {policy.backend!r} does not match selected agent {agent!r}"
+            f"Worker policy backend {policy.backend!r} does not match selected "
+            f"agent provider {policy_backend!r}"
         )
     return build_worker_argv(policy, prompt)
+
+
+def _tty_codex_approval_handler(
+    msg: dict[str, Any],
+    *,
+    input_stream: Any = None,
+    output_stream: Any = None,
+) -> dict[str, Any]:
+    input_stream = input_stream or sys.stdin
+    output_stream = output_stream or sys.stderr
+    method = str(msg.get("method") or "")
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+
+    if not getattr(input_stream, "isatty", lambda: False)():
+        if method == "item/permissions/requestApproval":
+            return {"permissions": {}}
+        return {"decision": "decline"}
+
+    if method == "item/commandExecution/requestApproval":
+        command = str(params.get("command") or "<network/command approval>")
+        cwd = str(params.get("cwd") or "")
+        reason = str(params.get("reason") or "")
+        print("\n[actual-coder] Codex Desktop requests command approval:", file=output_stream)
+        print(f"  command: {command}", file=output_stream)
+        if cwd:
+            print(f"  cwd: {cwd}", file=output_stream)
+        if reason:
+            print(f"  reason: {reason}", file=output_stream)
+    elif method == "item/fileChange/requestApproval":
+        reason = str(params.get("reason") or "")
+        grant_root = str(params.get("grantRoot") or "")
+        print("\n[actual-coder] Codex Desktop requests file-change approval.", file=output_stream)
+        if grant_root:
+            print(f"  requested root: {grant_root}", file=output_stream)
+        if reason:
+            print(f"  reason: {reason}", file=output_stream)
+    elif method == "item/permissions/requestApproval":
+        permissions = params.get("permissions")
+        print("\n[actual-coder] Codex Desktop requests additional permissions:", file=output_stream)
+        print(json.dumps(permissions or {}, indent=2, ensure_ascii=False), file=output_stream)
+    else:
+        return {"decision": "decline"}
+
+    print("Approve once? [y/N] ", end="", file=output_stream, flush=True)
+    answer = input_stream.readline().strip().lower()
+    approved = answer in {"y", "yes"}
+
+    if method == "item/permissions/requestApproval":
+        requested = params.get("permissions")
+        return {
+            "scope": "turn",
+            "permissions": (
+                requested if approved and isinstance(requested, dict) else {}
+            ),
+        }
+    return {"decision": "accept" if approved else "decline"}
+
+
+def _launch_codex_desktop(
+    *,
+    cwd: Path,
+    prompt: str,
+    policy: WorkerPolicy,
+    client_factory: Any = None,
+) -> dict[str, object]:
+    completed = threading.Event()
+    outcome: dict[str, object] = {"status": "inProgress"}
+
+    def on_event(event: dict[str, Any]) -> None:
+        method = str(event.get("method") or "")
+        params = event.get("params") if isinstance(event.get("params"), dict) else {}
+        if method == "turn/completed":
+            turn = params.get("turn") if isinstance(params.get("turn"), dict) else {}
+            outcome["status"] = str(turn.get("status") or "completed")
+            completed.set()
+        elif method == "error":
+            outcome["status"] = "failed"
+            outcome["error"] = str(params.get("error") or "Codex App Server error")
+            completed.set()
+
+    factory = client_factory or (
+        lambda **kwargs: AppServerClient.desktop_preferred(required=True, **kwargs)
+    )
+    approval_handler = (
+        _tty_codex_approval_handler
+        if policy.approval_policy == "on-request"
+        else None
+    )
+    app = factory(
+        event_handler=on_event,
+        approval_request_handler=approval_handler,
+    )
+    try:
+        thread_id = app.start_thread(cwd=str(cwd), policy=policy)
+        turn_id = app.start_turn(
+            thread_id=thread_id,
+            cwd=str(cwd),
+            prompt=prompt,
+            policy=policy,
+            network_access=bool(policy.network_access),
+            sandbox_mode=policy.sandbox_mode,
+        )
+        try:
+            completed.wait()
+        except KeyboardInterrupt:
+            try:
+                app.interrupt(thread_id=thread_id, turn_id=turn_id)
+            finally:
+                raise
+        status = str(outcome.get("status") or "completed")
+        policy_evidence = (
+            app.worker_policy_evidence(thread_id)
+            if hasattr(app, "worker_policy_evidence")
+            else {
+                "satisfied": True,
+                "verification_scope": "test-double",
+                "requested": policy.to_dict(),
+            }
+        )
+        if not bool(policy_evidence.get("satisfied", False)):
+            status = "failed"
+            outcome["error"] = (
+                "WORKER_POLICY_UNSATISFIED: "
+                + json.dumps(policy_evidence, ensure_ascii=False, default=str)
+            )
+        return {
+            "agent": "codex-desktop",
+            "backend": app.backend_name,
+            "thread_id": thread_id,
+            "turn_id": turn_id,
+            "turn_status": status,
+            "worker_policy": policy.to_dict(),
+            "worker_policy_evidence": policy_evidence,
+            "cwd": str(cwd),
+            "returncode": 0 if status in {"completed", "success"} else 1,
+            **({"error": outcome["error"]} if "error" in outcome else {}),
+        }
+    finally:
+        app.close()
 
 
 def _launch_handoff(
     handoff: dict[str, object],
     *,
     runner: Any = None,
+    desktop_client_factory: Any = None,
+    codex_policy_client_factory: Any = None,
 ) -> dict[str, object]:
     launch = runner or subprocess.run
     agent = str(handoff["agent"])
     prompt = str(handoff["agent_prompt"])
     cwd = Path(str(handoff["worktree_path"])).resolve()
     raw_policy = handoff.get("worker_policy")
+    policy_backend = _policy_backend_for_agent(agent)
     policy = (
         WorkerPolicy.from_dict(raw_policy)
         if isinstance(raw_policy, dict)
-        else default_worker_policy(agent)
+        else default_worker_policy(policy_backend)
     )
-    argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
 
+    if agent == "codex-desktop":
+        return _launch_codex_desktop(
+            cwd=cwd,
+            prompt=prompt,
+            policy=policy,
+            client_factory=desktop_client_factory,
+        )
+
+    policy_evidence = launch_policy_evidence(
+        policy,
+        surface=("codex-cli" if policy_backend == "codex" else "copilot-cli"),
+    )
+    if policy_backend == "codex":
+        verifier_factory = codex_policy_client_factory or (
+            lambda: AppServerClient.global_config_local()
+        )
+        verifier = verifier_factory()
+        try:
+            catalog_evidence = verifier.assert_worker_policy_supported(policy)
+        finally:
+            verifier.close()
+        policy_evidence = {
+            **catalog_evidence,
+            "status": "catalog_verified_launch_arguments_encoded",
+            "runtime_verified": False,
+            "surface": "codex-cli",
+            "note": (
+                "Codex App Server catalog/admin policy accepted the requested "
+                "model/effort/sandbox/approval combination; the Codex CLI launch "
+                "also carries explicit flags. Provider response model is not "
+                "independently exposed before execution."
+            ),
+        }
+
+    argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
     proc = launch(
         argv,
         cwd=cwd,
@@ -482,6 +737,7 @@ def _launch_handoff(
         "agent": agent,
         "argv_shape": display_worker_argv(policy),
         "worker_policy": policy.to_dict(),
+        "worker_policy_evidence": policy_evidence,
         "cwd": str(cwd),
         "returncode": int(proc.returncode),
     }
@@ -542,6 +798,16 @@ def _selection_for_request(
     refresh_remote: bool = True,
 ) -> dict[str, object]:
     if requested == "auto":
+        if settings.default_backend != "auto":
+            selection = _select_agent(settings.default_backend)
+            selection["requested"] = "auto"
+            selection["user_default_backend"] = settings.default_backend
+            selection["preference_source"] = "user"
+            selection["reason"] = (
+                "selected the user-configured default backend "
+                f"{settings.default_backend!r}"
+            )
+            return selection
         return _auto_agent_selection(
             manager,
             settings,
@@ -554,11 +820,22 @@ def _selection_for_request(
 
 def _available_agents() -> dict[str, object]:
     agents: list[dict[str, object]] = []
-    for name, executable in sorted(SUPPORTED_CODING_AGENTS.items()):
-        resolved = shutil.which(executable)
+    for name in ("codex", "copilot", "codex-desktop"):
+        executable = SUPPORTED_CODING_AGENTS[name]
+        resolved = _backend_path(name)
         agents.append(
             {
                 "agent": name,
+                "aliases": (
+                    ["codex-cli"]
+                    if name == "codex"
+                    else (["copilot-cli"] if name == "copilot" else [])
+                ),
+                "surface": (
+                    "desktop-app-server"
+                    if name == "codex-desktop"
+                    else "cli"
+                ),
                 "executable": executable,
                 "installed": resolved is not None,
                 "path": resolved,
@@ -568,8 +845,9 @@ def _available_agents() -> dict[str, object]:
     return {
         "agents": agents,
         "note": (
-            "Availability checks only whether the CLI executable is installed. "
-            "It does not invoke the backend, verify authentication, or consume model quota."
+            "Availability is non-invasive: CLI backends check executable presence; "
+            "codex-desktop checks the managed App Server socket. Authentication/quota "
+            "is not consumed or verified."
         ),
     }
 
@@ -591,9 +869,18 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
         "default_base_ref": settings.default_base_ref,
         "allowed_executables": sorted(settings.allowed_executables),
         "command_timeout_seconds": settings.command_timeout_seconds,
+        "default_backend": settings.default_backend,
         "worker_defaults": {
             "codex": resolve_worker_policy(settings, "codex").to_dict(),
             "copilot": resolve_worker_policy(settings, "copilot").to_dict(),
+            "codex-desktop": {
+                **resolve_worker_policy(settings, "codex").to_dict(),
+                "execution_surface": "desktop-app-server",
+            },
+            "aliases": {
+                "codex-cli": "codex",
+                "copilot-cli": "copilot",
+            },
         },
     }
 
@@ -603,7 +890,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         product_name = "ActualCoder" if prog == "actual-coder" else "CodingAgent (compatibility alias)"
         description = (
             f"{product_name}: agent-neutral coding orchestration for isolated GitLab "
-            "worktrees. Supports Codex and GitHub Copilot CLI backends."
+            "worktrees. Supports Codex CLI, GitHub Copilot CLI, and Codex Desktop backends."
         )
     else:
         description = (
@@ -626,6 +913,11 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         "--offline",
         action="store_true",
         help="Skip live GitLab API connectivity/authentication check",
+    )
+    p.add_argument(
+        "--git-only",
+        action="store_true",
+        help="Allow Git HTTPS credentials without GITLAB_TOKEN; REST API/MCP/CI metadata features stay disabled",
     )
 
     sub.add_parser(
@@ -692,6 +984,11 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         "--offline-doctor",
         action="store_true",
         help="Skip the live GitLab API check in the preflight doctor",
+    )
+    p.add_argument(
+        "--git-only",
+        action="store_true",
+        help="Use Git-only authentication during preflight; requires a configured Git credential",
     )
     p.add_argument(
         "--no-launch",
@@ -908,7 +1205,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
 
     try:
         if args.command == "doctor":
-            result = run_doctor(offline=args.offline)
+            result = run_doctor(offline=args.offline, git_only=args.git_only)
             _print(result)
             return 0 if bool(result.get("ok")) else 1
 
@@ -972,7 +1269,10 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 task_slug=args.task,
             )
         elif args.command == "start":
-            preflight = run_doctor(offline=args.offline_doctor)
+            preflight = run_doctor(
+                offline=args.offline_doctor,
+                git_only=args.git_only,
+            )
             preflight_summary = {
                 "ok": preflight.get("ok"),
                 "overall": preflight.get("overall"),
@@ -1042,7 +1342,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 args.goal,
                 agent=selected_agent,
                 agent_selection=selection,
-                worker_policy=resolve_worker_policy(settings, selected_agent),
+                worker_policy=_policy_for_agent(settings, selected_agent),
             )
         elif args.command == "checkout-branch":
             selection = _selection_for_request(
@@ -1064,7 +1364,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 args.goal,
                 agent=selected_agent,
                 agent_selection=selection,
-                worker_policy=resolve_worker_policy(settings, selected_agent),
+                worker_policy=_policy_for_agent(settings, selected_agent),
             )
         elif args.command == "checkout-mr":
             mr = gitlab_api.merge_request(args.project, args.iid)
@@ -1103,7 +1403,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 args.goal or f"Resume MR !{args.iid}: {mr.get('title', '')}",
                 agent=selected_agent,
                 agent_selection=selection,
-                worker_policy=resolve_worker_policy(settings, selected_agent),
+                worker_policy=_policy_for_agent(settings, selected_agent),
             )
             result = {
                 "merge_request": {
@@ -1176,7 +1476,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 agent=selected_agent,
                 agent_selection=selection,
                 ci_context=ci_context,
-                worker_policy=resolve_worker_policy(settings, selected_agent),
+                worker_policy=_policy_for_agent(settings, selected_agent),
             )
             result = (
                 {"ci": ci_feedback, **handoff}

@@ -92,3 +92,47 @@ jobs:
 
       - name: Run workflow tests
         run: uv run python -m unittest discover -s tests -v
+
+
+  v4-bridge:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Resolve core dependencies
+        run: uv sync
+
+      - name: Install v4 bridge runtime
+        shell: bash
+        run: bash tools/reasonfirst_v4_0_3/install_v4_runtime.sh
+
+      - name: Compile v4 bridge sources
+        shell: bash
+        run: |
+          PY="$HOME/.local/share/reasonfirst/v4-runtime/.venv/bin/python"
+          "$PY" -m compileall -q tools/reasonfirst_v4_0_3
+
+      - name: Run v4 bridge regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="tools/reasonfirst_v4_0_3"
+          PY="$HOME/.local/share/reasonfirst/v4-runtime/.venv/bin/python"
+          for test_file in "$ROOT"/tests/test_*.py; do
+            echo "== $test_file =="
+            PYTHONPATH="$PWD/src:$ROOT" "$PY" "$test_file"
+          done
+          bash "$ROOT/tests/test_first_run_config.sh"

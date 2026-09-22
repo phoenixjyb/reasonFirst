@@ -10,6 +10,9 @@ version: 1
 project:
   base_branch: main
 
+# Supported backend names: codex/codex-cli (Codex CLI),
+# copilot/copilot-cli (Copilot CLI), codex-desktop (managed Codex Desktop
+# App Server). Historical codex/copilot names remain compatibility aliases.
 agents:
   preferred:
     - codex

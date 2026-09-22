@@ -74,11 +74,21 @@ GITLAB_REQUIRE_WRITE_ALLOWLIST=true
 GITLAB_WORKSPACE_ROOT=~/.local/share/chatgpt-gitlab-mcp
 ```
 
-Use a dedicated read API credential (`read_api` and, where needed, `read_repository`). For Git writes, prefer a separate `GITLAB_GIT_TOKEN` with `write_repository`, not a broad `api` token. Empty Git-token configuration falls back to the API token; that does not magically give it push rights. Restrict the project allowlist to exact intended `path_with_namespace` values. Install/authenticate Codex CLI or Copilot CLI separately using the provider's supported flow; ReasonFirst does not manage their accounts.
+Use a dedicated read API credential (`read_api` and, where needed, `read_repository`). For Git writes, prefer a separate `GITLAB_GIT_TOKEN` with `write_repository`, not a broad `api` token. Empty Git-token configuration falls back to the API token; that does not magically give it push rights. Restrict the project allowlist to exact intended `path_with_namespace` values. Install/authenticate Codex CLI or Copilot CLI separately using the provider's supported flow; for `codex-desktop`, start/enable the managed Codex Desktop App Server. ReasonFirst does not manage provider accounts.
 
 ### Coding-worker policy
 
-ReasonFirst passes a user-owned worker policy explicitly to the selected coding CLI instead of relying on whichever interactive model/permission choice happened to be active previously. The default Codex policy is:
+ReasonFirst passes a user-owned worker policy explicitly to the selected coding backend instead of relying on whichever interactive model/permission choice happened to be active previously. `codex` / `codex-cli` mean Codex CLI, `copilot` / `copilot-cli` mean GitHub Copilot CLI, and `codex-desktop` means the managed Codex Desktop App Server. The two Codex surfaces share the same Codex WorkerPolicy.
+
+Set a persistent user default once:
+
+```dotenv
+REASONFIRST_DEFAULT_BACKEND=codex-cli
+```
+
+Accepted values are `auto`, `codex-cli`, `copilot-cli`, and `codex-desktop` (historical `codex` / `copilot` aliases remain accepted). Selection precedence is: an explicit `--agent` value first; when `--agent auto` is used, a non-`auto` user default is authoritative; otherwise ReasonFirst uses repository preference and then installed fallback.
+
+The default Codex policy is:
 
 ```dotenv
 REASONFIRST_CODEX_MODEL=gpt-5.6-sol
@@ -91,6 +101,8 @@ REASONFIRST_CODEX_NETWORK_ACCESS=false
 
 Set `REASONFIRST_CODEX_EXECUTION_MODE=exec` for non-interactive `codex exec`. For unattended execution, `REASONFIRST_CODEX_APPROVAL_POLICY=never` keeps the configured sandbox boundary but never pauses for approval; operations that need more privilege must fail instead of silently escaping the policy. ReasonFirst intentionally does not expose Codex full-access/yolo as a supported worker policy.
 
+With `codex-desktop` and `approval_policy=on-request`, ActualCoder CLI displays command/file/permission requests on the terminal and grants only the individual request after an explicit yes. In the bridge/MCP flow, use `reasonfirst_pending_approvals`, then `reasonfirst_approve` or `reasonfirst_decline`. Requests time out to deny; permission grants default to turn scope and are never silently upgraded to session scope.
+
 Copilot remains on its provider-selected model/effort unless explicitly pinned:
 
 ```dotenv
@@ -102,7 +114,9 @@ REASONFIRST_COPILOT_ALLOW_TOOLS=
 REASONFIRST_COPILOT_DENY_TOOLS=shell(git push)
 ```
 
-Set `REASONFIRST_COPILOT_EXECUTION_MODE=programmatic` to use `copilot -p`. Built-in Copilot MCPs are disabled by default so the worker cannot bypass ReasonFirst's Git/MR publication path through a remote-write integration. The allow/deny values are comma-separated Copilot CLI permission patterns; deny rules are passed explicitly and win over allow rules. `git push` is denied by default so remote publication stays in the reviewed ReasonFirst `finish` flow. Use `actual-coder config` to inspect the resolved non-secret worker defaults before launching a task.
+Set `REASONFIRST_COPILOT_EXECUTION_MODE=programmatic` to use `copilot -p`. Built-in Copilot MCPs are disabled by default so the worker cannot bypass ReasonFirst's Git/MR publication path through a remote-write integration. The allow/deny values are comma-separated Copilot CLI permission patterns; deny rules are passed explicitly and win over allow rules. `git push` is denied by default so remote publication stays in the reviewed ReasonFirst `finish` flow.
+
+Policy evidence is explicit about certainty. CLI workers report that policy was encoded into launch arguments; Codex CLI also gets a no-model-use App Server catalog/admin-policy preflight for model/effort compatibility. Codex Desktop validates the live model catalog and the resolved `thread/start` model/effort/sandbox/approval response, and records model-reroute events as policy violations. Current App Server does not expose the provider response-envelope model, so ReasonFirst does not claim independent provider-level model attestation. Use `actual-coder config` to inspect the requested non-secret defaults and launch/status output for verification evidence.
 
 Configuration file selection: `GITLAB_AGENT_ENV_FILE`, then the user config above, then a local `.env`. CLI fallback is relative to its working directory; MCP's fallback is relative to its server source directory. Already-exported variables take precedence over the file. Use simple literal assignments; do not rely on shell interpolation or inline comments in values.
 
@@ -127,7 +141,7 @@ uv run actual-coder doctor
 uv run actual-coder project-config team/project-a --validate
 ```
 
-Inspect `config` locally; even token-free diagnostics can expose private hostnames and paths. `agents` checks executable presence, not authentication/quota. `doctor` checks API authentication unless `--offline`; it does not test Git push rights. `project-config` performs managed Git fetch/read and validates the contract, without creating a worktree or pushing.
+Inspect `config` locally; even token-free diagnostics can expose private hostnames and paths. `agents` checks CLI executable presence and the managed Desktop App Server socket; it does not authenticate or consume quota. `doctor` checks API authentication unless `--offline`; it does not test Git push rights. For an intentional Git-only deployment with no `GITLAB_TOKEN`, configure exactly one Git credential source and use `actual-coder doctor --git-only` / `actual-coder start ... --git-only`. `project-config` performs managed Git fetch/read and validates the contract, without creating a worktree or pushing.
 
 `found: false, valid: true` means `.actualcoder.yaml` is absent, not that application tests passed. No project-specific validation commands were loaded. Copy and adapt [the example contract](../.actualcoder.example.yaml) **in the target GitLab project**, use its actual test commands, and review it through that project's normal process. Validate a candidate without fetching it:
 
@@ -145,7 +159,7 @@ Define the goal, non-goals, and acceptance criteria with your reasoning interfac
 uv run actual-coder start team/project-a --task fix-timeout --goal "Fix the timeout bug; preserve the API and add regression coverage" --no-launch
 ```
 
-This fetches project context and creates a worktree. Save the returned workspace ID. Inspect the handoff and use its returned backend command/prompt. On a new task, omit `--no-launch` to launch interactively; add `--agent codex` or `--agent copilot` to select explicitly. No existing-workspace ID is accepted by `start`.
+This fetches project context and creates a worktree. Save the returned workspace ID. Inspect the handoff and use its returned backend command/prompt. On a new task, omit `--no-launch` to launch the selected worker; use `--agent codex-cli`, `--agent copilot-cli`, or `--agent codex-desktop` for the clearest explicit surface names. Historical `codex` / `copilot` remain supported aliases. No existing-workspace ID is accepted by `start`.
 
 After edits, set `WS` to the returned ID, not the illustrative value below:
 
@@ -177,7 +191,7 @@ uv run actual-coder resume "$WS" --agent auto --from-ci --goal "Repair the match
 Prefer `status`/`resume` for an existing workspace. Only when local state is unavailable and the feature branch remains on GitLab, use the existing MR:
 
 ```bash
-uv run actual-coder checkout-mr team/project-a 123 --agent copilot --goal "Continue this MR and address reviewed feedback"
+uv run actual-coder checkout-mr team/project-a 123 --agent copilot-cli --goal "Continue this MR and address reviewed feedback"
 ```
 
 Replace the project/IID and review the returned handoff. Recovery refuses to overwrite an abandoned local branch with unpublished commits. Normal `cleanup` checks dirty state and fresh publication evidence; offline/deleted-remote cases can deliberately block it. `cleanup --force` discards local work and is not an installation repair command.
