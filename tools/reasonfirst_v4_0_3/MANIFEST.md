@@ -1,4 +1,4 @@
-# ReasonFirst v4.0.3 清单
+# ReasonFirst Bridge Preview 清单（兼容路径：reasonfirst_v4_0_3）
 
 - `apply_to_reasonfirst.sh`：一键安装到已有 ReasonFirst。
 - `configure_v4.py`、`configure_v4.sh`：v3/v4 配置迁移、全局 Codex MCP 更新与备份。
@@ -10,4 +10,4 @@
 - `reasonfirst_codex_bridge/`：原有 workspace、Codex app-server、SSH、证据和推送审查逻辑。
 - `tests/`：迁移、MCP、relay、Codex 和远端模拟回归。
 
-详细使用方式见 [README.md](README.md)。
+该目录名保留作兼容/迁移路径，不代表 ReasonFirst 产品版本。当前产品版本以 `src/gitlab_agent/__init__.py` / `pyproject.toml` 为准。详细使用方式见 [README.md](README.md)。
