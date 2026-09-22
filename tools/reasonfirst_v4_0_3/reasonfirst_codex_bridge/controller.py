@@ -650,11 +650,21 @@ class BridgeController:
         key, app = self._get_app(target)
         tid = str(session["thread_id"])
         if key not in self._app_current_thread or self._app_current_thread.get(key) != tid:
-            try:
-                app.resume_thread(tid)
-            except Exception:
-                # The thread may already be loaded by this app-server. A read verifies it.
-                app.read_thread(tid, include_turns=False)
+            raw_policy = session.get("worker_policy")
+            policy = (
+                WorkerPolicy.from_dict(raw_policy)
+                if isinstance(raw_policy, dict)
+                else self._codex_policy()
+            )
+            verified = app.resume_thread(tid, policy=policy)
+            if not bool(verified.get("satisfied", False)):
+                raise BridgeError(
+                    "WORKER_POLICY_UNSATISFIED: "
+                    + json.dumps(verified, ensure_ascii=False, default=str)
+                )
+            session["worker_policy_evidence"] = verified
+            session["updated_at"] = int(time.time())
+            self._save_state()
             self._app_current_thread[key] = tid
         return key, app
 
