@@ -157,6 +157,45 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(checks["gitlab_api_connectivity"]["status"], "fail")
         self.assertIn("network unavailable", checks["gitlab_api_connectivity"]["message"])
 
+    def test_git_only_mode_allows_missing_api_token_but_requires_git_credential(self) -> None:
+        git_only = AgentSettings(
+            **{
+                **self.settings.__dict__,
+                "api_token": "",
+                "git_token": "git-only-secret",
+            }
+        )
+        with patch.dict(os.environ, {"GITLAB_GIT_TOKEN": "git-only-secret"}, clear=True):
+            result = run_doctor(
+                offline=True,
+                git_only=True,
+                settings_loader=lambda: git_only,
+                which=self.which,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["git_only"])
+        checks = {item["name"]: item for item in result["checks"]}
+        self.assertEqual(checks["gitlab_api_token"]["status"], "skip")
+        self.assertEqual(checks["git_credential"]["status"], "pass")
+
+        no_git = AgentSettings(
+            **{
+                **git_only.__dict__,
+                "git_token": "",
+            }
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            failed = run_doctor(
+                offline=True,
+                git_only=True,
+                settings_loader=lambda: no_git,
+                which=self.which,
+            )
+        failed_checks = {item["name"]: item for item in failed["checks"]}
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed_checks["git_credential"]["status"], "fail")
+
     def test_doctor_survives_invalid_configuration(self) -> None:
         def bad_loader() -> AgentSettings:
             raise RuntimeError("GITLAB_BASE_URL is required")
