@@ -66,8 +66,10 @@ def _sandbox_name(policy: WorkerPolicy) -> str:
 
 
 def _approval_name(policy: WorkerPolicy) -> str:
-    if policy.approval_policy in {"on-request", "never"}:
-        return str(policy.approval_policy)
+    if policy.approval_policy == "on-request":
+        return "onRequest"
+    if policy.approval_policy == "never":
+        return "never"
     raise CodexDesktopError(
         f"Unsupported codex-desktop approval policy {policy.approval_policy!r}"
     )
@@ -83,6 +85,7 @@ class CodexDesktopWorker:
 
     def __init__(self, *, binary: str | None = None) -> None:
         self.binary = binary or resolve_codex_desktop_binary()
+        self._closed = False
         self.proc = subprocess.Popen(
             [self.binary, "app-server"],
             stdin=subprocess.PIPE,
@@ -103,8 +106,6 @@ class CodexDesktopWorker:
         self._turn_done = threading.Condition()
         self._turn_status: dict[str, str] = {}
         self._stderr_tail: list[str] = []
-        self._closed = False
-
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._stderr_reader = threading.Thread(target=self._read_stderr, daemon=True)
         self._reader.start()
@@ -253,6 +254,41 @@ class CodexDesktopWorker:
             with self._turn_done:
                 self._turn_done.notify_all()
 
+    def _assert_policy_allowed(
+        self,
+        *,
+        approval: str,
+        sandbox: str,
+    ) -> None:
+        try:
+            data = self._request("configRequirements/read", {}, timeout=15)
+        except CodexDesktopError:
+            # Older App Server builds may not expose managed requirements.
+            return
+        requirements = (
+            data.get("requirements")
+            if isinstance(data, dict) and isinstance(data.get("requirements"), dict)
+            else {}
+        )
+        allowed_approvals = requirements.get("allowedApprovalPolicies")
+        if (
+            isinstance(allowed_approvals, list)
+            and allowed_approvals
+            and approval not in {str(item) for item in allowed_approvals}
+        ):
+            raise CodexDesktopError(
+                f"Codex Desktop policy disallows approvalPolicy={approval!r}"
+            )
+        allowed_sandboxes = requirements.get("allowedSandboxModes")
+        if (
+            isinstance(allowed_sandboxes, list)
+            and allowed_sandboxes
+            and sandbox not in {str(item) for item in allowed_sandboxes}
+        ):
+            raise CodexDesktopError(
+                f"Codex Desktop policy disallows sandbox={sandbox!r}"
+            )
+
     def run(
         self,
         *,
@@ -268,6 +304,7 @@ class CodexDesktopWorker:
 
         sandbox = _sandbox_name(policy)
         approval = _approval_name(policy)
+        self._assert_policy_allowed(approval=approval, sandbox=sandbox)
         thread_params: dict[str, Any] = {
             "cwd": str(cwd),
             "approvalPolicy": approval,
