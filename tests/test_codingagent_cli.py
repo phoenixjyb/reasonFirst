@@ -332,6 +332,24 @@ agents:
         self.assertIsNone(local.ref)
         self.assertTrue(local.validate)
 
+    def test_doctor_and_start_accept_git_only_mode(self) -> None:
+        parser = _build_parser(prog="actual-coder")
+        doctor = parser.parse_args(["doctor", "--offline", "--git-only"])
+        self.assertTrue(doctor.git_only)
+
+        start = parser.parse_args(
+            [
+                "start",
+                "team/project",
+                "--goal",
+                "Inspect",
+                "--no-launch",
+                "--offline-doctor",
+                "--git-only",
+            ]
+        )
+        self.assertTrue(start.git_only)
+
     def test_start_parser_defaults_to_auto_and_can_skip_launch(self) -> None:
         parser = _build_parser(prog="actual-coder")
         args = parser.parse_args(
