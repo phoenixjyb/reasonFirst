@@ -40,6 +40,7 @@ class WorkerPolicyConfigTests(unittest.TestCase):
         self.assertIsNone(settings.copilot_model)
         self.assertIsNone(settings.copilot_reasoning_effort)
         self.assertEqual(settings.copilot_execution_mode, "interactive")
+        self.assertTrue(settings.copilot_disable_builtin_mcps)
         self.assertEqual(settings.copilot_allow_tools, ())
         self.assertEqual(settings.copilot_deny_tools, ("shell(git push)",))
 
@@ -54,6 +55,7 @@ class WorkerPolicyConfigTests(unittest.TestCase):
             REASONFIRST_COPILOT_MODEL="gpt-5.3-codex",
             REASONFIRST_COPILOT_REASONING_EFFORT="high",
             REASONFIRST_COPILOT_EXECUTION_MODE="programmatic",
+            REASONFIRST_COPILOT_DISABLE_BUILTIN_MCPS="false",
             REASONFIRST_COPILOT_ALLOW_TOOLS="write,shell(pytest)",
             REASONFIRST_COPILOT_DENY_TOOLS="shell(git push),shell(rm)",
         )
@@ -66,6 +68,7 @@ class WorkerPolicyConfigTests(unittest.TestCase):
         self.assertEqual(settings.copilot_model, "gpt-5.3-codex")
         self.assertEqual(settings.copilot_reasoning_effort, "high")
         self.assertEqual(settings.copilot_execution_mode, "programmatic")
+        self.assertFalse(settings.copilot_disable_builtin_mcps)
         self.assertEqual(settings.copilot_allow_tools, ("write", "shell(pytest)"))
         self.assertEqual(
             settings.copilot_deny_tools,
