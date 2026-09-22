@@ -31,6 +31,7 @@ from .bridge_config import (
 )
 from gitlab_agent import __version__ as REASONFIRST_VERSION
 from gitlab_agent.config import AgentSettings
+from gitlab_agent.locking import file_lock
 from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 from .remote_workspace import RemoteWorkspaceManager
 
@@ -179,6 +180,27 @@ class BridgeController:
     @staticmethod
     def _codex_policy() -> WorkerPolicy:
         return resolve_worker_policy(AgentSettings.load(), "codex")
+
+    def _bridge_mutation_lock(self, rec: dict[str, Any]):
+        workspace_id = str(rec.get("workspace_id") or "")
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", workspace_id):
+            raise BridgeError("Invalid bridge workspace_id for mutation lock")
+        target = rec.get("target") if isinstance(rec.get("target"), dict) else {}
+        identity = json.dumps(
+            {
+                "workspace_id": workspace_id,
+                "kind": rec.get("kind"),
+                "target": target,
+                "worktree": rec.get("worktree_path"),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+        return file_lock(
+            self.state_dir / "locks" / f"{digest}.lock",
+            timeout_seconds=30,
+        )
 
     def _remote_manager(self, target: ExecutionTarget) -> RemoteWorkspaceManager:
         # Reuse the already-configured ReasonFirst Git credential for remote HTTPS
@@ -609,9 +631,15 @@ class BridgeController:
                 max_bytes=int(args.get("max_bytes") or 1024 * 1024),
             )
         elif tool == "write":
-            result = manager.write_file(rec, str(args.get("path") or ""), str(args.get("content") or ""))
+            with self._bridge_mutation_lock(rec):
+                result = manager.write_file(
+                    rec,
+                    str(args.get("path") or ""),
+                    str(args.get("content") or ""),
+                )
         elif tool == "apply_patch":
-            result = manager.apply_patch(rec, str(args.get("patch") or ""))
+            with self._bridge_mutation_lock(rec):
+                result = manager.apply_patch(rec, str(args.get("patch") or ""))
         elif tool == "snapshot":
             result = manager.snapshot(rec)
         elif tool == "commit_push":
@@ -621,11 +649,12 @@ class BridgeController:
             approved_snapshot = approval.get("snapshot")
             if not isinstance(approved_snapshot, dict):
                 raise BridgeError("Stored push approval is incomplete; review and authorize again.")
-            result = manager.commit_push(
-                rec,
-                expected_snapshot=approved_snapshot,
-                message=str(approval.get("message") or ""),
-            )
+            with self._bridge_mutation_lock(rec):
+                result = manager.commit_push(
+                    rec,
+                    expected_snapshot=approved_snapshot,
+                    message=str(approval.get("message") or ""),
+                )
             with self._lock:
                 session.pop("push_approval", None)
                 session["last_push"] = {
@@ -1128,7 +1157,8 @@ class BridgeController:
                 "use the local ActualCoder finish flow for local workspaces"
             )
         target = self._target_from_dict(rec.get("target") or {})
-        snap = self._remote_manager(target).snapshot(rec)
+        with self._bridge_mutation_lock(rec):
+            snap = self._remote_manager(target).snapshot(rec)
         if not snap.get("dirty"):
             raise BridgeError("workspace has no changes to push")
         if snap.get("url_rewrites"):
