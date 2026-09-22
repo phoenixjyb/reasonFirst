@@ -105,7 +105,7 @@ The last documented release is **v0.3.0**; merged source changes need not be in 
 | Controlled finish | Base-policy tests, reviewability/protected paths, candidate/bounded-history secret checks, human confirmation |
 | Publication safety | Fresh remote evidence before ordinary cleanup; unpublished abandoned work preserved |
 | Command/CI evidence | Nonzero failures propagate; matching-HEAD CI and bounded/sanitized job logs |
-| Worker policy | User-owned Codex/Copilot model, reasoning effort, execution mode and permission controls are passed explicitly to the selected CLI |
+| Worker policy | User-owned model, reasoning effort, sandbox/network and permission controls apply across Codex CLI, Copilot CLI and Codex Desktop/App Server surfaces |
 | Project-access preflight | Local allowlist -> GitLab project/ref/files; actionable diagnostics and pinned revision; no automatic grant |
 | Tunnel lifecycle | Existing-profile configure/start/status/stop/restart on macOS/Linux, optional exact Keychain lookup, owned process cleanup; foreground only |
 | HTTPS migration | Offline preview and confirmed local URL updates, private backups and forward recovery |
