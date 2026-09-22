@@ -68,6 +68,7 @@ def _workspace_health(root: Path) -> dict[str, int]:
 def run_doctor(
     *,
     offline: bool = False,
+    git_only: bool = False,
     settings_loader: Callable[[], AgentSettings] | None = None,
     which: Callable[[str], str | None] | None = None,
     api_factory: Callable[[AgentSettings], GitLabAPI] | None = None,
@@ -192,7 +193,9 @@ def run_doctor(
             "fail",
             f"Configuration could not be loaded: {exc}",
         )
-        return _finish(checks, offline=offline)
+        result = _finish(checks, offline=offline)
+    result["git_only"] = git_only
+    return result
 
     config_file = settings.config_file
     if config_file.is_file():
@@ -250,13 +253,23 @@ def run_doctor(
     _check(
         checks,
         "gitlab_api_token",
-        "pass" if settings.api_token else "fail",
+        (
+            "pass"
+            if settings.api_token
+            else ("skip" if git_only else "fail")
+        ),
         (
             "GITLAB_TOKEN is configured"
             if settings.api_token
-            else "GITLAB_TOKEN is missing; read MCP and GitLab API metadata operations will fail"
+            else (
+                "GITLAB_TOKEN is intentionally absent in Git-only mode; "
+                "GitLab REST API/MCP/CI metadata features are unavailable"
+                if git_only
+                else "GITLAB_TOKEN is missing; read MCP and GitLab API metadata operations will fail"
+            )
         ),
         value_exposed=False,
+        git_only=git_only,
     )
     _check(
         checks,
@@ -267,7 +280,11 @@ def run_doctor(
             if settings.git_token
             else "No Git credential is configured for clone/fetch/push"
         ),
-        separate_git_token=bool(os.getenv("GITLAB_GIT_TOKEN")),
+        git_credential_source=(
+            "git_token"
+            if os.getenv("GITLAB_GIT_TOKEN")
+            else ("git_password" if os.getenv("GITLAB_GIT_PASSWORD") else "api_token_fallback")
+        ),
         scope_checked=False,
         value_exposed=False,
     )
@@ -377,6 +394,13 @@ def run_doctor(
             "gitlab_api_connectivity",
             "skip",
             "GitLab API connectivity check skipped by --offline",
+        )
+    elif git_only:
+        _check(
+            checks,
+            "gitlab_api_connectivity",
+            "skip",
+            "GitLab API connectivity intentionally unavailable in Git-only mode",
         )
     elif not settings.api_token:
         _check(
