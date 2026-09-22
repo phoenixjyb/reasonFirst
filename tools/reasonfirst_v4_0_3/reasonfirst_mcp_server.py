@@ -74,7 +74,7 @@ def build_server():
         return ctrl.doctor()
 
     @server.tool(name="reasonfirst_target_probe", annotations=read)
-    def reasonfirst_target_probe(execution: dict[str, Any] | str | None = None) -> dict[str, Any]:
+    def reasonfirst_target_probe(execution: str | None = None) -> dict[str, Any]:
         """Probe a local/SSH execution target without modifying source code."""
         return ctrl.target_probe(execution)
 
@@ -85,7 +85,7 @@ def build_server():
         request: str,
         intent: str = "analyze-optimize",
         base_ref: str = "main",
-        execution: dict[str, Any] | str | None = None,
+        execution: str | None = None,
     ) -> dict[str, Any]:
         """Prepare an isolated real-code workspace for ChatGPT analysis. Does not start Codex."""
         return ctrl.dispatch_request(
