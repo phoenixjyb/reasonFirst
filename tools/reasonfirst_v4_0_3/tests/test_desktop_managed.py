@@ -24,7 +24,9 @@ def handler(ws):
 
 
 def main():
-    with tempfile.TemporaryDirectory() as td:
+    # AF_UNIX paths are short on macOS; keep the synthetic socket under /tmp.
+    short_tmp = "/tmp" if pathlib.Path("/tmp").is_dir() else None
+    with tempfile.TemporaryDirectory(dir=short_tmp) as td:
         home=pathlib.Path(td)/'.codex'; sock=home/'app-server-control'/'app-server-control.sock'
         sock.parent.mkdir(parents=True)
         old=os.environ.get('CODEX_HOME'); os.environ['CODEX_HOME']=str(home)
