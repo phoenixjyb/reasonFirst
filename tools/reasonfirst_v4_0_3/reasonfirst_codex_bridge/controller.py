@@ -143,6 +143,42 @@ class BridgeController:
     def _target_from_dict(self, data: Any) -> ExecutionTarget:
         return resolve_target(data, config=self.bridge_config)
 
+    def _resolve_requested_target(self, execution: Any = None) -> ExecutionTarget:
+        """Resolve only user-owned configured targets at the MCP trust boundary."""
+        defaults = (
+            self.bridge_config.get("defaults")
+            if isinstance(self.bridge_config.get("defaults"), dict)
+            else {}
+        )
+        requested = execution
+        if requested in (None, "", {}):
+            requested = str(defaults.get("target") or "local")
+        if isinstance(requested, dict):
+            raise BridgeError(
+                "Inline execution target objects are not allowed from MCP requests. "
+                "Configure the target in bridge.yaml and select it by name."
+            )
+        if not isinstance(requested, str):
+            raise BridgeError("execution target must be a configured target name")
+        name = requested.strip()
+        if not name:
+            name = str(defaults.get("target") or "local")
+        if ":" in name:
+            raise BridgeError(
+                "Inline SSH shorthand is not allowed from MCP requests. "
+                "Configure a named target in bridge.yaml."
+            )
+        targets = (
+            self.bridge_config.get("targets")
+            if isinstance(self.bridge_config.get("targets"), dict)
+            else {}
+        )
+        if name != "local" and name not in targets:
+            raise BridgeError(
+                f"Unknown execution target {name!r}; only user-configured target names are allowed"
+            )
+        return resolve_target(name, config=self.bridge_config)
+
     def _remote_manager(self, target: ExecutionTarget) -> RemoteWorkspaceManager:
         # Reuse the already-configured ReasonFirst Git credential for remote HTTPS
         # fetches without persisting it on the target. The remote manager forwards
@@ -507,7 +543,7 @@ class BridgeController:
         return result
 
     def target_probe(self, execution: Any = None) -> dict[str, Any]:
-        target = resolve_target(execution, config=self.bridge_config)
+        target = self._resolve_requested_target(execution)
         if target.type == "ssh":
             result = self._remote_manager(target).probe()
             result["remote_codex_required"] = target.codex_backend == "remote-ssh"
@@ -557,9 +593,15 @@ class BridgeController:
         parsed = self.parse_gitlab_url(gitlab_url)
         focus = str(module or parsed.get("hinted_path") or ".").strip() or "."
         task = re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{intent}-{focus}").strip("-._")[:48] or "chatgpt-analysis"
-        target = resolve_target(execution, config=self.bridge_config)
+        target = self._resolve_requested_target(execution)
         goal = f"Prepare the real repository for ChatGPT analysis. Do not modify files. User request: {request or intent}. Focus: {focus}."
-        prepared = self.prepare(project=parsed["project"], task=task, goal=goal, base_ref=base_ref, execution=target.to_dict())
+        prepared = self._prepare_resolved_target(
+            project=parsed["project"],
+            task=task,
+            goal=goal,
+            base_ref=base_ref,
+            target=target,
+        )
         record = self._workspace_record(str(prepared["workspace_id"])); record.update({"focus": focus, "request": request, "intent": intent, "gitlab_url": gitlab_url, "updated_at": int(time.time())}); self._save_state()
         try: listing = self.files(workspace_id=str(prepared["workspace_id"]), path=focus, max_entries=120)
         except Exception as exc: listing = {"ok": False, "error": redact(str(exc),1200), "path": focus}
@@ -578,7 +620,24 @@ class BridgeController:
         return report
 
     def prepare(self, *, project: str, task: str = "chatgpt-analysis", goal: str = "Prepare repository for ChatGPT analysis only; do not modify files.", base_ref: str = "", execution: Any = None) -> dict[str, Any]:
-        target = resolve_target(execution, config=self.bridge_config)
+        target = self._resolve_requested_target(execution)
+        return self._prepare_resolved_target(
+            project=project,
+            task=task,
+            goal=goal,
+            base_ref=base_ref,
+            target=target,
+        )
+
+    def _prepare_resolved_target(
+        self,
+        *,
+        project: str,
+        task: str,
+        goal: str,
+        base_ref: str,
+        target: ExecutionTarget,
+    ) -> dict[str, Any]:
         if target.type == "ssh":
             manager = self._remote_manager(target)
             probe = manager.probe()
