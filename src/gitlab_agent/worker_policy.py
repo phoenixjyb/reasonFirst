@@ -17,6 +17,7 @@ class WorkerPolicy:
     sandbox_mode: str | None = None
     approval_policy: str | None = None
     network_access: bool | None = None
+    disable_builtin_mcps: bool = False
     allow_tools: tuple[str, ...] = ()
     deny_tools: tuple[str, ...] = ()
 
@@ -47,6 +48,7 @@ class WorkerPolicy:
                 if data.get("network_access") is not None
                 else None
             ),
+            disable_builtin_mcps=bool(data.get("disable_builtin_mcps", False)),
             allow_tools=tuple(str(item) for item in data.get("allow_tools", ())),
             deny_tools=tuple(str(item) for item in data.get("deny_tools", ())),
         )
@@ -71,6 +73,7 @@ def default_worker_policy(backend: str) -> WorkerPolicy:
             model=None,
             reasoning_effort=None,
             execution_mode="interactive",
+            disable_builtin_mcps=True,
             deny_tools=("shell(git push)",),
         )
     raise ValueError(f"Unsupported coding backend {backend!r}")
@@ -95,6 +98,7 @@ def resolve_worker_policy(settings: AgentSettings, backend: str) -> WorkerPolicy
             model=settings.copilot_model,
             reasoning_effort=settings.copilot_reasoning_effort,
             execution_mode=settings.copilot_execution_mode,
+            disable_builtin_mcps=settings.copilot_disable_builtin_mcps,
             allow_tools=settings.copilot_allow_tools,
             deny_tools=settings.copilot_deny_tools,
         )
@@ -148,6 +152,8 @@ def _copilot_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
         argv.append(f"--model={policy.model}")
     if policy.reasoning_effort:
         argv.append(f"--effort={policy.reasoning_effort}")
+    if policy.disable_builtin_mcps:
+        argv.append("--disable-builtin-mcps")
     for item in policy.allow_tools:
         argv.append(f"--allow-tool={item}")
     for item in policy.deny_tools:
