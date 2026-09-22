@@ -926,7 +926,15 @@ class BridgeController:
         }
 
     def authorize_push(self, *, thread_id: str, commit_message: str) -> dict[str, Any]:
-        """Authorize Codex to commit/push exactly the currently reviewed remote snapshot."""
+        """Authorize the experimental SSH push path for an exact reviewed snapshot."""
+        if os.getenv("RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", "false").strip().lower() not in {
+            "1", "true", "yes", "on"
+        }:
+            raise BridgeError(
+                "Remote publication is disabled by default until it reuses the full "
+                "ActualCoder finish/validation/security gates. Set "
+                "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH=true only for explicit development testing."
+            )
         session = self._session(thread_id)
         rec = self._workspace_record(str(session["workspace_id"]))
         if rec.get("kind") != "ssh":
