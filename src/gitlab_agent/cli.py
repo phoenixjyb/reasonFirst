@@ -26,6 +26,7 @@ from .worker_policy import (
     build_worker_argv,
     default_worker_policy,
     display_worker_argv,
+    launch_policy_evidence,
     resolve_worker_policy,
 )
 from .workspace import WorkspaceManager
@@ -276,6 +277,24 @@ def _handoff(
             else f"cd {status['worktree_path']} && {executable}"
         ),
         "worker_policy": policy.to_dict(),
+        "worker_policy_evidence": (
+            {
+                "status": "pending_runtime_verification",
+                "verification_scope": "app-server-runtime",
+                "runtime_verified": False,
+                "surface": "codex-desktop",
+                "requested": policy.to_dict(),
+            }
+            if agent == "codex-desktop"
+            else launch_policy_evidence(
+                policy,
+                surface=(
+                    "codex-cli"
+                    if policy_backend == "codex"
+                    else "copilot-cli"
+                ),
+            )
+        ),
         "agent_argv_shape": (
             ["codex-desktop", "<managed-app-server>", "<agent_prompt>"]
             if agent == "codex-desktop"
@@ -660,6 +679,7 @@ def _launch_handoff(
     *,
     runner: Any = None,
     desktop_client_factory: Any = None,
+    codex_policy_client_factory: Any = None,
 ) -> dict[str, object]:
     launch = runner or subprocess.run
     agent = str(handoff["agent"])
@@ -681,6 +701,32 @@ def _launch_handoff(
             client_factory=desktop_client_factory,
         )
 
+    policy_evidence = launch_policy_evidence(
+        policy,
+        surface=("codex-cli" if policy_backend == "codex" else "copilot-cli"),
+    )
+    if policy_backend == "codex":
+        verifier_factory = codex_policy_client_factory or (
+            lambda: AppServerClient.global_config_local()
+        )
+        verifier = verifier_factory()
+        try:
+            catalog_evidence = verifier.assert_worker_policy_supported(policy)
+        finally:
+            verifier.close()
+        policy_evidence = {
+            **catalog_evidence,
+            "status": "catalog_verified_launch_arguments_encoded",
+            "runtime_verified": False,
+            "surface": "codex-cli",
+            "note": (
+                "Codex App Server catalog/admin policy accepted the requested "
+                "model/effort/sandbox/approval combination; the Codex CLI launch "
+                "also carries explicit flags. Provider response model is not "
+                "independently exposed before execution."
+            ),
+        }
+
     argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
     proc = launch(
         argv,
@@ -691,6 +737,7 @@ def _launch_handoff(
         "agent": agent,
         "argv_shape": display_worker_argv(policy),
         "worker_policy": policy.to_dict(),
+        "worker_policy_evidence": policy_evidence,
         "cwd": str(cwd),
         "returncode": int(proc.returncode),
     }
