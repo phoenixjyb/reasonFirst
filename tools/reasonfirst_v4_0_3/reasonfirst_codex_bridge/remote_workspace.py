@@ -220,14 +220,17 @@ printf '{{"workspace_id":"%s","worktree_path":"%s","base_sha":"%s","branch":"%s"
     def status(self, state: dict[str, Any]) -> dict[str, Any]:
         wt = str(state["worktree_path"])
         qwt = shlex.quote(wt)
+        qbase = shlex.quote(str(state["base_sha"]))
         cmd = f"""
 set -eu
 wt={qwt}
+base={qbase}
 head=$(git -C "$wt" rev-parse HEAD)
 branch=$(git -C "$wt" branch --show-current)
+ahead=$(git -C "$wt" rev-list --count "$base"..HEAD)
 dirty=false
 if [ -n "$(git -C "$wt" status --porcelain)" ]; then dirty=true; fi
-printf '{{"head":"%s","branch":"%s","dirty":%s}}\n' "$head" "$branch" "$dirty"
+printf '{{"head":"%s","branch":"%s","dirty":%s,"commits_ahead_of_base":%s}}\n' "$head" "$branch" "$dirty" "$ahead"
 """
         data = json.loads(self._ssh(cmd, timeout=30).stdout.strip().splitlines()[-1])
         return {**state, **data}
