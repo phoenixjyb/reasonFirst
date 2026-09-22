@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 VERSION="4.0.3"
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+PROJECT_ROOT="$(CDPATH= cd -- "$HERE/../.." && pwd)"
 RUNTIME_DIR="${RF_V4_RUNTIME_DIR:-$HOME/.local/share/reasonfirst/v4-runtime}"
 VENV="$RUNTIME_DIR/.venv"
 MARKER="$RUNTIME_DIR/version"
@@ -25,8 +27,7 @@ if [ ! -x "$VENV/bin/python" ]; then
   "$UV_BIN" venv --python 3.12 "$VENV" 2>/dev/null || "$UV_BIN" venv "$VENV"
 fi
 "$UV_BIN" pip install --python "$VENV/bin/python" \
-  'mcp>=2.0,<3' \
-  'pyyaml>=6,<7' \
+  -e "$PROJECT_ROOT" \
   'websockets>=15,<17' \
   'pillow>=10,<13' \
   'pypdf>=5,<7' \
