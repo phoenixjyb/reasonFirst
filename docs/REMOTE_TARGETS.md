@@ -98,3 +98,28 @@ The remote helper:
 - enforces the contract timeout and returns bounded stdout/stderr.
 
 This is an **execution-policy boundary, not a container sandbox**. A validation command can execute repository code, and repository code should be treated as code the user chose to run on that target. Strong filesystem/network isolation, when required, should be supplied by a container/VM/OS sandbox rather than a command denylist.
+
+
+## Reviewed remote publication
+
+Remote publication is a separate trust boundary from target selection and validation execution.
+
+The low-level \`ReviewedRemotePublisher\` captures an exact candidate identity containing:
+
+- project and named target identity;
+- target host/repository/workspace root;
+- managed worktree path;
+- base SHA and current HEAD;
+- exact \`chatgpt/*\` branch;
+- exact credential-free origin/push URL;
+- candidate Git tree object;
+- changed paths;
+- capture timestamp and a canonical review digest.
+
+At capture time it rejects Git URL rewrite rules and any mismatch between the managed expected origin and both fetch/push origin.
+
+Before publication it rechecks branch, HEAD, base ancestry, origin, push destination, URL rewrites and candidate tree while holding a per-worktree publication lock. The candidate tree is rebuilt with a temporary Git index. If the worktree changed after review, publication fails rather than adding the new content.
+
+The commit is built from the exact reviewed tree with \`git commit-tree\` and the branch ref is updated using the expected old HEAD. Push uses the exact approved commit SHA, branch ref and approved destination without force-push.
+
+This primitive is **not an MCP or CLI write endpoint** and does not replace the controlled-finish policy. A higher-level remote finish must first satisfy the same validation, protected-path, reviewability, candidate/history-secret and human-review gates used by local ActualCoder.
