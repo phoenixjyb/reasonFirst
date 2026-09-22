@@ -139,7 +139,14 @@ class AgentSettings:
         base_url = validate_base_url(base_url)
 
         api_token = os.getenv("GITLAB_TOKEN", "").strip()
-        git_token = os.getenv("GITLAB_GIT_TOKEN", "").strip() or api_token
+        git_https_token = os.getenv("GITLAB_GIT_TOKEN", "").strip()
+        git_https_password = os.getenv("GITLAB_GIT_PASSWORD", "").strip()
+        if git_https_token and git_https_password:
+            raise RuntimeError(
+                "Set only one of GITLAB_GIT_TOKEN or GITLAB_GIT_PASSWORD; "
+                "ambiguous Git credential sources are not allowed"
+            )
+        git_token = git_https_token or git_https_password or api_token
 
         root = Path(
             os.getenv(
