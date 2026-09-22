@@ -97,11 +97,12 @@ Copilot remains on its provider-selected model/effort unless explicitly pinned:
 REASONFIRST_COPILOT_MODEL=
 REASONFIRST_COPILOT_REASONING_EFFORT=
 REASONFIRST_COPILOT_EXECUTION_MODE=interactive
+REASONFIRST_COPILOT_DISABLE_BUILTIN_MCPS=true
 REASONFIRST_COPILOT_ALLOW_TOOLS=
 REASONFIRST_COPILOT_DENY_TOOLS=shell(git push)
 ```
 
-Set `REASONFIRST_COPILOT_EXECUTION_MODE=programmatic` to use `copilot -p`. The allow/deny values are comma-separated Copilot CLI permission patterns; deny rules are passed explicitly and win over allow rules. `git push` is denied by default so remote publication stays in the reviewed ReasonFirst `finish` flow. Use `actual-coder config` to inspect the resolved non-secret worker defaults before launching a task.
+Set `REASONFIRST_COPILOT_EXECUTION_MODE=programmatic` to use `copilot -p`. Built-in Copilot MCPs are disabled by default so the worker cannot bypass ReasonFirst's Git/MR publication path through a remote-write integration. The allow/deny values are comma-separated Copilot CLI permission patterns; deny rules are passed explicitly and win over allow rules. `git push` is denied by default so remote publication stays in the reviewed ReasonFirst `finish` flow. Use `actual-coder config` to inspect the resolved non-secret worker defaults before launching a task.
 
 Configuration file selection: `GITLAB_AGENT_ENV_FILE`, then the user config above, then a local `.env`. CLI fallback is relative to its working directory; MCP's fallback is relative to its server source directory. Already-exported variables take precedence over the file. Use simple literal assignments; do not rely on shell interpolation or inline comments in values.
 
