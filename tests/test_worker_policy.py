@@ -34,6 +34,14 @@ class WorkerPolicyConfigTests(unittest.TestCase):
         self.assertEqual(settings.codex_sandbox_mode, "workspace-write")
         self.assertEqual(settings.codex_approval_policy, "on-request")
         self.assertFalse(settings.codex_network_access)
+        self.assertEqual(settings.worker_backend, "auto")
+
+    def test_explicit_worker_backend_is_loaded(self) -> None:
+        settings = self._load(REASONFIRST_WORKER_BACKEND="codex-desktop")
+        self.assertEqual(settings.worker_backend, "codex-desktop")
+
+        with self.assertRaisesRegex(RuntimeError, "REASONFIRST_WORKER_BACKEND"):
+            self._load(REASONFIRST_WORKER_BACKEND="unknown-worker")
 
     def test_copilot_defaults_preserve_provider_model_and_block_push(self) -> None:
         settings = self._load()
