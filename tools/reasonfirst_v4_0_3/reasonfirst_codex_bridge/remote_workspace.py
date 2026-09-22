@@ -12,6 +12,8 @@ from typing import Any
 from urllib.parse import urlparse
 import uuid
 
+from gitlab_agent.secret_scan import scan_added_diff_for_secrets
+
 from .bridge_config import ExecutionTarget
 
 
@@ -43,6 +45,7 @@ class RemoteWorkspaceManager:
         allowed_executables: set[str] | None = None,
         max_command_timeout_seconds: int = 300,
         max_output_bytes: int = 120000,
+        max_file_bytes: int = 1000000,
     ) -> None:
         if target.type != "ssh":
             raise RemoteWorkspaceError("RemoteWorkspaceManager requires an SSH target")
@@ -53,6 +56,7 @@ class RemoteWorkspaceManager:
         self.allowed_executables = set(allowed_executables or set())
         self.max_command_timeout_seconds = max(1, int(max_command_timeout_seconds))
         self.max_output_bytes = max(2000, int(max_output_bytes))
+        self.max_file_bytes = max(1, int(max_file_bytes))
 
     def _ssh(self, command: str, *, timeout: int = 120, check: bool = True) -> subprocess.CompletedProcess[str]:
         # Send the shell script through stdin so OpenSSH cannot corrupt quoting
@@ -327,6 +331,237 @@ raise SystemExit(proc.returncode)
             "stdout": proc.stdout[-12000:],
             "stderr": proc.stderr[-12000:],
         }
+
+    def changed_paths(self, state: dict[str, Any]) -> list[str]:
+        script = r'''
+import json,pathlib,subprocess,sys
+root=pathlib.Path(sys.argv[1]).resolve(); base=sys.argv[2]
+tracked=subprocess.check_output(
+    ["git","-C",str(root),"diff","--name-only",base,"--","."],
+    text=True,
+).splitlines()
+untracked=subprocess.check_output(
+    ["git","-C",str(root),"ls-files","--others","--exclude-standard"],
+    text=True,
+).splitlines()
+paths=sorted({p.replace("\\","/") for p in tracked+untracked if p.strip()})
+print(json.dumps(paths))
+'''
+        cmd = "python3 -c {} {} {}".format(
+            shlex.quote(script),
+            shlex.quote(str(state["worktree_path"])),
+            shlex.quote(str(state["base_sha"])),
+        )
+        value = json.loads(self._ssh(cmd, timeout=60).stdout.strip().splitlines()[-1])
+        return [str(item) for item in value] if isinstance(value, list) else []
+
+    def reviewability(
+        self,
+        state: dict[str, Any],
+        changed_paths: list[str] | None = None,
+    ) -> dict[str, Any]:
+        paths = list(changed_paths if changed_paths is not None else self.changed_paths(state))
+        import base64
+        payload = base64.b64encode(
+            json.dumps(
+                {
+                    "paths": paths,
+                    "max_file_bytes": self.max_file_bytes,
+                    "max_changed_paths": 256,
+                    "max_total_bytes": 16 * 1024 * 1024,
+                }
+            ).encode("utf-8")
+        ).decode("ascii")
+        script = r'''
+import base64,json,pathlib,sys
+root=pathlib.Path(sys.argv[1]).resolve()
+cfg=json.loads(base64.b64decode(sys.argv[2]).decode("utf-8"))
+paths=cfg["paths"]; issues=[]; total=0
+limit=int(cfg["max_changed_paths"]); total_limit=int(cfg["max_total_bytes"])
+file_limit=int(cfg["max_file_bytes"])
+if len(paths)>limit:
+    issues.append({"path":"<workspace>","reason":"too_many_changed_paths","count":len(paths),"limit":limit})
+for rel in paths[:limit+1]:
+    p=pathlib.PurePosixPath(rel)
+    if p.is_absolute() or ".." in p.parts:
+        issues.append({"path":rel,"reason":"unsafe_changed_path"}); continue
+    candidate=root/pathlib.Path(*p.parts)
+    if candidate.is_symlink():
+        issues.append({"path":rel,"reason":"symlink_change"}); continue
+    if not candidate.exists():
+        continue
+    try:
+        resolved=candidate.resolve(); resolved.relative_to(root)
+    except Exception:
+        issues.append({"path":rel,"reason":"path_escaped_worktree"}); continue
+    if not resolved.is_file():
+        issues.append({"path":rel,"reason":"non_regular_file"}); continue
+    try:
+        size=resolved.stat().st_size
+    except OSError as exc:
+        issues.append({"path":rel,"reason":"stat_failed","error":str(exc)}); continue
+    total+=size
+    if total>total_limit:
+        issues.append({"path":"<workspace>","reason":"changed_content_too_large","bytes":total,"limit":total_limit}); break
+    if size>file_limit:
+        issues.append({"path":rel,"reason":"file_too_large","bytes":size,"limit":file_limit}); continue
+    try:
+        resolved.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        issues.append({"path":rel,"reason":"binary_or_non_utf8","bytes":size})
+    except OSError as exc:
+        issues.append({"path":rel,"reason":"read_failed","error":str(exc)})
+print(json.dumps({
+    "ok":not issues,
+    "changed_path_count":len(paths),
+    "existing_file_bytes":total,
+    "max_changed_paths":limit,
+    "max_total_bytes":total_limit,
+    "issues":issues,
+}))
+'''
+        cmd = "python3 -c {} {} {}".format(
+            shlex.quote(script),
+            shlex.quote(str(state["worktree_path"])),
+            shlex.quote(payload),
+        )
+        return json.loads(self._ssh(cmd, timeout=90).stdout.strip().splitlines()[-1])
+
+    def security_diff(self, state: dict[str, Any]) -> str:
+        """Return complete bounded UTF-8 base-to-working-tree additions."""
+
+        script = r'''
+import difflib,pathlib,subprocess,sys
+root=pathlib.Path(sys.argv[1]).resolve(); base=sys.argv[2]; cap=int(sys.argv[3])
+tracked=subprocess.check_output([
+    "git","-C",str(root),"diff","--no-ext-diff","--unified=0",base,"--","."
+],text=True,errors="strict")
+names=subprocess.check_output([
+    "git","-C",str(root),"ls-files","--others","--exclude-standard"
+],text=True).splitlines()
+chunks=[tracked]
+for rel in names:
+    p=(root/rel).resolve(); p.relative_to(root)
+    if not p.is_file(): continue
+    raw=p.read_bytes()
+    text=raw.decode("utf-8")
+    body="".join(difflib.unified_diff(
+        [],text.splitlines(keepends=True),
+        fromfile="/dev/null",tofile="b/"+rel,n=0,
+    ))
+    chunks.append(
+        "diff --git a/"+rel+" b/"+rel+"\n"
+        "new file mode 100644\n"+body
+    )
+out="\n".join(chunks)
+encoded=out.encode("utf-8")
+if len(encoded)>cap:
+    raise SystemExit("security diff exceeds bounded review limit")
+sys.stdout.write(out)
+'''
+        cap = 16 * 1024 * 1024
+        cmd = "python3 -c {} {} {} {}".format(
+            shlex.quote(script),
+            shlex.quote(str(state["worktree_path"])),
+            shlex.quote(str(state["base_sha"])),
+            cap,
+        )
+        return self._ssh(cmd, timeout=120).stdout
+
+    def history_secret_scan(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Collect bounded immutable history remotely; scan additions locally."""
+
+        import base64
+        script = r'''
+import base64,json,pathlib,re,subprocess,sys,time
+root=pathlib.Path(sys.argv[1]).resolve(); base=sys.argv[2]; head=sys.argv[3]
+max_commits=int(sys.argv[4]); max_bytes=int(sys.argv[5]); timeout=int(sys.argv[6])
+sha=re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+deadline=time.monotonic()+timeout
+def git(args,cap):
+    remain=max(0.001,deadline-time.monotonic())
+    proc=subprocess.run(
+        ["git","--no-pager","--no-replace-objects","-c","protocol.allow=never",
+         "-c","core.quotePath=true",*args],
+        cwd=str(root),stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
+        timeout=remain,check=False,
+    )
+    if proc.returncode!=0: raise SystemExit("history inspection failed")
+    if len(proc.stdout)>cap: raise SystemExit("history output exceeds limit")
+    return proc.stdout
+if git(["rev-parse","--is-shallow-repository"],64).strip()!=b"false":
+    raise SystemExit("shallow history")
+git(["merge-base","--is-ancestor",base,head],4096)
+spec=base+".."+head
+commits=git(["rev-list","--max-count="+str(max_commits+1),spec,"--"],(max_commits+1)*66).splitlines()
+if len(commits)>max_commits: raise SystemExit("history commit limit exceeded")
+if any(not sha.fullmatch(x.decode("ascii")) for x in commits):
+    raise SystemExit("unexpected history response")
+patch=b""
+if commits:
+    patch=git([
+        "log","--full-history","--root","--diff-merges=separate","-p",
+        "--format=commit %H","--no-color","--no-decorate","--no-notes",
+        "--no-show-signature","--no-ext-diff","--no-textconv","--no-renames",
+        "--text","--full-index","--unified=0","--submodule=short",
+        "--src-prefix=a/","--dst-prefix=b/","--line-prefix=",
+        "--output-indicator-new=+","--output-indicator-old=-",
+        "--output-indicator-context= ",spec,"--",
+    ],max_bytes)
+print(json.dumps({
+    "commit_count":len(commits),
+    "patch_bytes":len(patch),
+    "patch_b64":base64.b64encode(patch).decode("ascii"),
+}))
+'''
+        status = self.status(state)
+        payload = "python3 -c {} {} {} {} {} {} {}".format(
+            shlex.quote(script),
+            shlex.quote(str(state["worktree_path"])),
+            shlex.quote(str(state["base_sha"])),
+            shlex.quote(str(status["head"])),
+            256,
+            8 * 1024 * 1024,
+            min(self.max_command_timeout_seconds, 300),
+        )
+        try:
+            proc = self._ssh(
+                payload,
+                timeout=min(self.max_command_timeout_seconds, 300) + 30,
+            )
+            data = json.loads(proc.stdout.strip().splitlines()[-1])
+            patch = base64.b64decode(str(data["patch_b64"]).encode("ascii"))
+            text = patch.decode("utf-8")
+            if "\x00" in text or re.search(
+                r"^(?:(?:old|new|new file|deleted file) mode 160000|"
+                r"index [0-9a-f]+\.\.[0-9a-f]+ 160000)$",
+                text,
+                re.MULTILINE,
+            ):
+                raise RemoteWorkspaceError(
+                    "Binary or submodule history requires separate review"
+                )
+            return {
+                "coverage_complete": True,
+                "scope": (
+                    "added text in base..HEAD "
+                    "(all merge parents; includes already-pushed commits)"
+                ),
+                "base_sha": str(state["base_sha"]),
+                "head_sha": str(status["head"]),
+                "commit_count": int(data["commit_count"]),
+                "patch_bytes": int(data["patch_bytes"]),
+                "max_commits": 256,
+                "max_bytes": 8 * 1024 * 1024,
+                "findings": scan_added_diff_for_secrets(text),
+            }
+        except Exception as exc:
+            return {
+                "coverage_complete": False,
+                "findings": [],
+                "error": str(exc),
+            }
 
     def validation_enabled(self) -> bool:
         return bool(
