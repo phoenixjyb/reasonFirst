@@ -417,6 +417,74 @@ mr:
         self.assertIn("deploy/", str(result["agent_prompt"]))
         self.assertIn("Expected validation commands", str(result["agent_prompt"]))
 
+    def test_codex_desktop_is_explicit_backend_choice(self) -> None:
+        parser = _build_parser(prog="actual-coder")
+        args = parser.parse_args(
+            [
+                "start",
+                "team/project",
+                "--goal",
+                "Implement it",
+                "--agent",
+                "codex-desktop",
+            ]
+        )
+        self.assertEqual(args.agent, "codex-desktop")
+
+        with patch(
+            "gitlab_agent.cli.codex_desktop_available",
+            return_value=(True, "/Applications/Codex.app/Contents/Resources/codex"),
+        ):
+            selection = _select_agent("codex-desktop")
+
+        self.assertEqual(selection["selected"], "codex-desktop")
+        self.assertTrue(selection["installed"])
+
+    def test_codex_desktop_launch_uses_worker_policy_without_cli_subprocess(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        class FakeDesktopWorker:
+            def run(self, **kwargs):
+                calls.append(kwargs)
+                return {
+                    "thread_id": "thr_1",
+                    "turn_id": "turn_1",
+                    "turn_status": "completed",
+                    "events": [],
+                    "backend_binary": "/Applications/Codex.app/Contents/Resources/codex",
+                }
+
+            def close(self):
+                calls.append({"closed": True})
+
+        with tempfile.TemporaryDirectory() as td:
+            worktree = Path(td)
+            policy = WorkerPolicy(
+                backend="codex-desktop",
+                model="gpt-5.6-sol",
+                reasoning_effort="high",
+                execution_mode="interactive",
+                sandbox_mode="workspace-write",
+                approval_policy="on-request",
+                network_access=False,
+            )
+            result = _launch_handoff(
+                {
+                    "agent": "codex-desktop",
+                    "agent_prompt": "Implement safely",
+                    "worktree_path": str(worktree),
+                    "worker_policy": policy.to_dict(),
+                },
+                desktop_worker_factory=FakeDesktopWorker,
+            )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["desktop"]["thread_id"], "thr_1")
+        self.assertEqual(calls[0]["policy"].model, "gpt-5.6-sol")
+        self.assertEqual(calls[0]["policy"].reasoning_effort, "high")
+        self.assertFalse(calls[0]["policy"].network_access)
+        self.assertEqual(calls[-1], {"closed": True})
+
     def test_launch_argv_applies_default_worker_policies(self) -> None:
         self.assertEqual(
             _agent_launch_argv("codex", "hello"),
