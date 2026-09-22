@@ -439,6 +439,7 @@ mr:
             _agent_launch_argv("copilot", "hello"),
             [
                 "copilot",
+                "--disable-builtin-mcps",
                 "--deny-tool=shell(git push)",
                 "-i",
                 "hello",
@@ -479,6 +480,7 @@ mr:
             model="gpt-5.3-codex",
             reasoning_effort="high",
             execution_mode="programmatic",
+            disable_builtin_mcps=True,
             allow_tools=("write", "shell(pytest)"),
             deny_tools=("shell(git push)",),
         )
@@ -488,6 +490,7 @@ mr:
                 "copilot",
                 "--model=gpt-5.3-codex",
                 "--effort=high",
+                "--disable-builtin-mcps",
                 "--allow-tool=write",
                 "--allow-tool=shell(pytest)",
                 "--deny-tool=shell(git push)",
@@ -519,6 +522,7 @@ mr:
             calls[0][0],
             [
                 "copilot",
+                "--disable-builtin-mcps",
                 "--deny-tool=shell(git push)",
                 "-i",
                 "Inspect only",
@@ -576,6 +580,7 @@ mr:
         self.assertEqual(copilot.model, "gpt-5.3-codex")
         self.assertEqual(copilot.reasoning_effort, "medium")
         self.assertEqual(copilot.execution_mode, "programmatic")
+        self.assertTrue(copilot.disable_builtin_mcps)
         self.assertEqual(copilot.allow_tools, ("write",))
 
     def test_finish_parser_accepts_dry_run_and_safety_overrides(self) -> None:
