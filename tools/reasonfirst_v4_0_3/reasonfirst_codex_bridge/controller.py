@@ -104,6 +104,7 @@ class BridgeController:
         self._app_current_thread: dict[str, str] = {}
         self._approval_waiters: dict[str, threading.Event] = {}
         self._approval_results: dict[str, dict[str, Any]] = {}
+        self._approval_requests: dict[str, dict[str, Any]] = {}
 
     def _load_state(self) -> dict[str, Any]:
         if not self.state_file.exists():
@@ -292,14 +293,26 @@ class BridgeController:
             key = self._approval_key(thread_id, request_id)
             waiter = threading.Event()
             self._approval_waiters[key] = waiter
+            self._approval_requests[key] = {
+                "method": method,
+                "params": params,
+            }
             pending = session.setdefault("pending_approvals", {})
             if not isinstance(pending, dict):
                 pending = {}
                 session["pending_approvals"] = pending
+            safe_params_text = redact(
+                json.dumps(params, ensure_ascii=False, default=str),
+                12000,
+            )
+            try:
+                safe_params = json.loads(safe_params_text)
+            except json.JSONDecodeError:
+                safe_params = {"summary": safe_params_text}
             pending[str(request_id)] = {
                 "request_id": request_id,
                 "method": method,
-                "params": params,
+                "params": safe_params,
                 "created_at": int(time.time()),
             }
             session["updated_at"] = int(time.time())
@@ -309,6 +322,7 @@ class BridgeController:
 
         with self._lock:
             self._approval_waiters.pop(key, None)
+            self._approval_requests.pop(key, None)
             result = self._approval_results.pop(key, None)
             session = self._session(thread_id)
             pending = session.get("pending_approvals")
@@ -368,7 +382,18 @@ class BridgeController:
                     f"No pending approval {request_id} for thread {thread_id}"
                 )
             method = str(item.get("method") or "")
-            params = item.get("params") if isinstance(item.get("params"), dict) else {}
+            key = self._approval_key(thread_id, request_id)
+            raw_request = self._approval_requests.get(key)
+            params = (
+                raw_request.get("params")
+                if isinstance(raw_request, dict)
+                and isinstance(raw_request.get("params"), dict)
+                else (
+                    item.get("params")
+                    if isinstance(item.get("params"), dict)
+                    else {}
+                )
+            )
 
             if method == "item/permissions/requestApproval":
                 requested = params.get("permissions")
@@ -403,7 +428,6 @@ class BridgeController:
                         )
                 result = {"decision": decision}
 
-            key = self._approval_key(thread_id, request_id)
             waiter = self._approval_waiters.get(key)
             if waiter is None:
                 raise BridgeError("Approval request is no longer active")
