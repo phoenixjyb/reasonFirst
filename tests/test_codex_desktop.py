@@ -37,9 +37,9 @@ class CodexDesktopAdapterTests(unittest.TestCase):
         params = desktop_thread_params(self.policy, "/tmp/worktree")
 
         self.assertEqual(params["model"], "gpt-5.6-sol")
-        self.assertEqual(params["effort"], "high")
-        self.assertEqual(params["approvalPolicy"], "on-request")
-        self.assertEqual(params["sandbox"], "workspace-write")
+        self.assertNotIn("effort", params)
+        self.assertEqual(params["approvalPolicy"], "onRequest")
+        self.assertEqual(params["sandbox"], "workspaceWrite")
         self.assertEqual(params["cwd"], "/tmp/worktree")
 
     def test_turn_params_keep_workspace_and_network_boundary(self) -> None:
@@ -52,7 +52,7 @@ class CodexDesktopAdapterTests(unittest.TestCase):
 
         self.assertEqual(params["model"], "gpt-5.6-sol")
         self.assertEqual(params["effort"], "high")
-        self.assertEqual(params["approvalPolicy"], "on-request")
+        self.assertEqual(params["approvalPolicy"], "onRequest")
         self.assertEqual(
             params["sandboxPolicy"],
             {
