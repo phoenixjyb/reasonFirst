@@ -7,7 +7,7 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         root=pathlib.Path(td)
         bridge=root/'bridge.yaml'; codex=root/'config.toml'
-        bridge.write_text('version: 3\ndefaults:\n  target: local\ntargets:\n  gpu:\n    type: ssh\n    host: gpu\n    repo: /work/app\n')
+        bridge.write_text('version: 3\ndefaults:\n  target: local\n  worker_backend: copilot-cli\ntargets:\n  gpu:\n    type: ssh\n    host: gpu\n    repo: /work/app\n')
         codex.write_text('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"\n\n[mcp_servers.context7]\nurl = "https://example.invalid/mcp"\n\n[mcp_servers.reasonfirst]\ncommand = "/old/reasonfirst"\n')
         subprocess.run([
             'python',str(ROOT/'configure_v4.py'),
@@ -20,6 +20,8 @@ def main():
         assert b['version']==4
         assert b['targets']['gpu']['repo']=='/work/app'
         assert b['defaults']['codex_backend']=='global-config-local'
+        assert b['defaults']['worker_backend']=='copilot-cli'
+        assert b['targets']['local']['worker_backend']=='copilot-cli'
         text=codex.read_text()
         assert 'model = "gpt-5.6-sol"' in text
         assert '[mcp_servers.context7]' in text
