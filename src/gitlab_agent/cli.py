@@ -18,6 +18,7 @@ from .project_config import (
     PROJECT_CONFIG_MAX_BYTES,
     parse_project_config,
 )
+from .remote_targets import safe_target_summary, targets_file_path
 from .runner import CommandRunner
 from .worker_policy import (
     WorkerPolicy,
@@ -632,6 +633,10 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         "agents",
         help="Show supported coding backends and whether their CLI executable is installed",
     )
+    sub.add_parser(
+        "targets",
+        help="Show user-owned named SSH execution targets without contacting them",
+    )
 
     p = sub.add_parser(
         "project-config",
@@ -911,6 +916,17 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
             result = run_doctor(offline=args.offline)
             _print(result)
             return 0 if bool(result.get("ok")) else 1
+        if args.command == "targets":
+            result = {
+                "config_file": str(targets_file_path()),
+                "targets": safe_target_summary(),
+                "note": (
+                    "Only locally configured named targets are trusted. "
+                    "MCP/tool requests must select one of these names; inline host/repo destinations are not grants."
+                ),
+            }
+            _print(result)
+            return 0
 
         settings = AgentSettings.load()
         manager = WorkspaceManager(settings)
