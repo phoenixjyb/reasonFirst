@@ -40,6 +40,9 @@ class RemoteWorkspaceManager:
         gitlab_host: str = "",
         git_username: str = "",
         git_password: str = "",
+        allowed_executables: set[str] | None = None,
+        max_command_timeout_seconds: int = 300,
+        max_output_bytes: int = 120000,
     ) -> None:
         if target.type != "ssh":
             raise RemoteWorkspaceError("RemoteWorkspaceManager requires an SSH target")
@@ -47,6 +50,9 @@ class RemoteWorkspaceManager:
         self.gitlab_host = str(gitlab_host or "").strip().lower()
         self.git_username = str(git_username or "")
         self.git_password = str(git_password or "")
+        self.allowed_executables = set(allowed_executables or set())
+        self.max_command_timeout_seconds = max(1, int(max_command_timeout_seconds))
+        self.max_output_bytes = max(2000, int(max_output_bytes))
 
     def _ssh(self, command: str, *, timeout: int = 120, check: bool = True) -> subprocess.CompletedProcess[str]:
         # Send the shell script through stdin so OpenSSH cannot corrupt quoting
@@ -322,32 +328,164 @@ raise SystemExit(proc.returncode)
             "stderr": proc.stderr[-12000:],
         }
 
-    @staticmethod
-    def _command_block_reason(command: str) -> str | None:
-        text = str(command or "").strip()
-        if not text:
-            return "empty command"
-        lowered = " " + re.sub(r"\s+", " ", text.lower()) + " "
-        blocked = [
-            (r"(^|[;&| ])sudo([ ;&|]|$)", "sudo is not allowed"),
-            (r"(^|[;&| ])su([ ;&|]|$)", "su is not allowed"),
-            (r"(^|[;&| ])ssh([ ;&|]|$)", "nested ssh is not allowed"),
-            (r"(^|[;&| ])scp([ ;&|]|$)", "scp is not allowed"),
-            (r"(^|[;&| ])sftp([ ;&|]|$)", "sftp is not allowed"),
-            (r"(^|[;&| ])git\s+push([ ;&|]|$)", "git push is not allowed"),
-            (r"(^|[;&| ])git\s+reset\s+--hard([ ;&|]|$)", "git reset --hard is not allowed"),
-            (r"(^|[;&| ])git\s+clean([ ;&|]|$)", "git clean is not allowed"),
-            (r"(^|[;&| ])shutdown([ ;&|]|$)", "shutdown is not allowed"),
-            (r"(^|[;&| ])reboot([ ;&|]|$)", "reboot is not allowed"),
-            (r"(^|[;&| ])poweroff([ ;&|]|$)", "poweroff is not allowed"),
-            (r"(^|[;&| ])systemctl\s+(stop|disable|mask)([ ;&|]|$)", "service stopping is not allowed"),
-        ]
-        for pattern, reason in blocked:
-            if re.search(pattern, lowered):
-                return reason
-        if "rm -rf /" in lowered or "rm -fr /" in lowered:
-            return "destructive root deletion is not allowed"
-        return None
+    def validation_enabled(self) -> bool:
+        return bool(
+            self.target.validation_engine
+            and self.target.validation_image
+            and self.target.validation_allowed_executables
+        )
+
+    def run_argv(
+        self,
+        state: dict[str, Any],
+        argv: list[str],
+        *,
+        cwd: str = ".",
+        timeout_seconds: int = 300,
+    ) -> dict[str, Any]:
+        """Run validation inside an explicitly configured container sandbox."""
+
+        if not self.validation_enabled():
+            raise RemoteWorkspaceError(
+                "Remote validation is disabled. Configure an SSH target validation "
+                "container before exposing execution."
+            )
+        if not argv or len(argv) > 64:
+            raise RemoteWorkspaceError("argv must contain between 1 and 64 items")
+        if any(
+            not isinstance(item, str)
+            or not item
+            or "\x00" in item
+            or len(item.encode("utf-8", errors="replace")) > 4096
+            for item in argv
+        ):
+            raise RemoteWorkspaceError("argv contains an invalid or oversized item")
+
+        executable = argv[0]
+        if "/" in executable or "\\" in executable:
+            raise RemoteWorkspaceError("validation executable must be a bare command name")
+        if executable == "git":
+            raise RemoteWorkspaceError(
+                "git is not exposed through the validation runner; Git publication "
+                "remains a separate reviewed ReasonFirst operation"
+            )
+        target_allowed = set(self.target.validation_allowed_executables)
+        effective_allowed = target_allowed & self.allowed_executables
+        if executable not in effective_allowed:
+            raise RemoteWorkspaceError(
+                f"validation executable {executable!r} is not allowed by both "
+                "the user target policy and ReasonFirst executable policy"
+            )
+
+        rel = _safe_relative(cwd)
+        timeout = max(
+            1,
+            min(int(timeout_seconds), self.max_command_timeout_seconds),
+        )
+        import base64
+        payload = base64.b64encode(
+            json.dumps(
+                {
+                    "engine": self.target.validation_engine,
+                    "image": self.target.validation_image,
+                    "worktree": str(state["worktree_path"]),
+                    "cwd": rel,
+                    "argv": argv,
+                    "timeout": timeout,
+                    "network": bool(
+                        self.target.network_access
+                        and self.target.validation_network_access
+                    ),
+                    "max_output_bytes": self.max_output_bytes,
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).decode("ascii")
+        script = r'''
+import base64,json,os,pathlib,shutil,subprocess,sys,time
+cfg=json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
+engine=cfg["engine"]
+engine_path=shutil.which(engine)
+if not engine_path:
+    raise SystemExit(f"container engine not found: {engine}")
+root=pathlib.Path(cfg["worktree"]).resolve()
+rel=cfg["cwd"]
+cwd=(root/rel).resolve()
+cwd.relative_to(root)
+if not cwd.is_dir():
+    raise SystemExit("cwd is not a directory")
+image=cfg["image"]
+if not image or image.startswith("-") or any(ch.isspace() for ch in image):
+    raise SystemExit("unsafe validation image")
+container_cwd="/workspace" if rel in {".",""} else "/workspace/"+rel
+uid=str(os.getuid()) if hasattr(os,"getuid") else "1000"
+gid=str(os.getgid()) if hasattr(os,"getgid") else "1000"
+cmd=[
+    engine_path,"run","--rm","--read-only",
+    "--cap-drop=ALL","--security-opt","no-new-privileges",
+    "--pids-limit=256","--memory=4g","--cpus=4",
+    "--user",uid+":"+gid,
+    "--tmpfs","/tmp:rw,nosuid,nodev,size=1g",
+    "--env","HOME=/tmp/reasonfirst-home",
+    "--volume",str(root)+":/workspace:rw",
+    "--workdir",container_cwd,
+]
+if not cfg["network"]:
+    cmd.extend(["--network","none"])
+cmd.append(image)
+cmd.extend(cfg["argv"])
+start=time.monotonic()
+try:
+    proc=subprocess.run(
+        cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        timeout=int(cfg["timeout"]),check=False,
+        env={"PATH":os.environ.get("PATH","")},
+    )
+    timed_out=False
+    rc=proc.returncode
+    stdout=proc.stdout
+    stderr=proc.stderr
+except subprocess.TimeoutExpired as exc:
+    timed_out=True
+    rc=None
+    stdout=exc.stdout or ""
+    stderr=exc.stderr or ""
+    if isinstance(stdout,bytes):
+        stdout=stdout.decode("utf-8",errors="replace")
+    if isinstance(stderr,bytes):
+        stderr=stderr.decode("utf-8",errors="replace")
+cap=max(1000,int(cfg["max_output_bytes"])//2)
+def clip(value):
+    raw=str(value).encode("utf-8",errors="replace")
+    return raw[:cap].decode("utf-8",errors="ignore"), len(raw)>cap, len(raw)
+out,out_truncated,out_bytes=clip(stdout)
+err,err_truncated,err_bytes=clip(stderr)
+print(json.dumps({
+    "argv":cfg["argv"],
+    "cwd":rel,
+    "container_engine":engine,
+    "container_image":image,
+    "network_access":bool(cfg["network"]),
+    "returncode":rc,
+    "timed_out":timed_out,
+    "timeout_seconds":int(cfg["timeout"]),
+    "duration_ms":int((time.monotonic()-start)*1000),
+    "stdout":out,
+    "stderr":err,
+    "stdout_truncated":out_truncated,
+    "stderr_truncated":err_truncated,
+    "stdout_original_bytes":out_bytes,
+    "stderr_original_bytes":err_bytes,
+}))
+'''
+        command = "python3 -c {} {}".format(
+            shlex.quote(script),
+            shlex.quote(payload),
+        )
+        proc = self._ssh(command, timeout=timeout + 30)
+        result = json.loads(proc.stdout.strip().splitlines()[-1])
+        result["workspace_id"] = state["workspace_id"]
+        return result
 
     def run_command(
         self,
@@ -357,36 +495,10 @@ raise SystemExit(proc.returncode)
         cwd: str = ".",
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        reason = self._command_block_reason(command)
-        if reason:
-            raise RemoteWorkspaceError(f"Remote command blocked by ReasonFirst policy: {reason}")
-        rel = _safe_relative(cwd)
-        timeout_seconds = max(1, min(int(timeout_seconds), 1800))
-        script = r'''
-import json, os, pathlib, subprocess, sys, time
-root=pathlib.Path(sys.argv[1]).resolve(); rel=sys.argv[2]; command=sys.argv[3]; timeout=int(sys.argv[4])
-cwd=(root/rel).resolve(); cwd.relative_to(root)
-if not cwd.is_dir(): raise SystemExit("cwd is not a directory")
-start=time.monotonic()
-try:
-    proc=subprocess.run(["bash","-lc",command],cwd=str(cwd),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,check=False)
-    result={"returncode":proc.returncode,"timed_out":False,"stdout":proc.stdout[-60000:],"stderr":proc.stderr[-60000:],"duration_ms":int((time.monotonic()-start)*1000)}
-except subprocess.TimeoutExpired as exc:
-    out=exc.stdout or ""; err=exc.stderr or ""
-    if isinstance(out,bytes): out=out.decode("utf-8",errors="replace")
-    if isinstance(err,bytes): err=err.decode("utf-8",errors="replace")
-    result={"returncode":None,"timed_out":True,"stdout":str(out)[-60000:],"stderr":str(err)[-60000:],"duration_ms":int((time.monotonic()-start)*1000)}
-print(json.dumps(result))
-'''
-        cmd = "python3 -c {} {} {} {} {}".format(
-            shlex.quote(script),
-            shlex.quote(str(state["worktree_path"])),
-            shlex.quote(rel),
-            shlex.quote(str(command)),
-            timeout_seconds,
+        raise RemoteWorkspaceError(
+            "Arbitrary remote shell execution is disabled; use run_argv with an "
+            "explicitly configured container validation runner"
         )
-        proc = self._ssh(cmd, timeout=timeout_seconds + 30)
-        return json.loads(proc.stdout.strip().splitlines()[-1])
 
     def diff(self, state: dict[str, Any], *, max_chars: int = 120000) -> dict[str, Any]:
         wt = shlex.quote(str(state["worktree_path"]))
