@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-VERSION="4.0.3"
+VERSION="4.0.3-r1"
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(CDPATH= cd -- "$HERE/../.." && pwd)"
 RUNTIME_DIR="${RF_V4_RUNTIME_DIR:-$HOME/.local/share/reasonfirst/v4-runtime}"
@@ -15,7 +15,7 @@ if [ -x "$VENV/bin/python" ] && [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$VER
   if "$VENV/bin/python" - <<'PY' >/dev/null 2>&1
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
-import yaml, websockets, PIL, pypdf, fitz
+import yaml, websockets, PIL, pypdf, pymupdf
 PY
   then ready=1; fi
 fi
@@ -28,17 +28,17 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 "$UV_BIN" pip install --python "$VENV/bin/python" \
   -e "$PROJECT_ROOT" \
-  'websockets>=15,<17' \
-  'pillow>=10,<13' \
-  'pypdf>=5,<7' \
-  'pymupdf>=1.24,<2'
+  'websockets==16.1.1' \
+  'pillow==12.3.0' \
+  'pypdf==6.19.0' \
+  'pymupdf==1.28.2'
 printf '%s\n' "$VERSION" > "$MARKER"
 chmod 700 "$RUNTIME_DIR" "$VENV" 2>/dev/null || true
 chmod 600 "$MARKER" 2>/dev/null || true
 "$VENV/bin/python" - <<'PY'
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
-import yaml, websockets, PIL, pypdf, fitz
+import yaml, websockets, PIL, pypdf, pymupdf
 print("ReasonFirst v4 runtime imports: OK")
 PY
 echo "Installed ReasonFirst v4 runtime: $VENV"
