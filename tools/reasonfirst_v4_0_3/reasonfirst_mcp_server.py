@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import hmac
 import json
+import os
 import secrets
 import sys
 from typing import Any
@@ -197,10 +198,14 @@ def build_server():
             max_visual_previews=1,
         )
 
-    @server.tool(name="reasonfirst_authorize_push", annotations=write)
-    def reasonfirst_authorize_push(thread_id: str, commit_message: str) -> dict[str, Any]:
-        """After ChatGPT reviews the final diff/tests, authorize Codex to commit/push exactly that unchanged snapshot."""
-        return ctrl.authorize_push(thread_id=thread_id, commit_message=commit_message)
+    remote_push_enabled = os.getenv(
+        "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if remote_push_enabled:
+        @server.tool(name="reasonfirst_authorize_push", annotations=write)
+        def reasonfirst_authorize_push(thread_id: str, commit_message: str) -> dict[str, Any]:
+            """Authorize the exact reviewed remote candidate/destination for experimental publication."""
+            return ctrl.authorize_push(thread_id=thread_id, commit_message=commit_message)
 
     # Keep controller alive for the process lifetime. MCPServer does not own it.
     setattr(server, "_reasonfirst_controller", ctrl)
