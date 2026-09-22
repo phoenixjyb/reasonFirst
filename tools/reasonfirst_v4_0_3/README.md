@@ -1,43 +1,164 @@
-# ReasonFirst v4.0.3
+# ReasonFirst Bridge Preview
 
-ChatGPT 负责分析、规划和审查；Mac 本地 Codex 负责改代码、构建、测试和经审查的提交。SSH 目标机不需要安装 Codex。
+> Compatibility path: `tools/reasonfirst_v4_0_3/`. This directory name is retained for migration compatibility and **does not represent the ReasonFirst product version**. The product version is defined by the core package (`src/gitlab_agent/__init__.py` / `pyproject.toml`).
 
-## 一键安装
+This preview adds an optional local MCP / Codex Desktop App Server surface around the normal ReasonFirst core. ChatGPT remains the planner/reviewer; coding execution remains a user-selected backend.
+
+## Worker backends
+
+ReasonFirst supports three explicit worker surfaces:
+
+```text
+--agent codex          # Codex CLI
+--agent copilot        # GitHub Copilot CLI
+--agent codex-desktop  # managed Codex Desktop App Server
+```
+
+`codex` and `codex-desktop` consume the same user-owned Codex `WorkerPolicy` (model, reasoning effort, sandbox, approval and network policy). The bridge does not replace the CLI backends.
+
+## Safe installation flow
+
+Stage the compatibility bridge files without changing user/global configuration:
 
 ```bash
-cd reasonfirst_v4_0_3
+cd tools/reasonfirst_v4_0_3
 ./apply_to_reasonfirst.sh /path/to/reasonFirst
 ```
 
-安装程序会备份并迁移 v3/v4 `bridge.yaml`，仅新增或更新 `~/.codex/config.toml` 的 ReasonFirst MCP 与插件条目，保留其他全局模型、profile、MCP、skills、rules 和登录态。它还会安装 ChatGPT Desktop 插件、启动本地 MCP LaunchAgent，并在现有 GitHub CLI 登录有效时启动网页控制 relay。重复运行可安全更新 ReasonFirst 配置。
-为兼容 macOS 系统代理，安装程序只给本机登录环境追加 `127.0.0.1,localhost` 的 `NO_PROXY` 例外；外网代理保持开启。新例外在重启 ChatGPT Desktop/Codex 后生效。
+The default staging operation does **not** modify Codex config, plugin marketplaces, LaunchAgents, proxy environment, GitHub relay or Tunnel configuration.
 
-## 启动与检查
-
-本地 MCP 在用户登录后由 `com.reasonfirst.v4-mcp` 自动启动，地址为 `http://127.0.0.1:8765/mcp`。Codex 插件和网页控制 relay 共用这个 MCP 进程及 `~/.local/share/reasonfirst/codex-web-bridge/state.json`。普通 ChatGPT Desktop 聊天不会因本地安装而自动获得该 MCP 工具。
-安装时会把运行代码复制到 `~/.local/share/reasonfirst/v4-service`，供 macOS 登录项读取；源目录仍是更新入口。
+Review the configuration plan:
 
 ```bash
-cd /path/to/reasonFirst
-curl -fsS http://127.0.0.1:8765/healthz
-codex mcp list
-./tools/codex_web_bridge/run_reasonfirst.sh --doctor
-launchctl print gui/$(id -u)/com.reasonfirst.v4-mcp
-launchctl print gui/$(id -u)/com.reasonfirst.web-bridge
+/path/to/reasonFirst/tools/codex_web_bridge/configure_v4.sh --plan
 ```
 
-安装程序会通过 Codex CLI 安装并启用个人插件。安装后重启 Codex，以重新读取插件与 MCP 配置。`codex plugin list` 和 Codex 中的实际工具调用只验证 Codex 接入，不代表普通 ChatGPT Web/App 会话已接入。
+Then apply it explicitly:
 
-## 网页端
+```bash
+/path/to/reasonFirst/tools/codex_web_bridge/configure_v4.sh
+```
 
-当前账号不能使用 ChatGPT 开发者模式，网页端沿用此前确定的**私人 GitHub Issue + GitHub connector**入口。relay 将命令转发给同一本地 MCP 进程；GitHub 仅负责网页消息进出，不保存另一份任务 state。`gh auth status` 和私人控制仓库必须可用，网页端才能实测。若网络或凭据失效，本地 MCP 与 Desktop 仍可使用。
+For an intentional one-command stage + configure flow:
 
-普通 ChatGPT Web/App 会话目前没有直接可调用的 ReasonFirst 工具，因此这里的 GitHub connector 是当前可用的网页控制入口，并非已经切换到直连。只有在该会话工具列表中出现 ReasonFirst MCP 工具，并实际成功调用后，才能宣称直连可用。不能通过本机配置让未注册的工具自动出现在普通聊天中。
+```bash
+./apply_to_reasonfirst.sh --configure /path/to/reasonFirst
+```
 
-若以后开通开发者模式，可设置 `RF_TUNNEL_ID` 与 `CONTROL_PLANE_API_KEY` 后重跑 `configure_v4.sh`，并在 ChatGPT 中注册连接，通过 Secure MCP Tunnel 将同一 MCP URL 接入 Web。Tunnel 客户端从 OpenAI 官方发布页下载安装并校验 SHA256；密钥保存在 macOS Keychain，不写入包内。未注册连接前，安装 Tunnel 本身也不会给聊天会话添加工具。
+Configuration backs up files it changes and installs the loopback MCP service. Optional external transports are not enabled merely because credentials happen to exist.
 
-## 兼容与回退
+## Optional transports
 
-`run_reasonfirst.sh` 启动 MCP，不再启动旧 GitHub relay；`run_github_relay.sh` 是显式的网页入口。配置版本 3/4 都可读取，安装会迁移到 4。原有配置备份位于 `~/.local/share/reasonfirst/backups`。
+The private GitHub Issue relay requires explicit opt-in:
 
-自动启动日志位于 `~/.local/share/reasonfirst/logs`。本地服务故障时先查看 `v4-mcp.stderr.log`；网页故障时查看 `web-relay.stderr.log` 与 `gh auth status`。
+```bash
+export RF_ENABLE_WEB_RELAY=true
+/path/to/reasonFirst/tools/codex_web_bridge/configure_v4.sh
+```
+
+The Secure MCP Tunnel requires both values explicitly:
+
+```bash
+export RF_TUNNEL_ID=tunnel_xxx
+export CONTROL_PLANE_API_KEY=...
+/path/to/reasonFirst/tools/codex_web_bridge/configure_v4.sh
+```
+
+Tunnel credentials are handled by the dedicated tunnel setup; they are not stored in this source tree.
+
+## Local MCP and Desktop checks
+
+The configured loopback MCP URL is:
+
+```text
+http://127.0.0.1:8765/mcp
+```
+
+Useful checks:
+
+```bash
+curl -fsS http://127.0.0.1:8765/healthz
+uv run actual-coder agents
+uv run actual-coder config
+codex mcp list
+launchctl print gui/$(id -u)/com.reasonfirst.v4-mcp
+```
+
+The health endpoint reports the **core ReasonFirst version** plus bridge/config-schema metadata.
+
+## Git-only authentication
+
+Git-only operation is a core ReasonFirst capability; this preview no longer patches core source code at install time.
+
+For self-managed GitLab HTTPS authentication, use exactly one Git credential source:
+
+- preferred: `GITLAB_GIT_TOKEN`
+- optional self-managed fallback: `GITLAB_GIT_PASSWORD`
+- API-token fallback remains last resort when neither separate Git credential is set.
+
+Do not configure `GITLAB_GIT_TOKEN` and `GITLAB_GIT_PASSWORD` simultaneously.
+
+Git-only diagnostics/start:
+
+```bash
+uv run actual-coder doctor --offline --git-only
+uv run actual-coder start group/project --goal "..." --git-only --no-launch
+```
+
+The password bootstrap requires an explicit `group/project` allowlist entry; it does not silently enable writes to every accessible project.
+
+## SSH execution targets
+
+SSH targets must be defined by the user in `~/.config/reasonfirst/bridge.yaml`. MCP callers may select a configured target name but cannot introduce an arbitrary host/repository trust destination inline.
+
+Example:
+
+```yaml
+targets:
+  gpu-a:
+    type: ssh
+    host: gpu-a
+    repo: /srv/reasonfirst/project
+    codex_backend: desktop-proxy
+    network_access: false
+```
+
+The default remote dynamic-tool surface supports managed workspace/status/file/read/write/apply-patch/diff operations. **Arbitrary remote shell execution is intentionally not exposed** until a real sandboxed runner is available.
+
+## Remote publication
+
+Remote SSH publication is experimental and **disabled by default**.
+
+Without:
+
+```bash
+export RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH=true
+```
+
+the MCP server does not register `reasonfirst_authorize_push`, and the Codex remote dynamic-tool namespace does not advertise `commit_push`.
+
+When explicitly enabled, approval is bound to the target, project, base SHA, HEAD, branch, origin URL, push URL and exact candidate Git tree, and the tree is rechecked immediately before publication. This experimental path still does not claim full parity with every local ActualCoder controlled-finish policy invariant.
+
+The normal local `actual-coder finish` flow remains the default publication path.
+
+## Web / ChatGPT availability
+
+Installing a local plugin or MCP service does not automatically make ReasonFirst tools appear in every ChatGPT Web/App conversation. Direct ChatGPT access requires a supported registered connection/tool surface. The private GitHub relay remains an optional compatibility transport where appropriate.
+
+## Runtime and rollback
+
+The bridge runtime is staged under:
+
+```text
+~/.local/share/reasonfirst/
+```
+
+Configuration backups are stored under the ReasonFirst backup directory. Runtime dependency versions used only by this preview are pinned in `install_v4_runtime.sh`; the core ReasonFirst package remains the source of shared MCP/PyYAML dependencies.
+
+Automatic-start logs are under:
+
+```text
+~/.local/share/reasonfirst/logs
+```
+
+Keep this preview subordinate to the core ReasonFirst architecture: one workspace model, one `WorkerPolicy`, one controlled publication policy, and user-authoritative backend/target selection.
