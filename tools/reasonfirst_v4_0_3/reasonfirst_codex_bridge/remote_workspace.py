@@ -421,7 +421,7 @@ container_cwd="/workspace" if rel in {".",""} else "/workspace/"+rel
 uid=str(os.getuid()) if hasattr(os,"getuid") else "1000"
 gid=str(os.getgid()) if hasattr(os,"getgid") else "1000"
 cmd=[
-    engine_path,"run","--rm","--read-only",
+    engine_path,"run","--rm","--pull=never","--read-only",
     "--cap-drop=ALL","--security-opt","no-new-privileges",
     "--pids-limit=256","--memory=4g","--cpus=4",
     "--user",uid+":"+gid,
