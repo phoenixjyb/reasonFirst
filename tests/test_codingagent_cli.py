@@ -485,6 +485,62 @@ mr:
         self.assertFalse(calls[0]["policy"].network_access)
         self.assertEqual(calls[-1], {"closed": True})
 
+    def test_user_backend_pin_overrides_project_preference(self) -> None:
+        contract = """
+version: 1
+agents:
+  preferred: [copilot, codex]
+"""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            settings = AgentSettings(
+                config_file=root / ".env",
+                gitlab_base_url="https://gitlab.example.test",
+                api_token="token",
+                api_verify_ssl=True,
+                api_trust_env=False,
+                git_token="token",
+                git_username="oauth2",
+                git_trust_env=False,
+                allowed_projects={"team/project"},
+                require_write_allowlist=True,
+                workspace_root=root / "workspace-root",
+                branch_prefix="chatgpt/",
+                default_base_ref="main",
+                allowed_executables={"uv"},
+                command_timeout_seconds=300,
+                max_output_bytes=120000,
+                max_file_bytes=1000000,
+                git_author_name=None,
+                git_author_email=None,
+                worker_backend="codex-desktop",
+            )
+            manager = FakeStartManager(root, contract)
+
+            with patch(
+                "gitlab_agent.cli.codex_desktop_available",
+                return_value=(True, "/Applications/Codex.app/Contents/Resources/codex"),
+            ):
+                result = _prepare_start(
+                    manager,  # type: ignore[arg-type]
+                    settings,
+                    project="team/project",
+                    task_slug="desktop-test",
+                    goal="Implement carefully",
+                    requested_agent="auto",
+                )
+
+        self.assertEqual(result["agent"], "codex-desktop")
+        self.assertEqual(result["agent_requested"], "auto")
+        self.assertEqual(
+            result["agent_selection"]["configured_backend"],
+            "codex-desktop",
+        )
+        self.assertEqual(
+            result["agent_selection"]["preference_source"],
+            "user",
+        )
+
     def test_launch_argv_applies_default_worker_policies(self) -> None:
         self.assertEqual(
             _agent_launch_argv("codex", "hello"),
