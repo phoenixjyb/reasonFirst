@@ -102,6 +102,8 @@ class BridgeController:
         self.bridge_config = load_bridge_config()
         self._apps: dict[str, AppServerClient] = {}
         self._app_current_thread: dict[str, str] = {}
+        self._approval_waiters: dict[str, threading.Event] = {}
+        self._approval_results: dict[str, dict[str, Any]] = {}
 
     def _load_state(self) -> dict[str, Any]:
         if not self.state_file.exists():
@@ -125,6 +127,21 @@ class BridgeController:
         data.setdefault("sessions", {})
         data.setdefault("workspaces", {})
         data.setdefault("finish_approvals", {})
+        for session in data["sessions"].values():
+            if not isinstance(session, dict):
+                continue
+            stale = session.get("pending_approvals")
+            if isinstance(stale, dict) and stale:
+                history = session.setdefault("approval_history", [])
+                if isinstance(history, list):
+                    for request_id, item in stale.items():
+                        history.append({
+                            "request_id": request_id,
+                            "status": "abandoned_on_restart",
+                            "request": item,
+                        })
+                    del history[:-50]
+            session["pending_approvals"] = {}
         return data
 
     def _save_state(self) -> None:
@@ -237,6 +254,170 @@ class BridgeController:
             return f"proxy:{target.codex_backend}"
         return f"local:{target.codex_backend}"
 
+    @staticmethod
+    def _approval_timeout_seconds() -> int:
+        raw = os.getenv("RF_APPROVAL_TIMEOUT_SECONDS", "300").strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 300
+        return max(30, min(value, 1800))
+
+    @staticmethod
+    def _approval_key(thread_id: str, request_id: int) -> str:
+        return f"{thread_id}:{request_id}"
+
+    @staticmethod
+    def _decline_approval(method: str) -> dict[str, Any]:
+        if method == "item/permissions/requestApproval":
+            return {"permissions": {}}
+        return {"decision": "decline"}
+
+    def _handle_app_approval_request(
+        self,
+        app_key: str,
+        msg: dict[str, Any],
+    ) -> dict[str, Any]:
+        method = str(msg.get("method") or "")
+        request_id = msg.get("id")
+        params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+        thread_id = str(params.get("threadId") or "")
+        if not isinstance(request_id, int) or not thread_id:
+            return self._decline_approval(method)
+
+        with self._lock:
+            session = self._session(thread_id)
+            if str(session.get("app_key") or "") != app_key:
+                return self._decline_approval(method)
+            key = self._approval_key(thread_id, request_id)
+            waiter = threading.Event()
+            self._approval_waiters[key] = waiter
+            pending = session.setdefault("pending_approvals", {})
+            if not isinstance(pending, dict):
+                pending = {}
+                session["pending_approvals"] = pending
+            pending[str(request_id)] = {
+                "request_id": request_id,
+                "method": method,
+                "params": params,
+                "created_at": int(time.time()),
+            }
+            session["updated_at"] = int(time.time())
+            self._save_state()
+
+        signaled = waiter.wait(self._approval_timeout_seconds())
+
+        with self._lock:
+            self._approval_waiters.pop(key, None)
+            result = self._approval_results.pop(key, None)
+            session = self._session(thread_id)
+            pending = session.get("pending_approvals")
+            request_record = (
+                pending.pop(str(request_id), None)
+                if isinstance(pending, dict)
+                else None
+            )
+            if result is None:
+                result = self._decline_approval(method)
+            history = session.setdefault("approval_history", [])
+            if isinstance(history, list):
+                history.append({
+                    "request_id": request_id,
+                    "method": method,
+                    "status": "resolved" if signaled else "timed_out_declined",
+                    "request": request_record,
+                    "result": result,
+                    "resolved_at": int(time.time()),
+                })
+                del history[:-50]
+            session["updated_at"] = int(time.time())
+            self._save_state()
+            return result
+
+    def pending_approvals(self, *, thread_id: str) -> dict[str, Any]:
+        session = self._session(thread_id)
+        pending = session.get("pending_approvals")
+        items = list(pending.values()) if isinstance(pending, dict) else []
+        return {
+            "ok": True,
+            "thread_id": thread_id,
+            "pending": items,
+            "count": len(items),
+            "default": "deny_on_timeout",
+            "timeout_seconds": self._approval_timeout_seconds(),
+        }
+
+    def resolve_approval(
+        self,
+        *,
+        thread_id: str,
+        request_id: int,
+        approve: bool,
+        for_session: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            session = self._session(thread_id)
+            pending = session.get("pending_approvals")
+            item = (
+                pending.get(str(request_id))
+                if isinstance(pending, dict)
+                else None
+            )
+            if not isinstance(item, dict):
+                raise BridgeError(
+                    f"No pending approval {request_id} for thread {thread_id}"
+                )
+            method = str(item.get("method") or "")
+            params = item.get("params") if isinstance(item.get("params"), dict) else {}
+
+            if method == "item/permissions/requestApproval":
+                requested = params.get("permissions")
+                result = {
+                    "permissions": (
+                        requested
+                        if approve and isinstance(requested, dict)
+                        else {}
+                    ),
+                }
+                if approve:
+                    result["scope"] = "session" if for_session else "turn"
+            else:
+                decision = (
+                    "acceptForSession"
+                    if approve and for_session
+                    else ("accept" if approve else "decline")
+                )
+                available = params.get("availableDecisions")
+                if (
+                    approve
+                    and isinstance(available, list)
+                    and available
+                    and decision not in available
+                ):
+                    if "accept" in available:
+                        decision = "accept"
+                    else:
+                        raise BridgeError(
+                            f"Requested approval decision {decision!r} is not allowed; "
+                            f"available={available}"
+                        )
+                result = {"decision": decision}
+
+            key = self._approval_key(thread_id, request_id)
+            waiter = self._approval_waiters.get(key)
+            if waiter is None:
+                raise BridgeError("Approval request is no longer active")
+            self._approval_results[key] = result
+            waiter.set()
+            return {
+                "ok": True,
+                "thread_id": thread_id,
+                "request_id": request_id,
+                "approved": approve,
+                "for_session": bool(approve and for_session),
+                "result": result,
+            }
+
     def _get_app(self, target: ExecutionTarget) -> tuple[str, AppServerClient]:
         key = self._app_key(target)
         existing = self._apps.get(key)
@@ -244,36 +425,49 @@ class BridgeController:
             return key, existing
         handler = lambda event, app_key=key: self._on_event(event, app_key)
         request_handler = lambda msg, app_key=key: self._handle_dynamic_tool_request(app_key, msg)
+        approval_handler = lambda msg, app_key=key: self._handle_app_approval_request(app_key, msg)
         if target.type == "ssh" and target.codex_backend == "remote-ssh":
             app = AppServerClient.remote_ssh(
                 target.host,
                 remote_codex=target.remote_codex,
                 event_handler=handler,
                 server_request_handler=request_handler,
+                approval_request_handler=approval_handler,
                 connect_timeout=target.ssh_connect_timeout,
             )
         elif target.codex_backend in {"global-config-local", "desktop-proxy"}:
             app = AppServerClient.global_config_local(
-                event_handler=handler, server_request_handler=request_handler
+                event_handler=handler,
+                server_request_handler=request_handler,
+                approval_request_handler=approval_handler,
             )
         elif target.codex_backend == "desktop-required":
             app = AppServerClient.desktop_preferred(
-                event_handler=handler, server_request_handler=request_handler, required=True
+                event_handler=handler,
+                server_request_handler=request_handler,
+                approval_request_handler=approval_handler,
+                required=True,
             )
         elif target.codex_backend == "desktop-managed":
             app = AppServerClient.desktop_preferred(
-                event_handler=handler, server_request_handler=request_handler, required=True
+                event_handler=handler,
+                server_request_handler=request_handler,
+                approval_request_handler=approval_handler,
+                required=True,
             )
         elif target.codex_backend == "standalone-local":
             app = AppServerClient(
                 event_handler=handler,
                 server_request_handler=request_handler,
+                approval_request_handler=approval_handler,
                 backend_name="standalone-local",
             )
         else:
             # v3 compatibility. Prefer v4 dedicated global-config app-server.
             app = AppServerClient.global_config_local(
-                event_handler=handler, server_request_handler=request_handler
+                event_handler=handler,
+                server_request_handler=request_handler,
+                approval_request_handler=approval_handler,
             )
         self._apps[key] = app
         return key, app
@@ -715,6 +909,12 @@ class BridgeController:
             dynamic_tools=dynamic_tools,
             sandbox_mode=sandbox_mode,
         )
+        policy_evidence = app.worker_policy_evidence(thread_id)
+        if not bool(policy_evidence.get("satisfied", False)):
+            raise BridgeError(
+                "WORKER_POLICY_UNSATISFIED: "
+                + json.dumps(policy_evidence, ensure_ascii=False, default=str)
+            )
         with self._lock:
             self._state["sessions"][thread_id] = {
                 "thread_id": thread_id,
@@ -730,6 +930,9 @@ class BridgeController:
                 "last_agent_message": "",
                 "events": [],
                 "worker_policy": policy.to_dict(),
+                "worker_policy_evidence": policy_evidence,
+                "pending_approvals": {},
+                "approval_history": [],
                 "created_at": int(time.time()),
                 "updated_at": int(time.time()),
             }
@@ -771,6 +974,7 @@ class BridgeController:
             "codex_backend": app.backend_name,
             "worker_backend": "codex-desktop",
             "worker_policy": policy.to_dict(),
+            "worker_policy_evidence": policy_evidence,
             "remote_tools": bool(dynamic_tools),
             "execution_migrated": execution_migrated,
         }
@@ -795,6 +999,18 @@ class BridgeController:
             if isinstance(raw_policy, dict)
             else self._codex_policy()
         )
+        current_policy_evidence = app.worker_policy_evidence(thread_id)
+        if current_policy_evidence and not bool(
+            current_policy_evidence.get("satisfied", False)
+        ):
+            raise BridgeError(
+                "WORKER_POLICY_UNSATISFIED: "
+                + json.dumps(
+                    current_policy_evidence,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
         sandbox_mode = policy.sandbox_mode or "workspace-write"
         if rec.get("kind") == "ssh":
             if self._is_remote_proxy_target(target):
@@ -850,6 +1066,12 @@ class BridgeController:
             "turn_status": session.get("last_turn_status"),
             "last_agent_message": redact(str(session.get("last_agent_message") or ""), 6000),
             "codex_backend": self._app_for_session(session)[1].backend_name,
+            "worker_policy_evidence": session.get("worker_policy_evidence"),
+            "pending_approval_count": len(
+                session.get("pending_approvals", {})
+                if isinstance(session.get("pending_approvals"), dict)
+                else {}
+            ),
             "workspace": workspace,
             "push_approved": isinstance(session.get("push_approval"), dict),
             "last_push": session.get("last_push"),
@@ -1002,6 +1224,14 @@ class BridgeController:
                     elif kind=="fileChange": summary={"method":method,"type":kind,"status":item.get("status")}
                     elif kind=="agentMessage" and isinstance(item.get("text"),str): session["last_agent_message"]=str(item["text"])[-20000:]
             elif method=="error": summary={"method":method,"message":redact(str(params.get("error")),2000)}
+            elif method=="model/rerouted":
+                evidence = session.get("worker_policy_evidence")
+                if isinstance(evidence, dict):
+                    violations = evidence.setdefault("runtime_violations", [])
+                    if isinstance(violations, list):
+                        violations.append({"type": "model_rerouted", "params": params})
+                    evidence["satisfied"] = False
+                summary={"method":method,"params":params}
             elif method.startswith("bridge/"): summary={"method":method,"params":params}
             if summary is not None:
                 events=session.setdefault("events",[]); events.append({"ts":int(time.time()),**summary}); del events[:-100]
