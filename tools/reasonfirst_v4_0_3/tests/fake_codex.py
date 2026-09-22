@@ -21,7 +21,26 @@ for line in sys.stdin:
         continue
     if rid is None:
         continue
-    if method == "initialize":
+    if method == "model/list":
+        print(json.dumps({"id":rid,"result":{
+            "data":[{
+                "id":"gpt-5.6-sol",
+                "model":"gpt-5.6-sol",
+                "displayName":"GPT-5.6 Sol",
+                "description":"fake",
+                "hidden":False,
+                "supportedReasoningEfforts":[
+                    {"reasoningEffort":"low","description":"low"},
+                    {"reasoningEffort":"medium","description":"medium"},
+                    {"reasoningEffort":"high","description":"high"},
+                    {"reasoningEffort":"xhigh","description":"xhigh"}
+                ],
+                "defaultReasoningEffort":"high",
+                "isDefault":True
+            }],
+            "nextCursor":None
+        }}), flush=True)
+    elif method == "initialize":
         # Real app-server may emit notifications before initialize completes.
         print(json.dumps({"method":"account/updated","params":{"account":None}}), flush=True)
         print(json.dumps({"id":rid,"result":{"userAgent":"fake"}}), flush=True)
@@ -38,7 +57,17 @@ for line in sys.stdin:
         elif params.get("approvalPolicy") != "unlessTrusted":
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad approval policy"}}), flush=True)
         else:
-            print(json.dumps({"id":rid,"result":{"thread":{"id":thread}}}), flush=True)
+            print(json.dumps({"id":rid,"result":{
+                "thread":{
+                    "id":thread,
+                    "model":params.get("model") or "gpt-5.6-sol",
+                    "reasoningEffort":"high"
+                },
+                "model":params.get("model") or "gpt-5.6-sol",
+                "reasoningEffort":"high",
+                "approvalPolicy":params.get("approvalPolicy"),
+                "sandbox":{"type":params.get("sandbox")}
+            }}), flush=True)
     elif method == "thread/resume":
         print(json.dumps({"id":rid,"result":{"thread":{"id":thread,"name":thread_name}}}), flush=True)
     elif method == "turn/start":
