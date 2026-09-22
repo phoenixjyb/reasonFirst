@@ -19,6 +19,7 @@ class ExecutionTarget:
     name: str = "local"
     host: str = ""
     repo: str = ""
+    worker_backend: str = "codex-desktop"
     codex_backend: str = "global-config-local"
     remote_codex: str = "codex"
     ssh_connect_timeout: int = 8
@@ -45,10 +46,15 @@ def load_bridge_config() -> dict[str, Any]:
             "control": {},
             "defaults": {
                 "target": "local",
+                "worker_backend": "codex-desktop",
                 "codex_backend": "global-config-local",
             },
             "targets": {
-                "local": {"type": "local", "codex_backend": "global-config-local"}
+                "local": {
+                    "type": "local",
+                    "worker_backend": "codex-desktop",
+                    "codex_backend": "global-config-local",
+                }
             },
         }
     try:
@@ -69,10 +75,18 @@ def load_bridge_config() -> dict[str, Any]:
         defaults.setdefault("target", "local")
         # Preserve an explicit v3 backend, but v4 defaults to a dedicated
         # app-server that inherits the user's global Codex config.
+        defaults.setdefault("worker_backend", "codex-desktop")
         defaults.setdefault("codex_backend", "global-config-local")
     targets = data["targets"]
     if isinstance(targets, dict):
-        targets.setdefault("local", {"type": "local", "codex_backend": str(defaults.get("codex_backend") or "global-config-local")})
+        targets.setdefault(
+            "local",
+            {
+                "type": "local",
+                "worker_backend": str(defaults.get("worker_backend") or "codex-desktop"),
+                "codex_backend": str(defaults.get("codex_backend") or "global-config-local"),
+            },
+        )
     return data
 
 
@@ -85,6 +99,7 @@ def _parse_ssh_shorthand(value: str) -> ExecutionTarget | None:
         name=value.strip(),
         host=match.group("host"),
         repo=match.group("repo"),
+        worker_backend="codex-desktop",
         codex_backend="desktop-proxy",
     )
 
@@ -122,6 +137,14 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
     kind = str(raw.get("type") or "local").strip().lower()
     if kind not in {"local", "ssh"}:
         raise BridgeConfigError(f"Unsupported execution target type: {kind!r}")
+    worker_default = str(defaults.get("worker_backend") or "codex-desktop")
+    worker_allowed = {"codex-cli", "copilot-cli", "codex-desktop"}
+    worker_backend = str(raw.get("worker_backend") or worker_default).strip()
+    if worker_backend not in worker_allowed:
+        raise BridgeConfigError(
+            f"Unsupported worker_backend: {worker_backend!r}; "
+            "choose codex-cli, copilot-cli, or codex-desktop"
+        )
     backend_default = str(defaults.get("codex_backend") or "global-config-local")
     allowed = {
         "global-config-local",
@@ -139,6 +162,7 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
         return ExecutionTarget(
             type="local",
             name=str(raw.get("name") or "local"),
+            worker_backend=worker_backend,
             codex_backend=backend,
             network_access=bool(raw.get("network_access", False)),
         )
@@ -157,6 +181,7 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
         name=str(raw.get("name") or host),
         host=host,
         repo=repo,
+        worker_backend=worker_backend,
         codex_backend=ssh_backend,
         remote_codex=str(raw.get("remote_codex") or "codex").strip() or "codex",
         ssh_connect_timeout=max(1, min(int(raw.get("ssh_connect_timeout") or 8), 30)),
