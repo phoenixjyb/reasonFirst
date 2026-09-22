@@ -509,12 +509,25 @@ print(json.dumps({**identity,"digest":h.hexdigest(),"dirty":bool(diff or paths),
                 return f"sensitive path is not allowed in automatic push: {raw}"
         return None
 
-    def _push_script(self, state: dict[str, Any], *, with_forwarded_credential: bool) -> str:
+    def _push_script(
+        self,
+        state: dict[str, Any],
+        *,
+        origin_url: str,
+        branch: str,
+        commit_sha: str,
+        with_forwarded_credential: bool,
+    ) -> str:
         qwt = shlex.quote(str(state["worktree_path"]))
+        qorigin = shlex.quote(origin_url)
+        qbranch = shlex.quote(branch)
+        qcommit = shlex.quote(commit_sha)
         lines = [
             "set -eu",
             f"wt={qwt}",
-            'branch=$(git -C "$wt" branch --show-current)',
+            f"origin_url={qorigin}",
+            f"branch={qbranch}",
+            f"commit_sha={qcommit}",
             'case "$branch" in chatgpt/*) ;; *) echo "unsafe branch: $branch" >&2; exit 41 ;; esac',
             "export GIT_TERMINAL_PROMPT=0",
         ]
@@ -534,7 +547,7 @@ print(json.dumps({**identity,"digest":h.hexdigest(),"dirty":bool(diff or paths),
                 f"export RF_GIT_PASSWORD={shlex.quote(self.git_password)}",
                 'export GIT_ASKPASS="$rf_auth_dir/askpass"',
             ]
-        lines.append('git -C "$wt" push --set-upstream origin "HEAD:refs/heads/$branch"')
+        lines.append('git -C "$wt" push "$origin_url" "$commit_sha:refs/heads/$branch"')
         return "\n".join(lines) + "\n"
 
     def commit_push(
@@ -542,6 +555,10 @@ print(json.dumps({**identity,"digest":h.hexdigest(),"dirty":bool(diff or paths),
         state: dict[str, Any],
         *,
         expected_digest: str,
+        expected_tree: str,
+        expected_branch: str,
+        expected_origin: str,
+        expected_head: str,
         message: str,
     ) -> dict[str, Any]:
         """Commit and push the exact ChatGPT-reviewed snapshot without force push."""
@@ -553,8 +570,20 @@ print(json.dumps({**identity,"digest":h.hexdigest(),"dirty":bool(diff or paths),
             raise RemoteWorkspaceError("workspace has no changes to commit")
         if str(snap.get("digest") or "") != str(expected_digest or ""):
             raise RemoteWorkspaceError(
-                "workspace changed after ChatGPT push approval; review the new diff and approve again"
+                "workspace or publication destination changed after ChatGPT push approval; "
+                "review the new state and approve again"
             )
+        expected = {
+            "candidate_tree": expected_tree,
+            "branch": expected_branch,
+            "origin_url": expected_origin,
+            "head": expected_head,
+        }
+        for key, value in expected.items():
+            if not value or str(snap.get(key) or "") != str(value):
+                raise RemoteWorkspaceError(
+                    f"reviewed publication identity mismatch for {key}; approve again"
+                )
         branch = str(snap.get("branch") or "")
         if not branch.startswith("chatgpt/"):
             raise RemoteWorkspaceError(f"automatic push is allowed only from chatgpt/* branches, got {branch!r}")
@@ -565,9 +594,20 @@ print(json.dumps({**identity,"digest":h.hexdigest(),"dirty":bool(diff or paths),
 
         wt = shlex.quote(str(state["worktree_path"]))
         qmessage = shlex.quote(message)
+        qtree = shlex.quote(expected_tree)
+        qbranch = shlex.quote(expected_branch)
+        qorigin = shlex.quote(expected_origin)
+        qhead = shlex.quote(expected_head)
         gate = r'''
 set -eu
 wt=__WT__
+expected_tree=__TREE__
+expected_branch=__BRANCH__
+expected_origin=__ORIGIN__
+expected_head=__HEAD__
+test "$(git -C "$wt" rev-parse HEAD)" = "$expected_head"
+test "$(git -C "$wt" branch --show-current)" = "$expected_branch"
+test "$(git -C "$wt" remote get-url origin)" = "$expected_origin"
 git -C "$wt" diff --check HEAD --
 python3 - "$wt" <<'PYRF'
 import pathlib,re,subprocess,sys
@@ -590,9 +630,15 @@ for raw in subprocess.check_output(["git","-C",str(root),"ls-files","--others","
 PYRF
 git -C "$wt" add -A
 git -C "$wt" diff --cached --check
-git -C "$wt" commit -m __MSG__
-git -C "$wt" rev-parse HEAD
+candidate_tree=$(git -C "$wt" write-tree)
+test "$candidate_tree" = "$expected_tree"
+commit_sha=$(git -C "$wt" commit-tree "$candidate_tree" -p "$expected_head" -m __MSG__)
+git -C "$wt" update-ref "refs/heads/$expected_branch" "$commit_sha" "$expected_head"
+git -C "$wt" reset --mixed "$commit_sha" >/dev/null
+printf '%s\n' "$commit_sha"
 '''.replace("__WT__", wt).replace("__MSG__", qmessage)
+   .replace("__TREE__", qtree).replace("__BRANCH__", qbranch)
+   .replace("__ORIGIN__", qorigin).replace("__HEAD__", qhead)
         committed = self._ssh(gate, timeout=180, check=False)
         if committed.returncode != 0:
             raise RemoteWorkspaceError(
@@ -600,11 +646,31 @@ git -C "$wt" rev-parse HEAD
             )
         commit_sha = committed.stdout.strip().splitlines()[-1]
 
-        origin = self._origin_url()
-        pushed = self._ssh(self._push_script(state, with_forwarded_credential=False), timeout=180, check=False)
+        origin = expected_origin
+        pushed = self._ssh(
+            self._push_script(
+                state,
+                origin_url=origin,
+                branch=expected_branch,
+                commit_sha=commit_sha,
+                with_forwarded_credential=False,
+            ),
+            timeout=180,
+            check=False,
+        )
         auth_forwarded = False
         if pushed.returncode != 0 and self._can_forward_git_credential(origin):
-            pushed = self._ssh(self._push_script(state, with_forwarded_credential=True), timeout=180, check=False)
+            pushed = self._ssh(
+                self._push_script(
+                    state,
+                    origin_url=origin,
+                    branch=expected_branch,
+                    commit_sha=commit_sha,
+                    with_forwarded_credential=True,
+                ),
+                timeout=180,
+                check=False,
+            )
             auth_forwarded = True
         if pushed.returncode != 0:
             raise RemoteWorkspaceError(
@@ -612,7 +678,10 @@ git -C "$wt" rev-parse HEAD
             )
         return {
             "ok": True,
-            "branch": branch,
+            "branch": expected_branch,
+            "origin_url": expected_origin,
+            "candidate_tree": expected_tree,
+            "review_digest": expected_digest,
             "commit_sha": commit_sha,
             "pushed": True,
             "git_auth_forwarded": auth_forwarded,
