@@ -112,6 +112,7 @@ class AgentSettings:
     git_author_name: str | None
     git_author_email: str | None
     api_ca_bundle: Path | None = None
+    git_credential_source: str = "none"
     codex_model: str = "gpt-5.6-sol"
     codex_reasoning_effort: str = "high"
     codex_execution_mode: str = "interactive"
@@ -139,7 +140,20 @@ class AgentSettings:
         base_url = validate_base_url(base_url)
 
         api_token = os.getenv("GITLAB_TOKEN", "").strip()
-        git_token = os.getenv("GITLAB_GIT_TOKEN", "").strip() or api_token
+        git_token_value = os.getenv("GITLAB_GIT_TOKEN", "").strip()
+        git_password = os.getenv("GITLAB_GIT_PASSWORD", "").strip()
+        if git_token_value:
+            git_token = git_token_value
+            git_credential_source = "git_token"
+        elif git_password:
+            git_token = git_password
+            git_credential_source = "git_password"
+        elif api_token:
+            git_token = api_token
+            git_credential_source = "api_token_fallback"
+        else:
+            git_token = ""
+            git_credential_source = "none"
 
         root = Path(
             os.getenv(
@@ -157,6 +171,7 @@ class AgentSettings:
             gitlab_base_url=base_url,
             api_ca_bundle=ca_bundle_path(os.getenv("GITLAB_CA_BUNDLE")),
             api_token=api_token,
+            git_credential_source=git_credential_source,
             api_verify_ssl=env_bool("GITLAB_VERIFY_SSL", True),
             api_trust_env=env_bool("GITLAB_TRUST_ENV", False),
             git_token=git_token,
