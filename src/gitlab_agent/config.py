@@ -121,6 +121,7 @@ class AgentSettings:
     copilot_model: str | None = None
     copilot_reasoning_effort: str | None = None
     copilot_execution_mode: str = "interactive"
+    copilot_disable_builtin_mcps: bool = True
     copilot_allow_tools: tuple[str, ...] = ()
     copilot_deny_tools: tuple[str, ...] = ("shell(git push)",)
 
@@ -214,6 +215,10 @@ class AgentSettings:
                 "REASONFIRST_COPILOT_EXECUTION_MODE",
                 "interactive",
                 {"interactive", "programmatic"},
+            ),
+            copilot_disable_builtin_mcps=env_bool(
+                "REASONFIRST_COPILOT_DISABLE_BUILTIN_MCPS",
+                True,
             ),
             copilot_allow_tools=csv_tuple("REASONFIRST_COPILOT_ALLOW_TOOLS"),
             copilot_deny_tools=csv_tuple(
