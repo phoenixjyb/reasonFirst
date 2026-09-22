@@ -627,6 +627,11 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         action="store_true",
         help="Skip live GitLab API connectivity/authentication check",
     )
+    p.add_argument(
+        "--git-only",
+        action="store_true",
+        help="Allow Git HTTPS credentials without GITLAB_TOKEN; REST API/MCP/CI metadata features stay disabled",
+    )
 
     sub.add_parser(
         "agents",
@@ -692,6 +697,11 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         "--offline-doctor",
         action="store_true",
         help="Skip the live GitLab API check in the preflight doctor",
+    )
+    p.add_argument(
+        "--git-only",
+        action="store_true",
+        help="Use Git-only authentication during preflight; requires a configured Git credential",
     )
     p.add_argument(
         "--no-launch",
@@ -908,7 +918,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
 
     try:
         if args.command == "doctor":
-            result = run_doctor(offline=args.offline)
+            result = run_doctor(offline=args.offline, git_only=args.git_only)
             _print(result)
             return 0 if bool(result.get("ok")) else 1
 
@@ -972,7 +982,10 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 task_slug=args.task,
             )
         elif args.command == "start":
-            preflight = run_doctor(offline=args.offline_doctor)
+            preflight = run_doctor(
+                offline=args.offline_doctor,
+                git_only=args.git_only,
+            )
             preflight_summary = {
                 "ok": preflight.get("ok"),
                 "overall": preflight.get("overall"),
