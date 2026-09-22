@@ -332,7 +332,7 @@ class BridgeController:
                     "patch": {"type": "string"},
                 }, ["patch"]),
                 fn("snapshot", "Read the exact remote review snapshot digest. Use before requesting ChatGPT push approval.", {}),
-                fn("commit_push", "Commit and push the exact ChatGPT-approved snapshot. This succeeds only after an explicit ReasonFirst push approval for the unchanged digest; force-push and protected branches are never allowed.", {}),
+                fn("commit_push", "Publish the exact ChatGPT-approved candidate tree to the exact approved remote/branch. Experimental remote publication must also be explicitly enabled by the local user.", {}),
                 fn("diff", "Read the real remote Git diff against the pinned base SHA.", {}),
             ],
         }]
@@ -380,9 +380,12 @@ class BridgeController:
             approval = session.get("push_approval") if isinstance(session.get("push_approval"), dict) else None
             if not approval:
                 raise BridgeError("Push is not authorized. ChatGPT must review the current diff and call authorize_push first.")
+            approved_snapshot = approval.get("snapshot")
+            if not isinstance(approved_snapshot, dict):
+                raise BridgeError("Stored push approval is incomplete; review and authorize again.")
             result = manager.commit_push(
                 rec,
-                expected_digest=str(approval.get("digest") or ""),
+                expected_snapshot=approved_snapshot,
                 message=str(approval.get("message") or ""),
             )
             with self._lock:
@@ -831,21 +834,46 @@ class BridgeController:
         }
 
     def authorize_push(self, *, thread_id: str, commit_message: str) -> dict[str, Any]:
-        """Authorize Codex to commit/push exactly the currently reviewed remote snapshot."""
+        """Authorize publication of one exact reviewed remote candidate/destination."""
+        enabled = os.getenv(
+            "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if not enabled:
+            raise BridgeError(
+                "Remote publication is experimental and disabled by default. "
+                "Keep using the local ActualCoder finish path, or explicitly enable "
+                "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH after reviewing the reduced remote "
+                "validation scope."
+            )
         session = self._session(thread_id)
         rec = self._workspace_record(str(session["workspace_id"]))
         if rec.get("kind") != "ssh":
-            raise BridgeError("v4 authorize_push currently supports managed SSH workspaces; use the local ActualCoder finish flow for local workspaces")
+            raise BridgeError(
+                "authorize_push supports managed SSH workspaces only; "
+                "use the local ActualCoder finish flow for local workspaces"
+            )
         target = self._target_from_dict(rec.get("target") or {})
         snap = self._remote_manager(target).snapshot(rec)
         if not snap.get("dirty"):
             raise BridgeError("workspace has no changes to push")
+        if snap.get("url_rewrites"):
+            raise BridgeError(
+                "Git URL rewrite configuration must be removed before reviewed remote push"
+            )
         message = str(commit_message or "").strip()
         if not message or len(message) > 240 or "\n" in message or "\r" in message:
             raise BridgeError("commit_message must be one non-empty line up to 240 characters")
+        approved_snapshot = {
+            key: snap.get(key)
+            for key in (
+                "digest", "candidate_tree", "head", "branch", "origin_url",
+                "push_url", "base_sha", "project", "target_identity",
+                "changed_paths",
+            )
+        }
         with self._lock:
             session["push_approval"] = {
-                "digest": str(snap.get("digest") or ""),
+                "snapshot": approved_snapshot,
                 "message": message,
                 "approved_at": int(time.time()),
             }
@@ -853,14 +881,23 @@ class BridgeController:
             self._save_state()
         return {
             "ok": True,
+            "experimental": True,
             "thread_id": thread_id,
             "workspace_id": session["workspace_id"],
             "branch": snap.get("branch"),
             "head": snap.get("head"),
+            "base_sha": snap.get("base_sha"),
+            "origin_url": snap.get("origin_url"),
+            "push_url": snap.get("push_url"),
+            "candidate_tree": snap.get("candidate_tree"),
             "digest": snap.get("digest"),
             "changed_paths": snap.get("changed_paths"),
             "commit_message": message,
-            "next": "Ask Codex to call reasonfirst_remote.commit_push. Any code change after this approval invalidates the digest and blocks the push.",
+            "next": (
+                "Ask Codex to call reasonfirst_remote.commit_push. Any source, HEAD, "
+                "branch, target, origin, push URL, or candidate-tree change invalidates "
+                "the approval."
+            ),
         }
 
     def artifacts(self, *, workspace_id: str = "", thread_id: str = "", path: str = ".", changed_only: bool = True, max_entries: int = 80, max_text_chars: int = 20000, max_visual_previews: int = 2) -> dict[str, Any]:
