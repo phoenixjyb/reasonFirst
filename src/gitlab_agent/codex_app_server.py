@@ -824,6 +824,7 @@ class AppServerClient:
 
         verified = {
             **evidence,
+            "status": "satisfied",
             "satisfied": True,
             "resolved": {
                 "model": resolved_model,
@@ -890,8 +891,34 @@ class AppServerClient:
         )
         return tid
 
-    def resume_thread(self, thread_id: str) -> None:
-        self.request("thread/resume", {"threadId": thread_id}, timeout=30)
+    def resume_thread(
+        self,
+        thread_id: str,
+        *,
+        policy: WorkerPolicy | None = None,
+    ) -> dict[str, Any]:
+        resolved = policy or default_worker_policy("codex")
+        mode = self._sandbox_mode(resolved)
+        approval = self._approval_policy(resolved)
+        evidence = self.assert_worker_policy_supported(
+            resolved,
+            sandbox_mode=mode,
+        )
+        result = self.request("thread/resume", {"threadId": thread_id}, timeout=30)
+        if not isinstance(result, dict):
+            raise AppServerError("thread/resume returned an invalid response")
+        resolved_id, verified = self._verify_thread_resolution(
+            result=result,
+            policy=resolved,
+            expected_sandbox=mode,
+            expected_approval=approval,
+            evidence=evidence,
+        )
+        if resolved_id != thread_id:
+            raise AppServerError(
+                "WORKER_POLICY_UNSATISFIED: thread/resume returned a different thread id"
+            )
+        return verified
 
     def start_turn(
         self,
