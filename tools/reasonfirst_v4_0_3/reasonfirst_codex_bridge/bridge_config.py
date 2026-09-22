@@ -89,6 +89,36 @@ def _parse_ssh_shorthand(value: str) -> ExecutionTarget | None:
     )
 
 
+def resolve_configured_target(
+    spec: Any = None,
+    *,
+    config: dict[str, Any] | None = None,
+) -> ExecutionTarget:
+    """Resolve only a user-owned named target.
+
+    MCP/relay callers may select configured targets but may not introduce a new
+    SSH host or repository trust destination inline.
+    """
+    cfg = config or load_bridge_config()
+    defaults = cfg.get("defaults") if isinstance(cfg.get("defaults"), dict) else {}
+    if spec in (None, ""):
+        spec = str(defaults.get("target") or "local")
+    if not isinstance(spec, str):
+        raise BridgeConfigError(
+            "execution target must be the name of a user-configured target"
+        )
+    if _parse_ssh_shorthand(spec) is not None:
+        raise BridgeConfigError(
+            "ad-hoc SSH targets are not allowed; define the target in bridge.yaml first"
+        )
+    targets = cfg.get("targets") if isinstance(cfg.get("targets"), dict) else {}
+    if spec != "local" and spec not in targets:
+        raise BridgeConfigError(
+            f"Unknown execution target {spec!r}; define it in {config_path()} before use"
+        )
+    return resolve_target(spec, config=cfg)
+
+
 def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) -> ExecutionTarget:
     cfg = config or load_bridge_config()
     defaults = cfg.get("defaults") if isinstance(cfg.get("defaults"), dict) else {}
