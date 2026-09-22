@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .ci_feedback import collect_ci_feedback
+from .codex_desktop import CodexDesktopAppServer, resolve_desktop_codex_binary
 from .config import AgentSettings
 from .doctor import run_doctor
 from .finish import build_finish_plan, execute_finish
@@ -24,17 +25,36 @@ from .worker_policy import (
     build_worker_argv,
     default_worker_policy,
     display_worker_argv,
+    normalize_backend,
     resolve_worker_policy,
 )
 from .workspace import WorkspaceManager
 
 
 SUPPORTED_CODING_AGENTS = {
-    "codex": "codex",
-    "copilot": "copilot",
+    "codex-cli": "codex",
+    "copilot-cli": "copilot",
+    "codex-desktop": None,
 }
-DEFAULT_AGENT_ORDER = ["codex", "copilot"]
-AGENT_CHOICES = ["auto", *DEFAULT_AGENT_ORDER]
+BACKEND_ALIASES = {
+    "codex": "codex-cli",
+    "copilot": "copilot-cli",
+}
+DEFAULT_AGENT_ORDER = ["codex-cli", "copilot-cli", "codex-desktop"]
+AGENT_CHOICES = ["auto", "codex", "copilot", *DEFAULT_AGENT_ORDER]
+
+
+def _canonical_agent(agent: str) -> str:
+    return normalize_backend(BACKEND_ALIASES.get(agent, agent))
+
+
+def _backend_path(agent: str, resolver: Any) -> str | None:
+    canonical = _canonical_agent(agent)
+    if canonical == "codex-desktop":
+        return resolve_desktop_codex_binary()
+    executable = SUPPORTED_CODING_AGENTS[canonical]
+    assert executable is not None
+    return resolver(executable)
 
 
 def _print(data: Any) -> None:
@@ -104,11 +124,7 @@ def _agent_prompt(
             "for any changes you make."
         )
 
-    if agent not in SUPPORTED_CODING_AGENTS:
-        raise ValueError(
-            f"Unsupported coding agent {agent!r}. "
-            f"Choose one of: {', '.join(sorted(SUPPORTED_CODING_AGENTS))}"
-        )
+    canonical_agent = _canonical_agent(agent)
 
     requested_goal = goal.strip() or "<describe the coding goal here>"
 
@@ -169,7 +185,7 @@ def _agent_prompt(
         )
 
     return (
-        f"You are the {agent} coding backend selected by ActualCoder.\n"
+        f"You are the {canonical_agent} coding backend selected by ActualCoder.\n"
         "You are working in an isolated Git worktree managed by gitlab-agent.\n\n"
         f"Project: {project}\n"
         f"Base ref: {base_ref}\n"
@@ -205,23 +221,18 @@ def _handoff(
     ci_context: str | None = None,
     worker_policy: WorkerPolicy | None = None,
 ) -> dict[str, object]:
-    if agent not in SUPPORTED_CODING_AGENTS:
-        raise ValueError(
-            f"Unsupported coding agent {agent!r}. "
-            f"Choose one of: {', '.join(sorted(SUPPORTED_CODING_AGENTS))}"
-        )
-
+    canonical_agent = _canonical_agent(agent)
     status = manager.status(workspace_id)
-    executable = SUPPORTED_CODING_AGENTS[agent]
-    policy = worker_policy or default_worker_policy(agent)
-    if policy.backend != agent:
+    executable = SUPPORTED_CODING_AGENTS[canonical_agent]
+    policy = worker_policy or default_worker_policy(canonical_agent)
+    if normalize_backend(policy.backend) != canonical_agent:
         raise ValueError(
-            f"Worker policy backend {policy.backend!r} does not match selected agent {agent!r}"
+            f"Worker policy backend {policy.backend!r} does not match selected agent {canonical_agent!r}"
         )
     result: dict[str, object] = {
         "workspace": status,
         "worktree_path": status["worktree_path"],
-        "agent": agent,
+        "agent": canonical_agent,
         "agent_requested": (
             str(agent_selection.get("requested"))
             if agent_selection is not None
@@ -232,17 +243,21 @@ def _handoff(
             if agent_selection is not None
             else {
                 "requested": agent,
-                "selected": agent,
+                "selected": canonical_agent,
                 "reason": "explicit backend selection",
             }
         ),
-        "agent_command": f"cd {status['worktree_path']} && {executable}",
+        "agent_command": (
+            f"cd {status['worktree_path']} && {executable}"
+            if executable is not None
+            else f"cd {status['worktree_path']} && codex-desktop"
+        ),
         "worker_policy": policy.to_dict(),
         "agent_argv_shape": display_worker_argv(policy),
         "agent_prompt": _agent_prompt(
             status,
             goal,
-            agent=agent,
+            agent=canonical_agent,
             project_context=project_context,
             ci_context=ci_context,
         ),
@@ -251,7 +266,7 @@ def _handoff(
     }
 
     # Alpha.1-alpha.3 compatibility for existing Codex integrations.
-    if agent == "codex":
+    if canonical_agent == "codex-cli":
         result["codex_command"] = result["agent_command"]
         result["codex_prompt"] = result["agent_prompt"]
 
@@ -265,25 +280,29 @@ def _select_agent(
     which: Any = None,
 ) -> dict[str, object]:
     resolver = which or shutil.which
-    preferred = list(preferred_agents or [])
+    preferred_raw = list(preferred_agents or [])
+    preferred: list[str] = []
+    for item in preferred_raw:
+        try:
+            canonical = _canonical_agent(item)
+        except ValueError:
+            continue
+        if canonical not in preferred:
+            preferred.append(canonical)
 
     if requested != "auto":
-        if requested not in SUPPORTED_CODING_AGENTS:
-            raise ValueError(
-                f"Unsupported coding agent {requested!r}. "
-                f"Choose one of: {', '.join(AGENT_CHOICES)}"
-            )
-        executable = SUPPORTED_CODING_AGENTS[requested]
-        resolved = resolver(executable)
+        canonical = _canonical_agent(requested)
+        path = _backend_path(canonical, resolver)
+        executable = SUPPORTED_CODING_AGENTS[canonical]
         return {
             "requested": requested,
-            "selected": requested,
+            "selected": canonical,
             "executable": executable,
-            "path": resolved,
-            "installed": resolved is not None,
+            "path": path,
+            "installed": path is not None,
             "reason": "explicit backend selection",
             "project_preference": preferred,
-            "candidates": [requested],
+            "candidates": [canonical],
         }
 
     candidates: list[str] = []
@@ -294,16 +313,16 @@ def _select_agent(
     installed: list[str] = []
     installed_paths: dict[str, str] = {}
     for agent in candidates:
-        executable = SUPPORTED_CODING_AGENTS[agent]
-        resolved = resolver(executable)
-        if resolved is not None:
+        path = _backend_path(agent, resolver)
+        if path is not None:
             installed.append(agent)
-            installed_paths[agent] = resolved
+            installed_paths[agent] = path
 
     if not installed:
         raise RuntimeError(
             "No supported coding backend is installed for --agent auto. "
-            "Run 'actual-coder agents' and install Codex CLI or GitHub Copilot CLI."
+            "Run 'actual-coder agents' and install Codex CLI, GitHub Copilot CLI, "
+            "or configure Codex Desktop."
         )
 
     selected = installed[0]
@@ -448,11 +467,14 @@ def _agent_launch_argv(
     *,
     worker_policy: WorkerPolicy | None = None,
 ) -> list[str]:
-    policy = worker_policy or default_worker_policy(agent)
-    if policy.backend != agent:
+    canonical = _canonical_agent(agent)
+    policy = worker_policy or default_worker_policy(canonical)
+    if normalize_backend(policy.backend) != canonical:
         raise ValueError(
-            f"Worker policy backend {policy.backend!r} does not match selected agent {agent!r}"
+            f"Worker policy backend {policy.backend!r} does not match selected agent {canonical!r}"
         )
+    if canonical == "codex-desktop":
+        raise ValueError("codex-desktop launches through Codex App Server")
     return build_worker_argv(policy, prompt)
 
 
@@ -460,9 +482,9 @@ def _launch_handoff(
     handoff: dict[str, object],
     *,
     runner: Any = None,
+    desktop_factory: Any = None,
 ) -> dict[str, object]:
-    launch = runner or subprocess.run
-    agent = str(handoff["agent"])
+    agent = _canonical_agent(str(handoff["agent"]))
     prompt = str(handoff["agent_prompt"])
     cwd = Path(str(handoff["worktree_path"])).resolve()
     raw_policy = handoff.get("worker_policy")
@@ -471,13 +493,36 @@ def _launch_handoff(
         if isinstance(raw_policy, dict)
         else default_worker_policy(agent)
     )
-    argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
 
-    proc = launch(
-        argv,
-        cwd=cwd,
-        check=False,
-    )
+    if agent == "codex-desktop":
+        binary = resolve_desktop_codex_binary()
+        if not binary:
+            raise RuntimeError(
+                "Codex Desktop backend is selected but no Desktop-bundled Codex "
+                "binary was found. Set REASONFIRST_CODEX_DESKTOP_BIN explicitly."
+            )
+        factory = desktop_factory or CodexDesktopAppServer
+        client = factory(binary=binary)
+        try:
+            started = client.start(
+                policy=policy,
+                cwd=str(cwd),
+                prompt=prompt,
+            )
+        finally:
+            client.close()
+        return {
+            "agent": agent,
+            "argv_shape": display_worker_argv(policy),
+            "worker_policy": policy.to_dict(),
+            "cwd": str(cwd),
+            "returncode": 0,
+            **started,
+        }
+
+    launch = runner or subprocess.run
+    argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
+    proc = launch(argv, cwd=cwd, check=False)
     return {
         "agent": agent,
         "argv_shape": display_worker_argv(policy),
@@ -554,8 +599,9 @@ def _selection_for_request(
 
 def _available_agents() -> dict[str, object]:
     agents: list[dict[str, object]] = []
-    for name, executable in sorted(SUPPORTED_CODING_AGENTS.items()):
-        resolved = shutil.which(executable)
+    for name in sorted(SUPPORTED_CODING_AGENTS):
+        executable = SUPPORTED_CODING_AGENTS[name]
+        resolved = _backend_path(name, shutil.which)
         agents.append(
             {
                 "agent": name,
@@ -567,9 +613,10 @@ def _available_agents() -> dict[str, object]:
         )
     return {
         "agents": agents,
+        "aliases": dict(BACKEND_ALIASES),
         "note": (
-            "Availability checks only whether the CLI executable is installed. "
-            "It does not invoke the backend, verify authentication, or consume model quota."
+            "Availability checks executable presence only. They do not invoke the "
+            "backend, verify authentication, or consume model quota."
         ),
     }
 
@@ -592,8 +639,9 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
         "allowed_executables": sorted(settings.allowed_executables),
         "command_timeout_seconds": settings.command_timeout_seconds,
         "worker_defaults": {
-            "codex": resolve_worker_policy(settings, "codex").to_dict(),
-            "copilot": resolve_worker_policy(settings, "copilot").to_dict(),
+            "codex-cli": resolve_worker_policy(settings, "codex-cli").to_dict(),
+            "copilot-cli": resolve_worker_policy(settings, "copilot-cli").to_dict(),
+            "codex-desktop": resolve_worker_policy(settings, "codex-desktop").to_dict(),
         },
     }
 
@@ -603,7 +651,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         product_name = "ActualCoder" if prog == "actual-coder" else "CodingAgent (compatibility alias)"
         description = (
             f"{product_name}: agent-neutral coding orchestration for isolated GitLab "
-            "worktrees. Supports Codex and GitHub Copilot CLI backends."
+            "worktrees. Supports Codex CLI, GitHub Copilot CLI, and Codex Desktop/App Server backends."
         )
     else:
         description = (
@@ -630,7 +678,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
 
     sub.add_parser(
         "agents",
-        help="Show supported coding backends and whether their CLI executable is installed",
+        help="Show supported coding backends and whether their executable is installed",
     )
 
     p = sub.add_parser(
