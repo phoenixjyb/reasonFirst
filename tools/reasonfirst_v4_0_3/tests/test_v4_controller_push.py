@@ -5,7 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from reasonfirst_codex_bridge.bridge_config import ExecutionTarget
 from reasonfirst_codex_bridge.remote_workspace import RemoteWorkspaceManager
-from reasonfirst_codex_bridge.controller import BridgeController
+from reasonfirst_codex_bridge.controller import BridgeController, BridgeError
 
 
 def run(*args, cwd=None):
@@ -24,7 +24,6 @@ def main():
         os.environ['PATH']=str(binp)+os.pathsep+os.environ.get('PATH','')
         os.environ['RF_FAKE_REMOTE_HOME']=str(home); os.environ['RF_FAKE_CODEX']=str(ROOT/'tests'/'fake_codex.py')
         os.environ['CODEX_BRIDGE_CODEX_BIN']=str(ROOT/'tests'/'fake_codex.py'); os.environ['RF_CODEX_BRIDGE_STATE_DIR']=str(state)
-        os.environ['RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH']='true'
         try:
             target=ExecutionTarget(type='ssh',name='fake',host='fake-host',repo=str(repo),codex_backend='desktop-proxy')
             mgr=RemoteWorkspaceManager(target)
@@ -35,6 +34,12 @@ def main():
             started=ctrl.start_codex(workspace_id=ws['workspace_id'],goal='edit only')
             tid=started['thread_id']; session=ctrl._session(tid)
             mgr.write_file(rec,'a.txt','two\n')
+            try:
+                ctrl.authorize_push(thread_id=tid,commit_message='test: should be disabled')
+                raise AssertionError('remote push should be disabled by default')
+            except BridgeError as exc:
+                assert 'disabled by default' in str(exc)
+            os.environ['RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH']='true'
             auth=ctrl.authorize_push(thread_id=tid,commit_message='test: controller approved push')
             assert auth['digest'] and auth['candidate_tree'] and auth['branch'].startswith('chatgpt/')
             assert auth['origin_url'] == auth['push_url']
