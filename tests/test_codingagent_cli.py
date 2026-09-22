@@ -257,6 +257,37 @@ agents:
         )
         self.assertEqual(auto_args.agent, "auto")
 
+    def test_actual_coder_parser_accepts_codex_desktop_backend(self) -> None:
+        parser = _build_parser(prog="actual-coder")
+        args = parser.parse_args(
+            [
+                "start",
+                "team/project",
+                "--agent",
+                "codex-desktop",
+                "--goal",
+                "Implement the reviewed plan",
+                "--no-launch",
+            ]
+        )
+        self.assertEqual(args.agent, "codex-desktop")
+
+    def test_codex_desktop_handoff_uses_codex_worker_policy(self) -> None:
+        result = _handoff(
+            FakeManager(),  # type: ignore[arg-type]
+            "abc123",
+            "Implement the reviewed plan",
+            agent="codex-desktop",
+        )
+        self.assertEqual(result["agent"], "codex-desktop")
+        self.assertEqual(result["worker_policy"]["backend"], "codex")
+        self.assertEqual(result["worker_policy"]["model"], "gpt-5.6-sol")
+        self.assertEqual(
+            result["agent_argv_shape"],
+            ["codex-desktop", "<managed-app-server>", "<agent_prompt>"],
+        )
+        self.assertTrue(str(result["agent_command"]).startswith("codex-desktop://"))
+
     def test_codingagent_compatibility_alias_still_accepts_backend_selection(self) -> None:
         parser = _build_parser(prog="codingagent")
         args = parser.parse_args(
@@ -547,6 +578,83 @@ mr:
             ("shell(git push)",),
         )
         self.assertFalse(calls[0][2])
+
+    def test_codex_desktop_launch_uses_managed_app_server_not_subprocess(self) -> None:
+        seen: dict[str, object] = {}
+
+        class FakeDesktopClient:
+            backend_name = "desktop-managed-test"
+
+            def __init__(self, *, event_handler):
+                self.event_handler = event_handler
+
+            def start_thread(self, *, cwd, policy):
+                seen["thread_cwd"] = cwd
+                seen["thread_policy"] = policy
+                return "thr_desktop"
+
+            def start_turn(
+                self,
+                *,
+                thread_id,
+                cwd,
+                prompt,
+                policy,
+                network_access,
+                sandbox_mode,
+            ):
+                seen["turn_prompt"] = prompt
+                seen["turn_policy"] = policy
+                self.event_handler(
+                    {
+                        "method": "turn/completed",
+                        "params": {
+                            "turn": {
+                                "id": "turn_desktop",
+                                "status": "completed",
+                            }
+                        },
+                    }
+                )
+                return "turn_desktop"
+
+            def interrupt(self, *, thread_id, turn_id):
+                seen["interrupted"] = (thread_id, turn_id)
+
+            def close(self):
+                seen["closed"] = True
+
+        def factory(**kwargs):
+            return FakeDesktopClient(**kwargs)
+
+        policy = WorkerPolicy(
+            backend="codex",
+            model="gpt-5.6-sol",
+            reasoning_effort="high",
+            execution_mode="interactive",
+            sandbox_mode="workspace-write",
+            approval_policy="on-request",
+            network_access=False,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            result = _launch_handoff(
+                {
+                    "agent": "codex-desktop",
+                    "agent_prompt": "Implement only the reviewed plan",
+                    "worktree_path": td,
+                    "worker_policy": policy.to_dict(),
+                },
+                desktop_client_factory=factory,
+            )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["backend"], "desktop-managed-test")
+        self.assertEqual(result["thread_id"], "thr_desktop")
+        self.assertEqual(result["turn_id"], "turn_desktop")
+        self.assertEqual(seen["turn_prompt"], "Implement only the reviewed plan")
+        self.assertEqual(seen["turn_policy"].model, "gpt-5.6-sol")
+        self.assertTrue(seen["closed"])
 
     def test_resolve_worker_policy_uses_reasonfirst_settings(self) -> None:
         with tempfile.TemporaryDirectory() as td:
