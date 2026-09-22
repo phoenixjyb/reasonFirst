@@ -33,15 +33,26 @@ for line in sys.stdin:
         expected="readOnly" if has_dynamic_tools else "workspaceWrite"
         if params.get("sandbox") != expected:
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad sandbox mode"}}), flush=True)
+        elif params.get("model") != "gpt-5.6-sol":
+            print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad model"}}), flush=True)
+        elif params.get("approvalPolicy") != "unlessTrusted":
+            print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad approval policy"}}), flush=True)
         else:
             print(json.dumps({"id":rid,"result":{"thread":{"id":thread}}}), flush=True)
     elif method == "thread/resume":
         print(json.dumps({"id":rid,"result":{"thread":{"id":thread,"name":thread_name}}}), flush=True)
     elif method == "turn/start":
-        policy=m.get("params",{}).get("sandboxPolicy",{}).get("type")
+        params=m.get("params",{})
+        policy=params.get("sandboxPolicy",{}).get("type")
         expected_policy="readOnly" if has_dynamic_tools else "workspaceWrite"
         if policy != expected_policy:
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad sandbox policy"}}), flush=True)
+            continue
+        if params.get("model") != "gpt-5.6-sol" or params.get("effort") != "high":
+            print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad model effort"}}), flush=True)
+            continue
+        if params.get("approvalPolicy") != "unlessTrusted":
+            print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad turn approval policy"}}), flush=True)
             continue
         print(json.dumps({"id":rid,"result":{"turn":{"id":turn,"status":"inProgress","items":[]}}}), flush=True)
         print(json.dumps({"method":"turn/started","params":{"threadId":thread,"turn":{"id":turn,"status":"inProgress"}}}), flush=True)
