@@ -535,7 +535,7 @@ print(json.dumps({
         ]
         if with_forwarded_credential:
             lines += [
-                'rf_auth_dir=$(mktemp -d "\${TMPDIR:-/tmp}/reasonfirst-push.XXXXXX")',
+                'rf_auth_dir=$(mktemp -d "${TMPDIR:-/tmp}/reasonfirst-push.XXXXXX")',
                 'trap \'rm -rf "$rf_auth_dir"\' EXIT HUP INT TERM',
                 'cat >"$rf_auth_dir/askpass" <<\'RF_ASKPASS\'',
                 '#!/bin/sh',
@@ -624,7 +624,7 @@ if git -C "$wt" config --get-regexp '^url\..*\.(insteadOf|pushInsteadOf)$' >/dev
   echo "git URL rewrite configuration is not allowed for reviewed push" >&2
   exit 55
 fi
-idx=$(mktemp "\${TMPDIR:-/tmp}/reasonfirst-index.XXXXXX")
+idx=$(mktemp "${TMPDIR:-/tmp}/reasonfirst-index.XXXXXX")
 trap 'rm -f "$idx"' EXIT HUP INT TERM
 export GIT_INDEX_FILE="$idx"
 rm -f "$idx"
