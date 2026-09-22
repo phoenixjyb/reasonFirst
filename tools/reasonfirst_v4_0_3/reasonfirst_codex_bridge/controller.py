@@ -455,6 +455,10 @@ class BridgeController:
             result = manager.commit_push(
                 rec,
                 expected_digest=str(approval.get("digest") or ""),
+                expected_tree=str(approval.get("candidate_tree") or ""),
+                expected_branch=str(approval.get("branch") or ""),
+                expected_origin=str(approval.get("origin_url") or ""),
+                expected_head=str(approval.get("head") or ""),
                 message=str(approval.get("message") or ""),
             )
             with self._lock:
@@ -937,6 +941,12 @@ class BridgeController:
         with self._lock:
             session["push_approval"] = {
                 "digest": str(snap.get("digest") or ""),
+                "candidate_tree": str(snap.get("candidate_tree") or ""),
+                "branch": str(snap.get("branch") or ""),
+                "origin_url": str(snap.get("origin_url") or ""),
+                "base_sha": str(snap.get("base_sha") or ""),
+                "head": str(snap.get("head") or ""),
+                "target": target.to_dict(),
                 "message": message,
                 "approved_at": int(time.time()),
             }
@@ -949,6 +959,8 @@ class BridgeController:
             "branch": snap.get("branch"),
             "head": snap.get("head"),
             "digest": snap.get("digest"),
+            "candidate_tree": snap.get("candidate_tree"),
+            "origin_url": snap.get("origin_url"),
             "changed_paths": snap.get("changed_paths"),
             "commit_message": message,
             "next": "Ask Codex to call reasonfirst_remote.commit_push. Any code change after this approval invalidates the digest and blocks the push.",
