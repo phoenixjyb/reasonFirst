@@ -78,7 +78,7 @@ Use a dedicated read API credential (`read_api` and, where needed, `read_reposit
 
 ### Coding-worker policy
 
-ReasonFirst passes a user-owned worker policy explicitly to the selected coding backend instead of relying on whichever interactive model/permission choice happened to be active previously. `codex` means Codex CLI, `copilot` means GitHub Copilot CLI, and `codex-desktop` means the managed Codex Desktop App Server. The two Codex surfaces share the same Codex WorkerPolicy. The default Codex policy is:
+ReasonFirst passes a user-owned worker policy explicitly to the selected coding backend instead of relying on whichever interactive model/permission choice happened to be active previously. `codex` / `codex-cli` mean Codex CLI, `copilot` / `copilot-cli` mean GitHub Copilot CLI, and `codex-desktop` means the managed Codex Desktop App Server. The two Codex surfaces share the same Codex WorkerPolicy. The default Codex policy is:
 
 ```dotenv
 REASONFIRST_CODEX_MODEL=gpt-5.6-sol
@@ -145,7 +145,7 @@ Define the goal, non-goals, and acceptance criteria with your reasoning interfac
 uv run actual-coder start team/project-a --task fix-timeout --goal "Fix the timeout bug; preserve the API and add regression coverage" --no-launch
 ```
 
-This fetches project context and creates a worktree. Save the returned workspace ID. Inspect the handoff and use its returned backend command/prompt. On a new task, omit `--no-launch` to launch the selected worker; use `--agent codex`, `--agent copilot`, or `--agent codex-desktop` to choose Codex CLI, Copilot CLI, or Codex Desktop explicitly. No existing-workspace ID is accepted by `start`.
+This fetches project context and creates a worktree. Save the returned workspace ID. Inspect the handoff and use its returned backend command/prompt. On a new task, omit `--no-launch` to launch the selected worker; use `--agent codex-cli`, `--agent copilot-cli`, or `--agent codex-desktop` for the clearest explicit surface names. Historical `codex` / `copilot` remain supported aliases. No existing-workspace ID is accepted by `start`.
 
 After edits, set `WS` to the returned ID, not the illustrative value below:
 
