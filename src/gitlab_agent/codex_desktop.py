@@ -153,7 +153,28 @@ class CodexDesktopAppServer:
             if not isinstance(msg, dict):
                 continue
             rid = msg.get("id")
-            if isinstance(rid, int) and "method" not in msg:
+            method = msg.get("method")
+            if isinstance(rid, int) and isinstance(method, str):
+                # ReasonFirst never silently widens the resolved WorkerPolicy.
+                if method in {
+                    "item/commandExecution/requestApproval",
+                    "item/fileChange/requestApproval",
+                }:
+                    self._write({"id": rid, "result": "decline"})
+                elif method == "item/permissions/requestApproval":
+                    self._write({"id": rid, "result": {"permissions": {}}})
+                else:
+                    self._write(
+                        {
+                            "id": rid,
+                            "error": {
+                                "code": -32601,
+                                "message": "ReasonFirst declines unsupported App Server request",
+                            },
+                        }
+                    )
+                continue
+            if isinstance(rid, int):
                 with self._pending_lock:
                     waiter = self._pending.get(rid)
                 if waiter is not None:
@@ -224,6 +245,30 @@ class CodexDesktopAppServer:
             "thread_id": thread_id,
             "turn_id": turn_id,
         }
+
+    def wait_for_turn(self, turn_id: str, *, timeout: float = 3600) -> dict[str, object]:
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            remaining = max(0.1, deadline - time.monotonic())
+            try:
+                event = self._events.get(timeout=min(remaining, 5.0))
+            except queue.Empty:
+                if self.proc.poll() is not None:
+                    raise CodexDesktopError("Codex App Server exited before turn completion")
+                continue
+            if event.get("method") != "turn/completed":
+                continue
+            params = event.get("params") if isinstance(event.get("params"), dict) else {}
+            turn = params.get("turn") if isinstance(params.get("turn"), dict) else {}
+            if str(turn.get("id") or "") != turn_id:
+                continue
+            return {
+                "turn_id": turn_id,
+                "turn_status": str(turn.get("status") or "completed"),
+            }
+        raise CodexDesktopError(f"Timed out waiting for turn {turn_id}")
 
     def close(self) -> None:
         if self.proc.poll() is None:
