@@ -78,7 +78,7 @@ Use a dedicated read API credential (`read_api` and, where needed, `read_reposit
 
 ### Coding-worker policy
 
-ReasonFirst passes a user-owned worker policy explicitly to the selected coding CLI instead of relying on whichever interactive model/permission choice happened to be active previously. The default Codex policy is:
+ReasonFirst passes a user-owned worker policy explicitly to the selected coding backend instead of relying on whichever interactive model/permission choice happened to be active previously. Choose `REASONFIRST_WORKER_BACKEND=auto` (default), `codex` for Codex CLI, `copilot` for Copilot CLI, or `codex-desktop` for the Codex App Server bundled with Codex/ChatGPT Desktop. An explicit user backend overrides project backend preference. The default Codex policy is:
 
 ```dotenv
 REASONFIRST_CODEX_MODEL=gpt-5.6-sol
