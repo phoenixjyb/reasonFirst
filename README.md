@@ -8,7 +8,7 @@
 [![CI](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml/badge.svg)](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-ReasonFirst connects interactive engineering reasoning with replaceable coding agents and a local GitLab workflow. A human and their chosen reasoning interface define the task; **ActualCoder** prepares a Git worktree, hands the task to **Codex CLI** or **GitHub Copilot CLI**, and supplies validation, Merge Request, and CI evidence for review.
+ReasonFirst connects interactive engineering reasoning with replaceable coding agents and a local GitLab workflow. A human and their chosen reasoning interface define the task; **ActualCoder** prepares a Git worktree, hands the task to a user-selected **Codex CLI**, **GitHub Copilot CLI**, or **Codex Desktop/App Server** backend, and supplies validation, Merge Request, and CI evidence for review.
 
 The goal is to spend reasoning capacity on architecture, diagnosis, and review while delegating implementation iterations. ReasonFirst is not a model proxy, quota-transfer service, or auto-merge bot. It makes no direct model-inference calls; external coding tools use their own authentication and billing. Cost savings are a design goal, not a measured guarantee.
 
@@ -105,7 +105,7 @@ The last documented release is **v0.3.0**; merged source changes need not be in 
 | Controlled finish | Base-policy tests, reviewability/protected paths, candidate/bounded-history secret checks, human confirmation |
 | Publication safety | Fresh remote evidence before ordinary cleanup; unpublished abandoned work preserved |
 | Command/CI evidence | Nonzero failures propagate; matching-HEAD CI and bounded/sanitized job logs |
-| Worker policy | User-owned model, reasoning effort, sandbox/network and permission controls apply across Codex CLI, Copilot CLI and Codex Desktop/App Server surfaces |
+| Worker policy | User-owned default backend plus model, reasoning effort, sandbox/network and permission controls across Codex CLI, Copilot CLI and Codex Desktop/App Server; Desktop resolves/validates policy at runtime |
 | Project-access preflight | Local allowlist -> GitLab project/ref/files; actionable diagnostics and pinned revision; no automatic grant |
 | Tunnel lifecycle | Existing-profile configure/start/status/stop/restart on macOS/Linux, optional exact Keychain lookup, owned process cleanup; foreground only |
 | HTTPS migration | Offline preview and confirmed local URL updates, private backups and forward recovery |
