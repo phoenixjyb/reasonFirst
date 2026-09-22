@@ -5,6 +5,9 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from reasonfirst_codex_bridge.app_server import AppServerClient
+from gitlab_agent.worker_policy import default_worker_policy
+
+POLICY = default_worker_policy("codex")
 
 
 def test_callback_failure_does_not_kill_reader():
@@ -15,7 +18,7 @@ def test_callback_failure_does_not_kill_reader():
             seen["raised"] = True
             raise RuntimeError("synthetic callback failure")
     client = AppServerClient(codex_bin=fake, event_handler=flaky)
-    tid = client.start_thread(cwd=str(ROOT))
+    tid = client.start_thread(cwd=str(ROOT), policy=POLICY)
     assert tid == "thr_fake"
     client.close()
 
@@ -47,8 +50,8 @@ def test_dynamic_tool_roundtrip():
             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         }],
     }]
-    tid = client.start_thread(cwd=str(ROOT), dynamic_tools=tools, sandbox_mode="read-only")
-    client.start_turn(thread_id=tid, cwd=str(ROOT), prompt="use tool", sandbox_mode="read-only")
+    tid = client.start_thread(cwd=str(ROOT), policy=POLICY, dynamic_tools=tools, sandbox_mode="read-only")
+    client.start_turn(thread_id=tid, cwd=str(ROOT), prompt="use tool", policy=POLICY, sandbox_mode="read-only")
     time.sleep(0.15)
     assert seen and seen[0].get("method") == "item/tool/call"
     assert any(e.get("method") == "turn/completed" for e in events)
@@ -60,8 +63,8 @@ def main():
     events = []
     fake = str(ROOT / "tests" / "fake_codex.py")
     client = AppServerClient(codex_bin=fake, event_handler=events.append)
-    tid = client.start_thread(cwd=str(ROOT))
-    turn = client.start_turn(thread_id=tid, cwd=str(ROOT), prompt="test")
+    tid = client.start_thread(cwd=str(ROOT), policy=POLICY)
+    turn = client.start_turn(thread_id=tid, cwd=str(ROOT), prompt="test", policy=POLICY)
     client.set_thread_name(tid, "[ReasonFirst] group/project - optimize-src")
     client.set_thread_goal(tid, "Keep tests green")
     client.update_thread_metadata(tid, branch="chatgpt/task", sha="abc123", origin_url="https://gitlab.example/group/project.git")
