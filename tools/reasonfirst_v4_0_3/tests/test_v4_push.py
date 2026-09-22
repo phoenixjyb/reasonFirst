@@ -37,13 +37,13 @@ def main():
             # Any post-review change invalidates approval.
             mgr.write_file(ws,'b.txt','later\n')
             try:
-                mgr.commit_push(ws,expected_digest=snap['digest'],message='test: should reject stale approval')
+                mgr.commit_push(ws,expected_snapshot=snap,message='test: should reject stale approval')
                 raise AssertionError('stale digest should fail')
             except RemoteWorkspaceError as exc:
                 assert 'changed after ChatGPT push approval' in str(exc)
             # Review the new exact snapshot, then commit/push.
             snap2=mgr.snapshot(ws)
-            result=mgr.commit_push(ws,expected_digest=snap2['digest'],message='test: v4 reviewed push')
+            result=mgr.commit_push(ws,expected_snapshot=snap2,message='test: v4 reviewed push')
             assert result['ok'] and result['pushed']
             branch=result['branch']
             sha=run('git','--git-dir',str(bare),'rev-parse',f'refs/heads/{branch}',capture=True).stdout.strip()
