@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .ci_feedback import collect_ci_feedback
+from .codex_desktop import CodexDesktopWorker, codex_desktop_available
 from .config import AgentSettings
 from .doctor import run_doctor
 from .finish import build_finish_plan, execute_finish
@@ -32,8 +33,11 @@ from .workspace import WorkspaceManager
 SUPPORTED_CODING_AGENTS = {
     "codex": "codex",
     "copilot": "copilot",
+    "codex-desktop": "codex-desktop",
 }
-DEFAULT_AGENT_ORDER = ["codex", "copilot"]
+# Preserve historical automatic behavior: CLI workers remain ahead of the
+# desktop/App-Server backend unless the user selects it explicitly.
+DEFAULT_AGENT_ORDER = ["codex", "copilot", "codex-desktop"]
 AGENT_CHOICES = ["auto", *DEFAULT_AGENT_ORDER]
 
 
@@ -258,6 +262,14 @@ def _handoff(
     return result
 
 
+def _resolve_agent_path(agent: str, *, which: Any = None) -> str | None:
+    if agent == "codex-desktop":
+        available, path = codex_desktop_available()
+        return path if available else None
+    resolver = which or shutil.which
+    return resolver(SUPPORTED_CODING_AGENTS[agent])
+
+
 def _select_agent(
     requested: str,
     *,
@@ -274,7 +286,7 @@ def _select_agent(
                 f"Choose one of: {', '.join(AGENT_CHOICES)}"
             )
         executable = SUPPORTED_CODING_AGENTS[requested]
-        resolved = resolver(executable)
+        resolved = _resolve_agent_path(requested, which=resolver)
         return {
             "requested": requested,
             "selected": requested,
@@ -295,7 +307,7 @@ def _select_agent(
     installed_paths: dict[str, str] = {}
     for agent in candidates:
         executable = SUPPORTED_CODING_AGENTS[agent]
-        resolved = resolver(executable)
+        resolved = _resolve_agent_path(agent, which=resolver)
         if resolved is not None:
             installed.append(agent)
             installed_paths[agent] = resolved
@@ -390,10 +402,20 @@ def _prepare_start(
         for item in project_context.get("preferred_agents", [])
         if isinstance(item, str)
     ]
-    selection = _select_agent(
-        requested_agent,
-        preferred_agents=preferred if requested_agent == "auto" else preferred,
+    effective_request = (
+        settings.worker_backend
+        if requested_agent == "auto" and settings.worker_backend != "auto"
+        else requested_agent
     )
+    selection = _select_agent(
+        effective_request,
+        preferred_agents=preferred if effective_request == "auto" else preferred,
+    )
+    if requested_agent == "auto" and settings.worker_backend != "auto":
+        selection["requested"] = "auto"
+        selection["configured_backend"] = settings.worker_backend
+        selection["preference_source"] = "user"
+        selection["reason"] = "selected the backend pinned by REASONFIRST_WORKER_BACKEND"
     selection["project_config"] = {
         "found": parsed.found,
         "ref": parsed.source_ref,
@@ -404,7 +426,7 @@ def _prepare_start(
     if not bool(selection.get("installed")):
         selected = str(selection.get("selected") or requested_agent)
         raise RuntimeError(
-            f"Selected coding backend {selected!r} is not installed on PATH. "
+            f"Selected coding backend {selected!r} is unavailable. "
             "Run 'actual-coder agents' or use --agent auto."
         )
 
@@ -460,6 +482,7 @@ def _launch_handoff(
     handoff: dict[str, object],
     *,
     runner: Any = None,
+    desktop_worker_factory: Any = None,
 ) -> dict[str, object]:
     launch = runner or subprocess.run
     agent = str(handoff["agent"])
@@ -471,6 +494,27 @@ def _launch_handoff(
         if isinstance(raw_policy, dict)
         else default_worker_policy(agent)
     )
+    if agent == "codex-desktop":
+        factory = desktop_worker_factory or CodexDesktopWorker
+        worker = factory()
+        try:
+            desktop_result = worker.run(
+                cwd=cwd,
+                prompt=prompt,
+                policy=policy,
+            )
+        finally:
+            worker.close()
+        turn_status = str(desktop_result.get("turn_status") or "")
+        return {
+            "agent": agent,
+            "argv_shape": display_worker_argv(policy),
+            "worker_policy": policy.to_dict(),
+            "cwd": str(cwd),
+            "returncode": 0 if turn_status == "completed" else 1,
+            "desktop": desktop_result,
+        }
+
     argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
 
     proc = launch(
@@ -519,10 +563,18 @@ def _auto_agent_selection(
         for item in parsed.effective.get("preferred_agents", [])
         if isinstance(item, str)
     ]
-    selection = _select_agent(
-        "auto",
-        preferred_agents=preferred,
+    effective_request = (
+        settings.worker_backend if settings.worker_backend != "auto" else "auto"
     )
+    selection = _select_agent(
+        effective_request,
+        preferred_agents=preferred if effective_request == "auto" else preferred,
+    )
+    if settings.worker_backend != "auto":
+        selection["requested"] = "auto"
+        selection["configured_backend"] = settings.worker_backend
+        selection["preference_source"] = "user"
+        selection["reason"] = "selected the backend pinned by REASONFIRST_WORKER_BACKEND"
     selection["project_config"] = {
         "found": parsed.found,
         "ref": parsed.source_ref,
@@ -555,7 +607,7 @@ def _selection_for_request(
 def _available_agents() -> dict[str, object]:
     agents: list[dict[str, object]] = []
     for name, executable in sorted(SUPPORTED_CODING_AGENTS.items()):
-        resolved = shutil.which(executable)
+        resolved = _resolve_agent_path(name)
         agents.append(
             {
                 "agent": name,
@@ -591,9 +643,11 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
         "default_base_ref": settings.default_base_ref,
         "allowed_executables": sorted(settings.allowed_executables),
         "command_timeout_seconds": settings.command_timeout_seconds,
+        "worker_backend": settings.worker_backend,
         "worker_defaults": {
             "codex": resolve_worker_policy(settings, "codex").to_dict(),
             "copilot": resolve_worker_policy(settings, "copilot").to_dict(),
+            "codex-desktop": resolve_worker_policy(settings, "codex-desktop").to_dict(),
         },
     }
 
@@ -603,7 +657,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         product_name = "ActualCoder" if prog == "actual-coder" else "CodingAgent (compatibility alias)"
         description = (
             f"{product_name}: agent-neutral coding orchestration for isolated GitLab "
-            "worktrees. Supports Codex and GitHub Copilot CLI backends."
+            "worktrees. Supports Codex CLI, GitHub Copilot CLI, and Codex Desktop/App Server backends."
         )
     else:
         description = (
@@ -630,7 +684,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
 
     sub.add_parser(
         "agents",
-        help="Show supported coding backends and whether their CLI executable is installed",
+        help="Show supported coding backends and whether their runtime is available",
     )
 
     p = sub.add_parser(
