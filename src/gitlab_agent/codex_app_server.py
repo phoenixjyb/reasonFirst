@@ -11,6 +11,8 @@ import sys
 import threading
 from typing import Any, Callable
 
+from . import __version__
+
 from gitlab_agent.worker_policy import WorkerPolicy, default_worker_policy
 
 
@@ -486,7 +488,7 @@ class AppServerClient:
                 "clientInfo": {
                     "name": "reasonfirst_codex_web_bridge",
                     "title": "ReasonFirst Codex Web Bridge",
-                    "version": "3.0.4",
+                    "version": __version__,
                 },
                 "capabilities": {"experimentalApi": True},
             },
