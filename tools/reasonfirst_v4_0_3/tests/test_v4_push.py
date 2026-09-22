@@ -41,9 +41,20 @@ def main():
                 raise AssertionError('stale digest should fail')
             except RemoteWorkspaceError as exc:
                 assert 'changed after ChatGPT push approval' in str(exc)
-            # Review the new exact snapshot, then commit/push.
+            # Review the new exact snapshot. Destination changes must also
+            # invalidate approval even when source content is unchanged.
             snap2=mgr.snapshot(ws)
-            result=mgr.commit_push(ws,expected_snapshot=snap2,message='test: v4 reviewed push')
+            original_origin=run('git','-C',str(ws['worktree_path']),'remote','get-url','origin',capture=True).stdout.strip()
+            run('git','-C',str(ws['worktree_path']),'remote','set-url','origin',str(root/'other.git'))
+            try:
+                mgr.commit_push(ws,expected_snapshot=snap2,message='test: should reject destination change')
+                raise AssertionError('destination change should fail')
+            except RemoteWorkspaceError as exc:
+                assert 'publication destination changed' in str(exc)
+            run('git','-C',str(ws['worktree_path']),'remote','set-url','origin',original_origin)
+
+            snap3=mgr.snapshot(ws)
+            result=mgr.commit_push(ws,expected_snapshot=snap3,message='test: v4 reviewed push')
             assert result['ok'] and result['pushed']
             branch=result['branch']
             sha=run('git','--git-dir',str(bare),'rev-parse',f'refs/heads/{branch}',capture=True).stdout.strip()
