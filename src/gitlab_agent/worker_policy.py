@@ -6,6 +6,21 @@ from typing import Any
 from .config import AgentSettings
 
 
+BACKEND_ALIASES = {
+    "codex": "codex-cli",
+    "copilot": "copilot-cli",
+}
+CANONICAL_BACKENDS = {"codex-cli", "copilot-cli", "codex-desktop"}
+
+
+def normalize_backend(backend: str) -> str:
+    value = str(backend or "").strip()
+    canonical = BACKEND_ALIASES.get(value, value)
+    if canonical not in CANONICAL_BACKENDS:
+        raise ValueError(f"Unsupported coding backend {backend!r}")
+    return canonical
+
+
 @dataclass(frozen=True)
 class WorkerPolicy:
     """Resolved, non-secret execution policy for one coding backend."""
@@ -57,9 +72,10 @@ class WorkerPolicy:
 def default_worker_policy(backend: str) -> WorkerPolicy:
     """Return stable defaults used when a handoff is built outside loaded settings."""
 
-    if backend == "codex":
+    backend = normalize_backend(backend)
+    if backend in {"codex-cli", "codex-desktop"}:
         return WorkerPolicy(
-            backend="codex",
+            backend=backend,
             model="gpt-5.6-sol",
             reasoning_effort="high",
             execution_mode="interactive",
@@ -67,9 +83,9 @@ def default_worker_policy(backend: str) -> WorkerPolicy:
             approval_policy="on-request",
             network_access=False,
         )
-    if backend == "copilot":
+    if backend == "copilot-cli":
         return WorkerPolicy(
-            backend="copilot",
+            backend="copilot-cli",
             model=None,
             reasoning_effort=None,
             execution_mode="interactive",
@@ -82,9 +98,10 @@ def default_worker_policy(backend: str) -> WorkerPolicy:
 def resolve_worker_policy(settings: AgentSettings, backend: str) -> WorkerPolicy:
     """Resolve the user-owned worker policy for the selected provider."""
 
-    if backend == "codex":
+    backend = normalize_backend(backend)
+    if backend in {"codex-cli", "codex-desktop"}:
         return WorkerPolicy(
-            backend="codex",
+            backend=backend,
             model=settings.codex_model,
             reasoning_effort=settings.codex_reasoning_effort,
             execution_mode=settings.codex_execution_mode,
@@ -92,9 +109,9 @@ def resolve_worker_policy(settings: AgentSettings, backend: str) -> WorkerPolicy
             approval_policy=settings.codex_approval_policy,
             network_access=settings.codex_network_access,
         )
-    if backend == "copilot":
+    if backend == "copilot-cli":
         return WorkerPolicy(
-            backend="copilot",
+            backend="copilot-cli",
             model=settings.copilot_model,
             reasoning_effort=settings.copilot_reasoning_effort,
             execution_mode=settings.copilot_execution_mode,
@@ -167,18 +184,24 @@ def _copilot_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
 
 
 def build_worker_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
-    """Build direct subprocess argv; never invokes a shell."""
+    """Build direct subprocess argv for CLI workers; never invokes a shell."""
 
-    if policy.backend == "codex":
+    backend = normalize_backend(policy.backend)
+    if backend == "codex-cli":
         return _codex_argv(policy, prompt)
-    if policy.backend == "copilot":
+    if backend == "copilot-cli":
         return _copilot_argv(policy, prompt)
+    if backend == "codex-desktop":
+        raise ValueError(
+            "codex-desktop uses the App Server adapter and has no direct CLI argv"
+        )
     raise ValueError(f"Unsupported coding backend {policy.backend!r}")
 
 
 def display_worker_argv(policy: WorkerPolicy) -> list[str]:
-    """Return the policy-bearing argv shape without embedding the task prompt."""
+    """Return a non-secret launch shape without embedding the task prompt."""
 
+    if normalize_backend(policy.backend) == "codex-desktop":
+        return ["codex-desktop", "app-server", "<agent_prompt>"]
     marker = "<agent_prompt>"
-    argv = build_worker_argv(policy, marker)
-    return argv
+    return build_worker_argv(policy, marker)
