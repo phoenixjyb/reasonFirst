@@ -702,7 +702,11 @@ printf '%s\n' "$commit"
         qcommit = shlex.quote(commit_sha)
         qhead = shlex.quote(str(snap["head"]))
         update = self._ssh(
-            f"git -C {wt} update-ref {qbranch_ref} {qcommit} {qhead}",
+            (
+                f"set -eu\n"
+                f"git -C {wt} update-ref {qbranch_ref} {qcommit} {qhead}\n"
+                f"git -C {wt} read-tree {qcommit}\n"
+            ),
             timeout=30,
             check=False,
         )
