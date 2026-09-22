@@ -32,6 +32,7 @@ from .bridge_config import (
 from gitlab_agent import __version__ as REASONFIRST_VERSION
 from gitlab_agent.config import AgentSettings
 from gitlab_agent.locking import file_lock
+from gitlab_agent.review_gates import evaluate_review_gates
 from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 from .remote_workspace import RemoteWorkspaceManager
 
@@ -866,6 +867,27 @@ class BridgeController:
         except Exception as exc: listing = {"ok": False, "error": redact(str(exc),1200), "path": focus}
         return {"ok": True, "auto_routed": True, "workflow": "chatgpt-first-v4-mcp", "project": parsed["project"], "focus": focus, "workspace_id": prepared["workspace_id"], "worktree_path": prepared["worktree_path"], "execution": target.to_dict(), "initial_listing": listing, "next": ["ChatGPT reads files and forms a plan.", "Call start_codex only after plan/acceptance criteria are reviewed.", "Use review_bundle after Codex tests."]}
 
+    def _project_contract_at_ref(
+        self,
+        project: str,
+        ref: str,
+    ) -> dict[str, Any]:
+        argv = _module_command(
+            "gitlab_agent.actual_coder_cli",
+            "project-config",
+            project,
+            "--ref",
+            ref,
+            "--validate",
+        )
+        result = _run_json(argv, timeout=180)
+        effective = result.get("effective")
+        if not isinstance(effective, dict):
+            raise BridgeError(
+                "actual-coder project-config returned no effective project policy"
+            )
+        return result
+
     def project_preflight(self, project: str, *, ref: str = "") -> dict[str, Any]:
         if self._git_only_mode():
             argv = _module_command("gitlab_agent.actual_coder_cli", "project-config", project, "--validate")
@@ -884,11 +906,40 @@ class BridgeController:
             manager = self._remote_manager(target)
             probe = manager.probe()
             if not probe.get("ok"): raise BridgeError(f"SSH execution target is not ready: {probe}")
-            state = manager.create_workspace(project=project, base_ref=base_ref or "main", task=task)
+            state = manager.create_workspace(
+                project=project,
+                base_ref=base_ref or "main",
+                task=task,
+            )
             wid = str(state["workspace_id"])
-            record = {**state, "task": task, "goal": goal, "target": target.to_dict(), "kind": "ssh", "updated_at": int(time.time())}
-            with self._lock: self._state["workspaces"][wid] = record; self._save_state()
-            return {"ok": True, "workspace_id": wid, "worktree_path": state["worktree_path"], "project": project, "codex_started": False, "execution": target.to_dict(), "base_sha": state["base_sha"], "branch": state["branch"], "origin_url": state["origin_url"]}
+            project_config = self._project_contract_at_ref(
+                project,
+                str(state["base_sha"]),
+            )
+            record = {
+                **state,
+                "task": task,
+                "goal": goal,
+                "target": target.to_dict(),
+                "kind": "ssh",
+                "project_config": project_config,
+                "updated_at": int(time.time()),
+            }
+            with self._lock:
+                self._state["workspaces"][wid] = record
+                self._save_state()
+            return {
+                "ok": True,
+                "workspace_id": wid,
+                "worktree_path": state["worktree_path"],
+                "project": project,
+                "codex_started": False,
+                "execution": target.to_dict(),
+                "base_sha": state["base_sha"],
+                "branch": state["branch"],
+                "origin_url": state["origin_url"],
+                "project_config": project_config,
+            }
 
         preflight = self.project_preflight(project, ref=base_ref)
         argv = _module_command("gitlab_agent.actual_coder_cli", "start", project, "--task", task, "--goal", goal, "--agent", "codex", "--no-launch")
