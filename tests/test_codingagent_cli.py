@@ -299,9 +299,23 @@ agents:
 
     def test_doctor_parser_accepts_offline(self) -> None:
         parser = _build_parser(prog="actual-coder")
-        args = parser.parse_args(["doctor", "--offline"])
+        args = parser.parse_args(["doctor", "--offline", "--git-only"])
         self.assertEqual(args.command, "doctor")
         self.assertTrue(args.offline)
+        self.assertTrue(args.git_only)
+
+        start = parser.parse_args(
+            [
+                "start",
+                "team/project",
+                "--goal",
+                "Inspect",
+                "--no-launch",
+                "--offline-doctor",
+                "--git-only",
+            ]
+        )
+        self.assertTrue(start.git_only)
 
     def test_project_config_parser_accepts_ref_and_validate(self) -> None:
         parser = _build_parser(prog="actual-coder")
