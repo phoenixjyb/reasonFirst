@@ -3,6 +3,7 @@ import os, pathlib, subprocess, tempfile, sys, time
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
+from gitlab_agent.worker_policy import default_worker_policy
 from reasonfirst_codex_bridge.bridge_config import ExecutionTarget
 from reasonfirst_codex_bridge.remote_workspace import RemoteWorkspaceManager
 from reasonfirst_codex_bridge.controller import BridgeController, BridgeError
