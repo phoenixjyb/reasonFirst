@@ -11,7 +11,7 @@ from .config import AgentSettings
 
 PROJECT_CONFIG_FILENAME = ".actualcoder.yaml"
 PROJECT_CONFIG_VERSION = 1
-KNOWN_BACKENDS = {"codex", "copilot"}
+KNOWN_BACKENDS = {"codex", "copilot", "codex-desktop"}
 
 PROJECT_CONFIG_MAX_BYTES = 64 * 1024
 MAX_PREFERRED_AGENTS = 16
@@ -274,7 +274,7 @@ def parse_project_config(
         if agent not in KNOWN_BACKENDS:
             warnings.append(
                 f"agents.preferred contains unsupported backend {agent!r}; "
-                "current supported backends are codex and copilot"
+                "current supported backends are codex, copilot, and codex-desktop"
             )
 
     validation = _expect_mapping(root.get("validation"), "validation", errors)
