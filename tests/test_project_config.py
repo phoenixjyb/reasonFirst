@@ -83,6 +83,28 @@ mr:
         self.assertEqual(commands[0]["argv"], ["uv", "run", "pytest", "-q"])
         self.assertEqual(result.effective["mr"]["target_branch"], "develop")
 
+    def test_explicit_desktop_backend_is_supported(self) -> None:
+        text = """
+version: 1
+agents:
+  preferred:
+    - codex-desktop
+    - codex-cli
+    - copilot-cli
+"""
+        result = parse_project_config(
+            text,
+            settings=self.settings,
+            source_ref="main",
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(
+            result.effective["preferred_agents"],
+            ["codex-desktop", "codex-cli", "copilot-cli"],
+        )
+        self.assertFalse(any("unsupported backend" in item for item in result.warnings))
+
     def test_repository_cannot_self_authorize_executable(self) -> None:
         text = """
 version: 1
