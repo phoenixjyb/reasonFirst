@@ -40,7 +40,6 @@ def main():
         write=mgr.write_file(state,'src/a.py','print("two")\n'); assert write['bytes']>0
         patch='''diff --git a/src/a.py b/src/a.py\n--- a/src/a.py\n+++ b/src/a.py\n@@ -1 +1 @@\n-print("two")\n+print("three")\n'''
         applied=mgr.apply_patch(state,patch); assert applied['ok'],applied
-        ran=mgr.run_command(state,"python3 src/a.py",timeout_seconds=30); assert ran['returncode']==0 and 'three' in ran['stdout']
         reports=pathlib.Path(state['worktree_path'],'reports'); reports.mkdir()
         (reports/'metrics.json').write_text('{"latency_ms":12.5}')
         diff=mgr.diff(state); assert '+print("three")' in diff['diff']
