@@ -31,7 +31,14 @@ def main():
         os.environ['PATH']=str(binp)+os.pathsep+oldpath
         os.environ['RF_FAKE_REMOTE_HOME']=str(home)
         os.environ['RF_FAKE_CODEX']=str(ROOT/'tests'/'fake_codex.py')
-        target=ExecutionTarget(type='ssh',name='fake',host='fake-host',repo=str(repo),codex_backend='desktop-proxy')
+        target=ExecutionTarget(
+            type='ssh',
+            name='fake',
+            host='fake-host',
+            repo=str(repo),
+            codex_backend='desktop-proxy',
+            remote_allowed_executables=('python3',),
+        )
         mgr=RemoteWorkspaceManager(target)
         probe=mgr.probe(); assert probe['ok'],probe
         state=mgr.create_workspace(project='group/project',base_ref='main',task='remote-test')
