@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-VERSION="4.0.3-r1"
+VERSION="bridge-preview-r2"
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(CDPATH= cd -- "$HERE/../.." && pwd)"
 RUNTIME_DIR="${RF_V4_RUNTIME_DIR:-$HOME/.local/share/reasonfirst/v4-runtime}"
