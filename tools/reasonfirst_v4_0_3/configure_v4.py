@@ -83,17 +83,7 @@ def main() -> int:
         ap.error("bridge.yaml version must be 3 or 4")
     if version not in {3, 4}:
         ap.error(f"Unsupported bridge config version: {version}")
-    old = codex.read_text(encoding="utf-8") if codex.exists() else ""
-    tomllib.loads(old)  # Never rewrite a malformed global config.
-    base = strip_reasonfirst_mcp(old)
     url = f"http://127.0.0.1:{args.port}/mcp"
-    managed = ("# BEGIN REASONFIRST V4 MANAGED\n"
-               "[mcp_servers.reasonfirst]\n"
-               f'url = "{url}"\n'
-               "enabled = true\n"
-               "# END REASONFIRST V4 MANAGED\n")
-    new_codex = base + ("\n" if base else "") + managed
-    tomllib.loads(new_codex)
     for section in ("control", "defaults", "targets", "mcp", "audit"):
         if section in data and not isinstance(data[section], dict):
             ap.error(f"bridge.yaml {section} must be an object")
@@ -128,12 +118,33 @@ def main() -> int:
     if not bridge.exists() or bridge.read_text(encoding="utf-8") != new_bridge:
         backup(bridge, backups)
         atomic_write(bridge, new_bridge)
-    if old != new_codex:
-        backup(codex, backups)
-        atomic_write(codex, new_codex)
+    codex_mcp_status = "not modified"
+    if worker_backend == "codex-desktop":
+        old = codex.read_text(encoding="utf-8") if codex.exists() else ""
+        tomllib.loads(old)  # Never rewrite a malformed global config.
+        base = strip_reasonfirst_mcp(old)
+        managed = (
+            "# BEGIN REASONFIRST V4 MANAGED\n"
+            "[mcp_servers.reasonfirst]\n"
+            f'url = "{url}"\n'
+            "enabled = true\n"
+            "# END REASONFIRST V4 MANAGED\n"
+        )
+        new_codex = base + ("\n" if base else "") + managed
+        tomllib.loads(new_codex)
+        if old != new_codex:
+            backup(codex, backups)
+            atomic_write(codex, new_codex)
+            codex_mcp_status = "updated"
+        else:
+            codex_mcp_status = "already configured"
     print(f"ReasonFirst bridge: {bridge}")
     print(f"Worker backend: {worker_backend}")
-    print(f"Codex global MCP: {url}")
+    print(
+        f"Codex global MCP: {url} ({codex_mcp_status})"
+        if worker_backend == "codex-desktop"
+        else f"Codex global MCP: not modified for {worker_backend}"
+    )
     print(f"Backups: {backups}")
     return 0
 
