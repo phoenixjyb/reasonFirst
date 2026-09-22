@@ -15,7 +15,12 @@ import time
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from .app_server import AppServerClient, AppServerError, managed_app_server_socket, resolve_codex_binary
+from gitlab_agent.codex_app_server import (
+    AppServerClient,
+    AppServerError,
+    managed_app_server_socket,
+    resolve_codex_binary,
+)
 from .artifacts import artifact_file, scan_artifacts
 from .bridge_config import (
     ExecutionTarget,
