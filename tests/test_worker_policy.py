@@ -76,6 +76,22 @@ class WorkerPolicyConfigTests(unittest.TestCase):
             ("shell(git push)", "shell(rm)"),
         )
 
+    def test_git_password_is_supported_without_api_token(self) -> None:
+        settings = self._load(
+            GITLAB_TOKEN="",
+            GITLAB_GIT_TOKEN="",
+            GITLAB_GIT_PASSWORD="password-value",
+        )
+        self.assertEqual(settings.api_token, "")
+        self.assertEqual(settings.git_token, "password-value")
+
+    def test_git_token_and_password_ambiguity_fails_closed(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Set only one"):
+            self._load(
+                GITLAB_GIT_TOKEN="scoped-token",
+                GITLAB_GIT_PASSWORD="password-value",
+            )
+
     def test_invalid_policy_choice_fails_closed(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "REASONFIRST_CODEX_SANDBOX"):
             self._load(REASONFIRST_CODEX_SANDBOX="danger-full-access")
