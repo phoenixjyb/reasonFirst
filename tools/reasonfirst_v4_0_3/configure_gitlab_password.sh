@@ -30,7 +30,7 @@ stty -echo
 IFS= read -r PASSWORD
 stty echo
 printf '\n'
-printf 'Allowed project (group/project, blank = all): '
+printf 'Allowed project (group/project): '
 IFS= read -r PROJECT
 
 case "$BASE_URL" in
@@ -42,15 +42,12 @@ esac
 case "$PASSWORD" in
   *$'\n'*|*$'\r'*) echo "Password must not contain newlines" >&2; exit 1 ;;
 esac
-if [ -n "$PROJECT" ]; then
-  case "$PROJECT" in
-    */*) ;;
-    *) echo "Project must be group/project, or leave blank for all accessible projects" >&2; exit 1 ;;
-  esac
-  REQUIRE_ALLOWLIST=true
-else
-  REQUIRE_ALLOWLIST=false
-fi
+[ -n "$PROJECT" ] || { echo "An explicit allowed project is required" >&2; exit 1; }
+case "$PROJECT" in
+  */*) ;;
+  *) echo "Project must be group/project" >&2; exit 1 ;;
+esac
+REQUIRE_ALLOWLIST=true
 
 umask 077
 cat > "$CFG" <<EOF
@@ -82,12 +79,8 @@ cd "$RF_DIR"
 echo "== ReasonFirst offline doctor =="
 uv run actual-coder doctor --offline --git-only
 
-if [ -n "$PROJECT" ]; then
-  echo "== Git-only project check =="
-  uv run actual-coder project-config "$PROJECT" --validate
-  echo "Git-only mode ready for project: $PROJECT"
-else
-  echo "Git-only mode configured for all projects accessible to this GitLab account."
-fi
+echo "== Git-only project check =="
+uv run actual-coder project-config "$PROJECT" --validate
+echo "Git-only mode ready for project: $PROJECT"
 
 echo "Configuration created: $CFG"
