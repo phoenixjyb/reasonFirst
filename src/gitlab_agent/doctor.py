@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import __version__
+from .codex_desktop import codex_desktop_available
 from .config import AgentSettings
 from .gitlab_api import GitLabAPI
 
@@ -125,6 +126,22 @@ def run_doctor(
             path=resolved,
             authentication_checked=False,
         )
+
+    desktop_available, desktop_path = codex_desktop_available()
+    if desktop_available:
+        installed_agents.append("codex-desktop")
+    _check(
+        checks,
+        "agent_codex-desktop",
+        "pass" if desktop_available else "warn",
+        (
+            "Codex Desktop/App Server runtime is available"
+            if desktop_available
+            else "Codex Desktop backend is unavailable; install Desktop or set REASONFIRST_CODEX_DESKTOP_BIN"
+        ),
+        path=desktop_path,
+        authentication_checked=False,
+    )
 
     _check(
         checks,
