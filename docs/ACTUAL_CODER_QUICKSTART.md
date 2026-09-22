@@ -76,6 +76,33 @@ GITLAB_WORKSPACE_ROOT=~/.local/share/chatgpt-gitlab-mcp
 
 Use a dedicated read API credential (`read_api` and, where needed, `read_repository`). For Git writes, prefer a separate `GITLAB_GIT_TOKEN` with `write_repository`, not a broad `api` token. Empty Git-token configuration falls back to the API token; that does not magically give it push rights. Restrict the project allowlist to exact intended `path_with_namespace` values. Install/authenticate Codex CLI or Copilot CLI separately using the provider's supported flow; ReasonFirst does not manage their accounts.
 
+### Coding-worker policy
+
+ReasonFirst passes a user-owned worker policy explicitly to the selected coding CLI instead of relying on whichever interactive model/permission choice happened to be active previously. The default Codex policy is:
+
+```dotenv
+REASONFIRST_CODEX_MODEL=gpt-5.6-sol
+REASONFIRST_CODEX_REASONING_EFFORT=high
+REASONFIRST_CODEX_EXECUTION_MODE=interactive
+REASONFIRST_CODEX_SANDBOX=workspace-write
+REASONFIRST_CODEX_APPROVAL_POLICY=on-request
+REASONFIRST_CODEX_NETWORK_ACCESS=false
+```
+
+Set `REASONFIRST_CODEX_EXECUTION_MODE=exec` for non-interactive `codex exec`. For unattended execution, `REASONFIRST_CODEX_APPROVAL_POLICY=never` keeps the configured sandbox boundary but never pauses for approval; operations that need more privilege must fail instead of silently escaping the policy. ReasonFirst intentionally does not expose Codex full-access/yolo as a supported worker policy.
+
+Copilot remains on its provider-selected model/effort unless explicitly pinned:
+
+```dotenv
+REASONFIRST_COPILOT_MODEL=
+REASONFIRST_COPILOT_REASONING_EFFORT=
+REASONFIRST_COPILOT_EXECUTION_MODE=interactive
+REASONFIRST_COPILOT_ALLOW_TOOLS=
+REASONFIRST_COPILOT_DENY_TOOLS=shell(git push)
+```
+
+Set `REASONFIRST_COPILOT_EXECUTION_MODE=programmatic` to use `copilot -p`. The allow/deny values are comma-separated Copilot CLI permission patterns; deny rules are passed explicitly and win over allow rules. `git push` is denied by default so remote publication stays in the reviewed ReasonFirst `finish` flow. Use `actual-coder config` to inspect the resolved non-secret worker defaults before launching a task.
+
 Configuration file selection: `GITLAB_AGENT_ENV_FILE`, then the user config above, then a local `.env`. CLI fallback is relative to its working directory; MCP's fallback is relative to its server source directory. Already-exported variables take precedence over the file. Use simple literal assignments; do not rely on shell interpolation or inline comments in values.
 
 On macOS/Linux, explicitly select the file for this shell:
