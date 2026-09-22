@@ -7,6 +7,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Add first-class Git-only preflight/start mode and explicit HTTPS password support for approved self-managed GitLab deployments. Scoped `GITLAB_GIT_TOKEN` remains preferred and takes precedence over `GITLAB_GIT_PASSWORD`, with `GITLAB_TOKEN` retained only as a compatibility fallback.
 - Add user-owned coding-worker policy controls: Codex defaults to GPT-5.6 Sol / High and receives explicit sandbox/approval/network settings; Copilot can receive explicit model/effort plus allow/deny tool rules, with git push denied by default. Interactive behavior remains the default unless a non-interactive execution mode is explicitly configured.
 - Preserve unpublished commits during normal workspace cleanup and abandoned-branch recovery using fresh publication evidence and compare-and-delete refs (#5).
 - Propagate failed child commands/timeouts to shell exit status while retaining structured results (#7).
