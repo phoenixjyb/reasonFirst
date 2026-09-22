@@ -415,33 +415,85 @@ git -C "$wt" ls-files --others --exclude-standard
         }
 
     def snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Return an exact review digest for tracked and untracked workspace changes."""
+        """Return a publication identity bound to the exact candidate Git tree."""
         script = r'''
-import hashlib, json, pathlib, subprocess, sys
+import json, os, pathlib, subprocess, sys, tempfile
 root=pathlib.Path(sys.argv[1]).resolve()
-def out(*args):
-    return subprocess.check_output(list(args), cwd=str(root))
+
+def out(*args, env=None):
+    return subprocess.check_output(list(args), cwd=str(root), env=env)
+
 head=out("git","rev-parse","HEAD").decode().strip()
 branch=out("git","branch","--show-current").decode().strip()
-diff=out("git","diff","--binary","HEAD","--")
-untracked=out("git","ls-files","--others","--exclude-standard","-z").split(b"\0")
-h=hashlib.sha256(); h.update(b"RFV4\\0"); h.update(head.encode()); h.update(b"\\0"); h.update(diff)
-paths=[]
-for raw in sorted(x for x in untracked if x):
-    rel=raw.decode("utf-8",errors="surrogateescape")
-    p=(root/rel).resolve(); p.relative_to(root)
-    if not p.is_file(): continue
-    data=p.read_bytes()
-    h.update(b"\\0U\\0"); h.update(raw); h.update(b"\\0"); h.update(hashlib.sha256(data).digest())
-    paths.append(rel)
-tracked=out("git","diff","--name-only","HEAD","--").decode("utf-8",errors="replace").splitlines()
-print(json.dumps({"head":head,"branch":branch,"digest":h.hexdigest(),"dirty":bool(diff or paths),"changed_paths":tracked+paths,"untracked":paths}))
+origin=out("git","remote","get-url","origin").decode().strip()
+try:
+    push_url=out("git","remote","get-url","--push","origin").decode().strip()
+except subprocess.CalledProcessError:
+    push_url=origin
+rewrites=subprocess.run(
+    ["git","config","--get-regexp",r"^url\..*\.(insteadOf|pushInsteadOf)$"],
+    cwd=str(root), text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+).stdout.strip().splitlines()
+
+fd,index_path=tempfile.mkstemp(prefix="rf-index-")
+os.close(fd)
+os.unlink(index_path)
+env=dict(os.environ)
+env["GIT_INDEX_FILE"]=index_path
+try:
+    subprocess.check_call(["git","read-tree",head],cwd=str(root),env=env,
+                          stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    subprocess.check_call(["git","add","-A","--"],cwd=str(root),env=env,
+                          stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    tree=out("git","write-tree",env=env).decode().strip()
+finally:
+    try: os.unlink(index_path)
+    except FileNotFoundError: pass
+
+head_tree=out("git","rev-parse","HEAD^{tree}").decode().strip()
+changed=out("git","diff","--name-only","HEAD","--").decode("utf-8",errors="replace").splitlines()
+untracked=[x.decode("utf-8",errors="surrogateescape") for x in out("git","ls-files","--others","--exclude-standard","-z").split(b"\0") if x]
+print(json.dumps({
+    "head":head,
+    "branch":branch,
+    "origin_url":origin,
+    "push_url":push_url,
+    "url_rewrites":rewrites,
+    "candidate_tree":tree,
+    "dirty":tree != head_tree,
+    "changed_paths":changed+untracked,
+    "untracked":untracked,
+}))
 '''
         cmd = "python3 -c {} {}".format(
             shlex.quote(script), shlex.quote(str(state["worktree_path"])),
         )
-        proc = self._ssh(cmd, timeout=60)
-        return json.loads(proc.stdout.strip().splitlines()[-1])
+        proc = self._ssh(cmd, timeout=90)
+        data = json.loads(proc.stdout.strip().splitlines()[-1])
+        data["origin_url"] = self._safe_origin_url(str(data.get("origin_url") or ""))
+        data["push_url"] = self._safe_origin_url(str(data.get("push_url") or ""))
+        data["base_sha"] = str(state.get("base_sha") or "")
+        data["project"] = str(state.get("project") or "")
+        target_identity = {
+            "type": self.target.type,
+            "host": self.target.host,
+            "repo": self.target.repo,
+        }
+        data["target_identity"] = target_identity
+        identity = {
+            "project": data["project"],
+            "target": target_identity,
+            "base_sha": data["base_sha"],
+            "head": data.get("head"),
+            "branch": data.get("branch"),
+            "origin_url": data.get("origin_url"),
+            "push_url": data.get("push_url"),
+            "candidate_tree": data.get("candidate_tree"),
+        }
+        data["digest"] = hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return data
 
     @staticmethod
     def _push_path_block_reason(paths: list[str]) -> str | None:
