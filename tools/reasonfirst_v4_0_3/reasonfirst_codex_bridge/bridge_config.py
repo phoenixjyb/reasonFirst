@@ -199,9 +199,13 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
             raise BridgeConfigError(
                 "validation.engine must be docker or podman when remote validation is enabled"
             )
-        if not validation_image or any(ch.isspace() for ch in validation_image):
+        if (
+            not validation_image
+            or validation_image.startswith("-")
+            or any(ch.isspace() for ch in validation_image)
+        ):
             raise BridgeConfigError(
-                "validation.image must be one non-empty container image reference"
+                "validation.image must be one non-option, non-whitespace container image reference"
             )
         if not validation_execs:
             raise BridgeConfigError(
