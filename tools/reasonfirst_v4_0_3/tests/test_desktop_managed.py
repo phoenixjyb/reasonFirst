@@ -24,7 +24,7 @@ def handler(ws):
 
 
 def main():
-    with tempfile.TemporaryDirectory(dir="/private/tmp") as td:
+    with tempfile.TemporaryDirectory() as td:
         home=pathlib.Path(td)/'.codex'; sock=home/'app-server-control'/'app-server-control.sock'
         sock.parent.mkdir(parents=True)
         old=os.environ.get('CODEX_HOME'); os.environ['CODEX_HOME']=str(home)
