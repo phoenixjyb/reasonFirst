@@ -55,6 +55,7 @@ class RemoteTarget:
     name: str
     host: str
     repo: str
+    workspace_root: str
     allowed_projects: tuple[str, ...]
     ssh_connect_timeout: int = 8
 
@@ -64,6 +65,7 @@ class RemoteTarget:
             "type": "ssh",
             "host": self.host,
             "repo": self.repo,
+            "workspace_root": self.workspace_root,
             "allowed_projects": list(self.allowed_projects),
             "ssh_connect_timeout": self.ssh_connect_timeout,
         }
@@ -114,6 +116,7 @@ def _parse_target(name: str, raw: Any) -> RemoteTarget:
             "type",
             "host",
             "repo",
+            "workspace_root",
             "allowed_projects",
             "ssh_connect_timeout",
         }
@@ -137,6 +140,12 @@ def _parse_target(name: str, raw: Any) -> RemoteTarget:
     if not _safe_repo_path(repo):
         raise RemoteTargetError(
             f"targets.{name}.repo must be a safe absolute POSIX path"
+        )
+
+    workspace_root = str(data.get("workspace_root") or "").strip()
+    if not _safe_repo_path(workspace_root):
+        raise RemoteTargetError(
+            f"targets.{name}.workspace_root must be a safe absolute POSIX path"
         )
 
     projects = data.get("allowed_projects")
@@ -164,6 +173,7 @@ def _parse_target(name: str, raw: Any) -> RemoteTarget:
         name=name,
         host=host,
         repo=repo,
+        workspace_root=workspace_root,
         allowed_projects=tuple(normalized_projects),
         ssh_connect_timeout=timeout,
     )
