@@ -112,7 +112,7 @@ class ActualCoderCLITests(unittest.TestCase):
             "Implement a small fix",
             agent="copilot",
         )
-        self.assertEqual(result["agent"], "copilot")
+        self.assertEqual(result["agent"], "copilot-cli")
         self.assertEqual(
             result["agent_command"],
             "cd /tmp/worktrees/abc123 && copilot",
@@ -134,7 +134,7 @@ class ActualCoderCLITests(unittest.TestCase):
             "Inspect the code",
             agent="codex",
         )
-        self.assertEqual(result["agent"], "codex")
+        self.assertEqual(result["agent"], "codex-cli")
         self.assertEqual(
             result["agent_command"],
             "cd /tmp/worktrees/abc123 && codex",
@@ -153,7 +153,7 @@ class ActualCoderCLITests(unittest.TestCase):
             preferred_agents=["copilot", "codex"],
             which=fake_which,
         )
-        self.assertEqual(selection["selected"], "copilot")
+        self.assertEqual(selection["selected"], "copilot-cli")
         self.assertEqual(selection["preference_source"], "project")
         self.assertIn("project preference", str(selection["reason"]))
 
@@ -166,9 +166,9 @@ class ActualCoderCLITests(unittest.TestCase):
             preferred_agents=["codex"],
             which=fake_which,
         )
-        self.assertEqual(selection["selected"], "copilot")
+        self.assertEqual(selection["selected"], "copilot-cli")
         self.assertEqual(selection["preference_source"], "fallback")
-        self.assertEqual(selection["installed_candidates"], ["copilot"])
+        self.assertEqual(selection["installed_candidates"], ["copilot-cli"])
 
     def test_resume_style_auto_selection_can_use_cached_base_contract(self) -> None:
         contract = """
@@ -215,7 +215,7 @@ agents:
                 )
 
         self.assertFalse(manager.last_read_refresh_remote)
-        self.assertEqual(selection["selected"], "copilot")
+        self.assertEqual(selection["selected"], "copilot-cli")
         self.assertEqual(
             selection["project_config"]["ref"],
             "base-sha",
@@ -292,10 +292,10 @@ agents:
             result = _available_agents()
 
         agents = {item["agent"]: item for item in result["agents"]}
-        self.assertTrue(agents["copilot"]["installed"])
-        self.assertEqual(agents["copilot"]["path"], "/usr/local/bin/copilot")
-        self.assertFalse(agents["codex"]["installed"])
-        self.assertFalse(agents["copilot"]["authentication_checked"])
+        self.assertTrue(agents["copilot-cli"]["installed"])
+        self.assertEqual(agents["copilot-cli"]["path"], "/usr/local/bin/copilot")
+        self.assertFalse(agents["codex-cli"]["installed"])
+        self.assertFalse(agents["copilot-cli"]["authentication_checked"])
 
     def test_doctor_parser_accepts_offline(self) -> None:
         parser = _build_parser(prog="actual-coder")
@@ -410,7 +410,7 @@ mr:
 
         self.assertEqual(manager.created_base_ref, "develop")
         self.assertFalse(manager.refresh_remote)
-        self.assertEqual(result["agent"], "copilot")
+        self.assertEqual(result["agent"], "copilot-cli")
         self.assertEqual(result["agent_requested"], "auto")
         self.assertEqual(result["effective_base_ref"], "develop")
         self.assertIn("Keep changes focused.", str(result["agent_prompt"]))
@@ -582,6 +582,81 @@ mr:
         self.assertEqual(copilot.execution_mode, "programmatic")
         self.assertTrue(copilot.disable_builtin_mcps)
         self.assertEqual(copilot.allow_tools, ("write",))
+
+    def test_explicit_desktop_backend_selection(self) -> None:
+        with patch(
+            "gitlab_agent.cli.resolve_desktop_codex_binary",
+            return_value="/Applications/Codex.app/Contents/Resources/codex",
+        ):
+            selection = _select_agent("codex-desktop", which=lambda _name: None)
+
+        self.assertEqual(selection["selected"], "codex-desktop")
+        self.assertTrue(selection["installed"])
+        self.assertIn("Codex.app", str(selection["path"]))
+
+    def test_legacy_codex_and_copilot_names_are_aliases(self) -> None:
+        def fake_which(executable: str) -> str | None:
+            return f"/tools/{executable}"
+
+        codex = _select_agent("codex", which=fake_which)
+        copilot = _select_agent("copilot", which=fake_which)
+
+        self.assertEqual(codex["requested"], "codex")
+        self.assertEqual(codex["selected"], "codex-cli")
+        self.assertEqual(copilot["requested"], "copilot")
+        self.assertEqual(copilot["selected"], "copilot-cli")
+
+    def test_launch_handoff_uses_desktop_app_server_adapter(self) -> None:
+        calls: dict[str, object] = {}
+
+        class FakeDesktop:
+            def __init__(self, *, binary: str) -> None:
+                calls["binary"] = binary
+
+            def start(self, *, policy, cwd: str, prompt: str):
+                calls["policy"] = policy
+                calls["cwd"] = cwd
+                calls["prompt"] = prompt
+                return {"backend": "codex-desktop", "thread_id": "thr-1", "turn_id": "turn-1"}
+
+            def wait_for_turn(self, turn_id: str):
+                calls["waited"] = turn_id
+                return {"turn_id": turn_id, "turn_status": "completed"}
+
+            def close(self) -> None:
+                calls["closed"] = True
+
+        policy = WorkerPolicy(
+            backend="codex-desktop",
+            model="gpt-5.6-sol",
+            reasoning_effort="high",
+            execution_mode="interactive",
+            sandbox_mode="workspace-write",
+            approval_policy="on-request",
+            network_access=False,
+        )
+
+        with tempfile.TemporaryDirectory() as td, patch(
+            "gitlab_agent.cli.resolve_desktop_codex_binary",
+            return_value="/Applications/Codex.app/Contents/Resources/codex",
+        ):
+            result = _launch_handoff(
+                {
+                    "agent": "codex-desktop",
+                    "agent_prompt": "Implement carefully",
+                    "worktree_path": td,
+                    "worker_policy": policy.to_dict(),
+                },
+                desktop_factory=FakeDesktop,
+            )
+
+        self.assertEqual(result["agent"], "codex-desktop")
+        self.assertEqual(result["thread_id"], "thr-1")
+        self.assertEqual(result["turn_status"], "completed")
+        self.assertEqual(calls["waited"], "turn-1")
+        self.assertTrue(calls["closed"])
+        self.assertEqual(calls["policy"].model, "gpt-5.6-sol")
+        self.assertEqual(calls["policy"].reasoning_effort, "high")
 
     def test_finish_parser_accepts_dry_run_and_safety_overrides(self) -> None:
         parser = _build_parser(prog="actual-coder")
