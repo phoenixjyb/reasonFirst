@@ -23,6 +23,12 @@ def main() -> None:
                 "host": "gpu-a",
                 "repo": "/srv/reasonfirst/project",
                 "codex_backend": "desktop-proxy",
+                "validation": {
+                    "engine": "docker",
+                    "image": "example/validator:1",
+                    "allowed_executables": ["pytest", "python3"],
+                    "network_access": False,
+                },
             },
         },
     }
@@ -31,6 +37,10 @@ def main() -> None:
     assert target.type == "ssh"
     assert target.host == "gpu-a"
     assert target.repo == "/srv/reasonfirst/project"
+    assert target.validation_engine == "docker"
+    assert target.validation_image == "example/validator:1"
+    assert target.validation_allowed_executables == ("pytest", "python3")
+    assert target.validation_network_access is False
 
     for unsafe in (
         {"type": "ssh", "host": "other", "repo": "/tmp/repo"},
@@ -43,6 +53,29 @@ def main() -> None:
             pass
         else:
             raise AssertionError(f"unconfigured target should be rejected: {unsafe!r}")
+
+    bad_cfg = {
+        "version": 4,
+        "defaults": {"target": "bad"},
+        "targets": {
+            "bad": {
+                "type": "ssh",
+                "host": "gpu",
+                "repo": "/srv/project",
+                "validation": {
+                    "engine": "docker",
+                    "image": "--privileged",
+                    "allowed_executables": ["pytest"],
+                },
+            }
+        },
+    }
+    try:
+        resolve_configured_target("bad", config=bad_cfg)
+    except BridgeConfigError:
+        pass
+    else:
+        raise AssertionError("option-like validation image must be rejected")
 
     print("configured execution-target trust boundary: OK")
 
