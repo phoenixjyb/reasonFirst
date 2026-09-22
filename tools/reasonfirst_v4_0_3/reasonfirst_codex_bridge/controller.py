@@ -219,6 +219,7 @@ class BridgeController:
                 allowed_executables=set(settings.allowed_executables),
                 max_command_timeout_seconds=settings.command_timeout_seconds,
                 max_output_bytes=settings.max_output_bytes,
+                max_file_bytes=settings.max_file_bytes,
             )
         except Exception:
             return RemoteWorkspaceManager(target)
