@@ -451,22 +451,45 @@ def out(*args):
     return subprocess.check_output(list(args), cwd=str(root))
 head=out("git","rev-parse","HEAD").decode().strip()
 branch=out("git","branch","--show-current").decode().strip()
+origin=out("git","remote","get-url","origin").decode().strip()
 diff=out("git","diff","--binary","HEAD","--")
 untracked=out("git","ls-files","--others","--exclude-standard","-z").split(b"\0")
-h=hashlib.sha256(); h.update(b"RFV4\\0"); h.update(head.encode()); h.update(b"\\0"); h.update(diff)
 paths=[]
 for raw in sorted(x for x in untracked if x):
     rel=raw.decode("utf-8",errors="surrogateescape")
     p=(root/rel).resolve(); p.relative_to(root)
-    if not p.is_file(): continue
-    data=p.read_bytes()
-    h.update(b"\\0U\\0"); h.update(raw); h.update(b"\\0"); h.update(hashlib.sha256(data).digest())
-    paths.append(rel)
+    if p.is_file(): paths.append(rel)
+import os,tempfile
+fd,index_path=tempfile.mkstemp(prefix=".rf-review-index-",dir=str(root)); os.close(fd); os.unlink(index_path)
+env=os.environ.copy(); env["GIT_INDEX_FILE"]=index_path
+try:
+    subprocess.check_call(["git","read-tree","HEAD"],cwd=str(root),env=env,stdout=subprocess.DEVNULL)
+    subprocess.check_call(["git","add","-A"],cwd=str(root),env=env,stdout=subprocess.DEVNULL)
+    candidate_tree=subprocess.check_output(["git","write-tree"],cwd=str(root),env=env).decode().strip()
+finally:
+    try: os.unlink(index_path)
+    except FileNotFoundError: pass
 tracked=out("git","diff","--name-only","HEAD","--").decode("utf-8",errors="replace").splitlines()
-print(json.dumps({"head":head,"branch":branch,"digest":h.hexdigest(),"dirty":bool(diff or paths),"changed_paths":tracked+paths,"untracked":paths}))
+identity={
+    "project":sys.argv[2],
+    "base_sha":sys.argv[3],
+    "target_host":sys.argv[4],
+    "target_repo":sys.argv[5],
+    "head":head,
+    "branch":branch,
+    "origin_url":origin,
+    "candidate_tree":candidate_tree,
+}
+h=hashlib.sha256(json.dumps(identity,sort_keys=True,separators=(",",":")).encode())
+print(json.dumps({**identity,"digest":h.hexdigest(),"dirty":bool(diff or paths),"changed_paths":tracked+paths,"untracked":paths}))
 '''
-        cmd = "python3 -c {} {}".format(
-            shlex.quote(script), shlex.quote(str(state["worktree_path"])),
+        cmd = "python3 -c {} {} {} {} {} {}".format(
+            shlex.quote(script),
+            shlex.quote(str(state["worktree_path"])),
+            shlex.quote(str(state.get("project") or "")),
+            shlex.quote(str(state.get("base_sha") or "")),
+            shlex.quote(self.target.host),
+            shlex.quote(self.target.repo),
         )
         proc = self._ssh(cmd, timeout=60)
         return json.loads(proc.stdout.strip().splitlines()[-1])
