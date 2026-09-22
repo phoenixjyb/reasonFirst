@@ -433,10 +433,23 @@ def _prepare_start(
         for item in project_context.get("preferred_agents", [])
         if isinstance(item, str)
     ]
-    selection = _select_agent(
-        requested_agent,
-        preferred_agents=preferred if requested_agent == "auto" else preferred,
-    )
+    if requested_agent == "auto" and settings.default_backend != "auto":
+        selection = _select_agent(
+            settings.default_backend,
+            preferred_agents=preferred,
+        )
+        selection["requested"] = "auto"
+        selection["user_default_backend"] = settings.default_backend
+        selection["preference_source"] = "user"
+        selection["reason"] = (
+            "selected the user-configured default backend "
+            f"{settings.default_backend!r}"
+        )
+    else:
+        selection = _select_agent(
+            requested_agent,
+            preferred_agents=preferred,
+        )
     selection["project_config"] = {
         "found": parsed.found,
         "ref": parsed.source_ref,
@@ -658,6 +671,16 @@ def _selection_for_request(
     refresh_remote: bool = True,
 ) -> dict[str, object]:
     if requested == "auto":
+        if settings.default_backend != "auto":
+            selection = _select_agent(settings.default_backend)
+            selection["requested"] = "auto"
+            selection["user_default_backend"] = settings.default_backend
+            selection["preference_source"] = "user"
+            selection["reason"] = (
+                "selected the user-configured default backend "
+                f"{settings.default_backend!r}"
+            )
+            return selection
         return _auto_agent_selection(
             manager,
             settings,
@@ -719,6 +742,7 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
         "default_base_ref": settings.default_base_ref,
         "allowed_executables": sorted(settings.allowed_executables),
         "command_timeout_seconds": settings.command_timeout_seconds,
+        "default_backend": settings.default_backend,
         "worker_defaults": {
             "codex": resolve_worker_policy(settings, "codex").to_dict(),
             "copilot": resolve_worker_policy(settings, "copilot").to_dict(),
