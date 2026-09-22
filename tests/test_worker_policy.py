@@ -19,6 +19,7 @@ class WorkerPolicyConfigTests(unittest.TestCase):
                 "GITLAB_TOKEN": "read-token",
                 "GITLAB_GIT_TOKEN": "git-token",
                 "GITLAB_ALLOWED_PROJECTS": "team/project",
+                "GITLAB_WORKSPACE_ROOT": str(Path(td) / "workspace"),
                 **overrides,
             }
             with patch.dict(os.environ, env, clear=True):
