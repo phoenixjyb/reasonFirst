@@ -157,6 +157,62 @@ class ActualCoderCLITests(unittest.TestCase):
         self.assertEqual(selection["preference_source"], "project")
         self.assertIn("project preference", str(selection["reason"]))
 
+    def test_user_default_backend_overrides_project_auto_preference(self) -> None:
+        contract = """
+version: 1
+agents:
+  preferred: [copilot-cli, codex-cli]
+"""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            settings = AgentSettings(
+                config_file=root / ".env",
+                gitlab_base_url="https://gitlab.example.test",
+                api_token="token",
+                api_verify_ssl=True,
+                api_trust_env=False,
+                git_token="token",
+                git_username="oauth2",
+                git_trust_env=False,
+                allowed_projects={"team/project"},
+                require_write_allowlist=True,
+                workspace_root=root / "workspace-root",
+                branch_prefix="chatgpt/",
+                default_base_ref="main",
+                allowed_executables={"uv"},
+                command_timeout_seconds=300,
+                max_output_bytes=120000,
+                max_file_bytes=1000000,
+                git_author_name=None,
+                git_author_email=None,
+                default_backend="codex-cli",
+            )
+            manager = FakeStartManager(root, contract)
+
+            def fake_which(executable: str) -> str | None:
+                return f"/tools/{executable}" if executable in {"codex", "copilot"} else None
+
+            with patch("gitlab_agent.cli.shutil.which", side_effect=fake_which):
+                result = _prepare_start(
+                    manager,  # type: ignore[arg-type]
+                    settings,
+                    project="team/project",
+                    task_slug="default-backend",
+                    goal="Inspect",
+                    requested_agent="auto",
+                )
+
+        self.assertEqual(result["agent"], "codex-cli")
+        self.assertEqual(result["agent_requested"], "auto")
+        self.assertEqual(
+            result["agent_selection"]["preference_source"],
+            "user",
+        )
+        self.assertEqual(
+            result["agent_selection"]["user_default_backend"],
+            "codex-cli",
+        )
+
     def test_auto_selection_falls_back_to_installed_default(self) -> None:
         def fake_which(executable: str) -> str | None:
             return "/tools/copilot" if executable == "copilot" else None
@@ -628,8 +684,10 @@ mr:
         class FakeDesktopClient:
             backend_name = "desktop-managed-test"
 
-            def __init__(self, *, event_handler):
+            def __init__(self, *, event_handler, approval_request_handler=None):
                 self.event_handler = event_handler
+                self.approval_request_handler = approval_request_handler
+                seen["approval_handler"] = approval_request_handler
 
             def start_thread(self, *, cwd, policy):
                 seen["thread_cwd"] = cwd
@@ -697,6 +755,7 @@ mr:
         self.assertEqual(result["turn_id"], "turn_desktop")
         self.assertEqual(seen["turn_prompt"], "Implement only the reviewed plan")
         self.assertEqual(seen["turn_policy"].model, "gpt-5.6-sol")
+        self.assertIsNotNone(seen["approval_handler"])
         self.assertTrue(seen["closed"])
 
     def test_resolve_worker_policy_uses_reasonfirst_settings(self) -> None:
