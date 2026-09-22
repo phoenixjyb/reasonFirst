@@ -582,6 +582,7 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
         "api_verify_ssl": settings.api_verify_ssl,
         "api_trust_env": settings.api_trust_env,
         "git_token_set": bool(settings.git_token),
+        "git_credential_source": settings.git_credential_source,
         "git_username": settings.git_username,
         "git_trust_env": settings.git_trust_env,
         "allowed_projects": sorted(settings.allowed_projects),
@@ -626,6 +627,11 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         "--offline",
         action="store_true",
         help="Skip live GitLab API connectivity/authentication check",
+    )
+    p.add_argument(
+        "--git-only",
+        action="store_true",
+        help="Require only Git HTTPS credentials; API/MCP/CI metadata features remain unavailable",
     )
 
     sub.add_parser(
@@ -692,6 +698,11 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         "--offline-doctor",
         action="store_true",
         help="Skip the live GitLab API check in the preflight doctor",
+    )
+    p.add_argument(
+        "--git-only",
+        action="store_true",
+        help="Start using Git HTTPS only; do not require a GitLab API token",
     )
     p.add_argument(
         "--no-launch",
@@ -908,7 +919,10 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
 
     try:
         if args.command == "doctor":
-            result = run_doctor(offline=args.offline)
+            result = run_doctor(
+                offline=args.offline,
+                git_only=args.git_only,
+            )
             _print(result)
             return 0 if bool(result.get("ok")) else 1
 
@@ -972,7 +986,10 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 task_slug=args.task,
             )
         elif args.command == "start":
-            preflight = run_doctor(offline=args.offline_doctor)
+            preflight = run_doctor(
+                offline=args.offline_doctor,
+                git_only=args.git_only,
+            )
             preflight_summary = {
                 "ok": preflight.get("ok"),
                 "overall": preflight.get("overall"),
