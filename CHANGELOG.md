@@ -7,7 +7,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
-- Add user-owned coding-worker policy controls: Codex defaults to GPT-5.6 Sol / High and receives explicit sandbox/approval/network settings; Copilot can receive explicit model/effort plus allow/deny tool rules, with git push denied by default. Interactive behavior remains the default unless a non-interactive execution mode is explicitly configured.
+- Add a user-selectable `codex-desktop` worker backend using the Desktop-bundled Codex App Server while preserving `codex` and `copilot` CLI backends. The same WorkerPolicy controls model, reasoning effort, sandbox, approvals and network access across Codex CLI/Desktop; user-level `REASONFIRST_WORKER_BACKEND` can pin the default backend.\n- Add user-owned coding-worker policy controls: Codex defaults to GPT-5.6 Sol / High and receives explicit sandbox/approval/network settings; Copilot can receive explicit model/effort plus allow/deny tool rules, with git push denied by default. Interactive behavior remains the default unless a non-interactive execution mode is explicitly configured.
 - Preserve unpublished commits during normal workspace cleanup and abandoned-branch recovery using fresh publication evidence and compare-and-delete refs (#5).
 - Propagate failed child commands/timeouts to shell exit status while retaining structured results (#7).
 - Scan bounded base-to-HEAD commit-history additions, including merge parents, before controlled finish; remove whole-line placeholder exemptions and sanitize findings/display diffs (#8).
