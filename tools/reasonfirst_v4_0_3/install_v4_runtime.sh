@@ -25,12 +25,12 @@ if [ ! -x "$VENV/bin/python" ]; then
   "$UV_BIN" venv --python 3.12 "$VENV" 2>/dev/null || "$UV_BIN" venv "$VENV"
 fi
 "$UV_BIN" pip install --python "$VENV/bin/python" \
-  'mcp>=2.0,<3' \
-  'pyyaml>=6,<7' \
-  'websockets>=15,<17' \
-  'pillow>=10,<13' \
-  'pypdf>=5,<7' \
-  'pymupdf>=1.24,<2'
+  'mcp==2.2.0' \
+  'pyyaml==6.0.3' \
+  'websockets==17.1' \
+  'pillow==12.3.0' \
+  'pypdf==6.19.0' \
+  'pymupdf==1.28.2'
 printf '%s\n' "$VERSION" > "$MARKER"
 chmod 700 "$RUNTIME_DIR" "$VENV" 2>/dev/null || true
 chmod 600 "$MARKER" 2>/dev/null || true
