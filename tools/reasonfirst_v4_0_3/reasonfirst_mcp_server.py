@@ -175,6 +175,35 @@ def build_server():
         """Return only recent compact Codex execution events."""
         return ctrl.events(thread_id=thread_id, limit=min(limit, 50))
 
+    @server.tool(name="reasonfirst_pending_approvals", annotations=read)
+    def reasonfirst_pending_approvals(thread_id: str) -> dict[str, Any]:
+        """List pending Codex App Server approval requests for this thread."""
+        return ctrl.pending_approvals(thread_id=thread_id)
+
+    @server.tool(name="reasonfirst_approve", annotations=write)
+    def reasonfirst_approve(
+        thread_id: str,
+        request_id: int,
+        for_session: bool = False,
+    ) -> dict[str, Any]:
+        """Explicitly approve one pending Codex App Server request."""
+        return ctrl.resolve_approval(
+            thread_id=thread_id,
+            request_id=request_id,
+            approve=True,
+            for_session=for_session,
+        )
+
+    @server.tool(name="reasonfirst_decline", annotations=write)
+    def reasonfirst_decline(thread_id: str, request_id: int) -> dict[str, Any]:
+        """Explicitly decline one pending Codex App Server approval request."""
+        return ctrl.resolve_approval(
+            thread_id=thread_id,
+            request_id=request_id,
+            approve=False,
+            for_session=False,
+        )
+
     @server.tool(name="reasonfirst_review_bundle", annotations=read)
     def reasonfirst_review_bundle(thread_id: str, artifact_path: str = ".") -> dict[str, Any]:
         """Return bounded status, recent evidence, real diff, and changed artifacts for ChatGPT review."""
