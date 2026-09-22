@@ -11,6 +11,8 @@ import sys
 import threading
 from typing import Any, Callable
 
+from gitlab_agent.worker_policy import WorkerPolicy
+
 
 class AppServerError(RuntimeError):
     pass
@@ -70,6 +72,35 @@ def resolve_desktop_or_codex_binary() -> str:
 def managed_app_server_socket() -> Path:
     codex_home = Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser().resolve()
     return codex_home / "app-server-control" / "app-server-control.sock"
+
+
+def _approval_policy_for_app_server(value: str | None) -> str:
+    mapping = {
+        "never": "never",
+        "on-request": "onRequest",
+        "onRequest": "onRequest",
+        "unless-trusted": "unlessTrusted",
+        "unlessTrusted": "unlessTrusted",
+    }
+    raw = str(value or "on-request")
+    try:
+        return mapping[raw]
+    except KeyError as exc:
+        raise AppServerError(f"Unsupported Codex App Server approval policy: {raw!r}") from exc
+
+
+def _sandbox_mode_for_app_server(value: str | None) -> str:
+    mapping = {
+        "read-only": "readOnly",
+        "readOnly": "readOnly",
+        "workspace-write": "workspaceWrite",
+        "workspaceWrite": "workspaceWrite",
+    }
+    raw = str(value or "workspace-write")
+    try:
+        return mapping[raw]
+    except KeyError as exc:
+        raise AppServerError(f"Unsupported Codex App Server sandbox mode: {raw!r}") from exc
 
 
 class AppServerClient:
@@ -509,17 +540,25 @@ class AppServerClient:
         self,
         *,
         cwd: str,
+        policy: WorkerPolicy,
         dynamic_tools: list[dict[str, Any]] | None = None,
-        sandbox_mode: str = "workspace-write",
+        sandbox_mode: str | None = None,
     ) -> str:
-        self.assert_noninteractive_policy_allowed(sandbox_mode=sandbox_mode)
+        if policy.backend != "codex":
+            raise AppServerError(
+                f"Codex App Server requires a Codex WorkerPolicy, got {policy.backend!r}"
+            )
+        effective_sandbox = sandbox_mode or policy.sandbox_mode or "workspace-write"
+        self.assert_noninteractive_policy_allowed(sandbox_mode=effective_sandbox)
         params: dict[str, Any] = {
             "cwd": cwd,
-            "approvalPolicy": "never",
-            "sandbox": sandbox_mode,
-            "serviceName": "codex_work_desktop",
+            "approvalPolicy": _approval_policy_for_app_server(policy.approval_policy),
+            "sandbox": _sandbox_mode_for_app_server(effective_sandbox),
+            "serviceName": "reasonfirst_codex_desktop",
             "threadSource": "user",
         }
+        if policy.model:
+            params["model"] = policy.model
         if dynamic_tools:
             params["dynamicTools"] = dynamic_tools
         result = self.request(
@@ -536,18 +575,46 @@ class AppServerClient:
     def resume_thread(self, thread_id: str) -> None:
         self.request("thread/resume", {"threadId": thread_id}, timeout=30)
 
-    def start_turn(self, *, thread_id: str, cwd: str, prompt: str, network_access: bool = False, sandbox_mode: str = "workspace-write") -> str:
+    def start_turn(
+        self,
+        *,
+        thread_id: str,
+        cwd: str,
+        prompt: str,
+        policy: WorkerPolicy,
+        network_access: bool | None = None,
+        sandbox_mode: str | None = None,
+    ) -> str:
+        if policy.backend != "codex":
+            raise AppServerError(
+                f"Codex App Server requires a Codex WorkerPolicy, got {policy.backend!r}"
+            )
+        effective_sandbox = sandbox_mode or policy.sandbox_mode or "workspace-write"
+        app_sandbox = _sandbox_mode_for_app_server(effective_sandbox)
+        effective_network = (
+            bool(policy.network_access)
+            if network_access is None
+            else bool(network_access)
+        )
         params = {
             "threadId": thread_id,
             "input": [{"type": "text", "text": prompt}],
             "cwd": cwd,
-            "approvalPolicy": "never",
+            "approvalPolicy": _approval_policy_for_app_server(policy.approval_policy),
             "sandboxPolicy": (
-                {"type": "readOnly", "networkAccess": bool(network_access)}
-                if sandbox_mode == "read-only"
-                else {"type": "workspaceWrite", "writableRoots": [cwd], "networkAccess": bool(network_access)}
+                {"type": "readOnly", "networkAccess": effective_network}
+                if app_sandbox == "readOnly"
+                else {
+                    "type": "workspaceWrite",
+                    "writableRoots": [cwd],
+                    "networkAccess": effective_network,
+                }
             ),
         }
+        if policy.model:
+            params["model"] = policy.model
+        if policy.reasoning_effort:
+            params["effort"] = policy.reasoning_effort
         result = self.request("turn/start", params, timeout=30)
         turn = result.get("turn") if isinstance(result, dict) else None
         turn_id = turn.get("id") if isinstance(turn, dict) else None
