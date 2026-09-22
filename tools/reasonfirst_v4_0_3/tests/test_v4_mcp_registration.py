@@ -32,7 +32,7 @@ expected={
  'reasonfirst_files','reasonfirst_read','reasonfirst_diff','reasonfirst_codex_start','reasonfirst_codex_continue',
  'reasonfirst_codex_steer','reasonfirst_codex_interrupt','reasonfirst_codex_status','reasonfirst_codex_events',
  'reasonfirst_pending_approvals','reasonfirst_approve','reasonfirst_decline',
- 'reasonfirst_review_bundle','reasonfirst_artifacts'
+ 'reasonfirst_finish_preview','reasonfirst_review_bundle','reasonfirst_artifacts'
 }
 assert expected.issubset(server.tools.keys()), sorted(server.tools)
 assert 'reasonfirst_authorize_push' not in server.tools
