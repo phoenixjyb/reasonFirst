@@ -1,21 +1,30 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "reasonfirst-v4",
-  "version": "4.0.3",
-  "description": "ChatGPT-led software analysis and ReasonFirst orchestration with Codex as an execution-only coding backend.",
+  "version": "0.3.0",
+  "description": "ReasonFirst bridge preview for ChatGPT-led software analysis and controlled coding-worker orchestration.",
   "author": {
     "name": "Local ReasonFirst"
   },
-  "keywords": ["reasonfirst", "coding", "gitlab", "codex", "ssh"],
+  "keywords": [
+    "reasonfirst",
+    "coding",
+    "gitlab",
+    "codex",
+    "ssh"
+  ],
   "extensions": {
     "com.openai": {
       "interface": {
-        "displayName": "ReasonFirst v4",
-        "shortDescription": "ChatGPT-led code analysis and execution orchestration",
-        "longDescription": "Read and analyze managed source workspaces, hand reviewed implementation plans to Codex, run remote builds/tests, review diffs and evidence, and hand execution tasks to Codex, which uses the user's existing global/project Git configuration for commit/push.",
+        "displayName": "ReasonFirst Bridge Preview",
+        "shortDescription": "ReasonFirst coding-worker bridge preview",
+        "longDescription": "Use ReasonFirst managed workspaces, reviewed implementation handoffs, Codex Desktop/App Server execution, bounded evidence and optional preconfigured SSH workspace operations. Remote publication is experimental and disabled by default; normal publication remains in the controlled ActualCoder finish flow.",
         "developerName": "Local ReasonFirst",
         "category": "Developer Tools",
-        "capabilities": ["Read", "Write"]
+        "capabilities": [
+          "Read",
+          "Write"
+        ]
       }
     }
   }
