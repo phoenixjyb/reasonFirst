@@ -510,18 +510,32 @@ print(json.dumps({
                 return f"sensitive path is not allowed in automatic push: {raw}"
         return None
 
-    def _push_script(self, state: dict[str, Any], *, with_forwarded_credential: bool) -> str:
-        qwt = shlex.quote(str(state["worktree_path"]))
+    def _push_script(
+        self,
+        *,
+        worktree: str,
+        approved_url: str,
+        branch: str,
+        commit_sha: str,
+        with_forwarded_credential: bool,
+    ) -> str:
+        qwt = shlex.quote(worktree)
+        qurl = shlex.quote(approved_url)
+        qbranch = shlex.quote(branch)
+        qcommit = shlex.quote(commit_sha)
         lines = [
             "set -eu",
             f"wt={qwt}",
-            'branch=$(git -C "$wt" branch --show-current)',
+            f"url={qurl}",
+            f"branch={qbranch}",
+            f"commit={qcommit}",
             'case "$branch" in chatgpt/*) ;; *) echo "unsafe branch: $branch" >&2; exit 41 ;; esac',
+            'if git -C "$wt" config --get-regexp \'^url\\..*\\.(insteadOf|pushInsteadOf)$\' >/dev/null 2>&1; then echo "git URL rewrite configuration is not allowed for reviewed push" >&2; exit 42; fi',
             "export GIT_TERMINAL_PROMPT=0",
         ]
         if with_forwarded_credential:
             lines += [
-                'rf_auth_dir=$(mktemp -d "${TMPDIR:-/tmp}/reasonfirst-push.XXXXXX")',
+                'rf_auth_dir=$(mktemp -d "\${TMPDIR:-/tmp}/reasonfirst-push.XXXXXX")',
                 'trap \'rm -rf "$rf_auth_dir"\' EXIT HUP INT TERM',
                 'cat >"$rf_auth_dir/askpass" <<\'RF_ASKPASS\'',
                 '#!/bin/sh',
@@ -535,88 +549,170 @@ print(json.dumps({
                 f"export RF_GIT_PASSWORD={shlex.quote(self.git_password)}",
                 'export GIT_ASKPASS="$rf_auth_dir/askpass"',
             ]
-        lines.append('git -C "$wt" push --set-upstream origin "HEAD:refs/heads/$branch"')
+        lines.append('git -C "$wt" push "$url" "$commit:refs/heads/$branch"')
         return "\n".join(lines) + "\n"
 
     def commit_push(
         self,
         state: dict[str, Any],
         *,
-        expected_digest: str,
+        expected_snapshot: dict[str, Any],
         message: str,
     ) -> dict[str, Any]:
-        """Commit and push the exact ChatGPT-reviewed snapshot without force push."""
+        """Publish exactly the reviewed candidate tree to the reviewed destination."""
         message = str(message or "").strip()
         if not message or len(message) > 240 or "\n" in message or "\r" in message:
             raise RemoteWorkspaceError("commit message must be one non-empty line up to 240 characters")
+
         snap = self.snapshot(state)
+        required = (
+            "digest", "candidate_tree", "head", "branch", "origin_url",
+            "push_url", "base_sha", "project", "target_identity",
+        )
+        mismatched = [
+            key for key in required
+            if snap.get(key) != expected_snapshot.get(key)
+        ]
+        if mismatched:
+            raise RemoteWorkspaceError(
+                "workspace or publication destination changed after ChatGPT push approval: "
+                + ", ".join(mismatched)
+            )
+        if snap.get("url_rewrites"):
+            raise RemoteWorkspaceError(
+                "Git URL rewrite configuration is not allowed for reviewed push"
+            )
         if not snap.get("dirty"):
             raise RemoteWorkspaceError("workspace has no changes to commit")
-        if str(snap.get("digest") or "") != str(expected_digest or ""):
-            raise RemoteWorkspaceError(
-                "workspace changed after ChatGPT push approval; review the new diff and approve again"
-            )
+
         branch = str(snap.get("branch") or "")
         if not branch.startswith("chatgpt/"):
-            raise RemoteWorkspaceError(f"automatic push is allowed only from chatgpt/* branches, got {branch!r}")
+            raise RemoteWorkspaceError(
+                f"automatic push is allowed only from chatgpt/* branches, got {branch!r}"
+            )
         paths = [str(x) for x in (snap.get("changed_paths") or [])]
         reason = self._push_path_block_reason(paths)
         if reason:
             raise RemoteWorkspaceError(reason)
 
+        approved_url = str(snap.get("push_url") or snap.get("origin_url") or "")
+        if not approved_url:
+            raise RemoteWorkspaceError("approved push URL is empty")
+        if self._safe_origin_url(approved_url) != approved_url:
+            raise RemoteWorkspaceError("approved push URL must not contain embedded credentials")
+
         wt = shlex.quote(str(state["worktree_path"]))
+        expected_head = shlex.quote(str(snap["head"]))
+        expected_branch = shlex.quote(branch)
+        expected_tree = shlex.quote(str(snap["candidate_tree"]))
+        expected_origin = shlex.quote(str(snap["origin_url"]))
+        expected_push = shlex.quote(str(snap["push_url"]))
         qmessage = shlex.quote(message)
         gate = r'''
 set -eu
 wt=__WT__
-git -C "$wt" diff --check HEAD --
-python3 - "$wt" <<'PYRF'
-import pathlib,re,subprocess,sys
-root=pathlib.Path(sys.argv[1]).resolve()
+expected_head=__HEAD__
+expected_branch=__BRANCH__
+expected_tree=__TREE__
+expected_origin=__ORIGIN__
+expected_push=__PUSH__
+[ "$(git -C "$wt" rev-parse HEAD)" = "$expected_head" ] || { echo "HEAD changed after approval" >&2; exit 51; }
+[ "$(git -C "$wt" branch --show-current)" = "$expected_branch" ] || { echo "branch changed after approval" >&2; exit 52; }
+[ "$(git -C "$wt" remote get-url origin)" = "$expected_origin" ] || { echo "origin changed after approval" >&2; exit 53; }
+[ "$(git -C "$wt" remote get-url --push origin)" = "$expected_push" ] || { echo "push URL changed after approval" >&2; exit 54; }
+if git -C "$wt" config --get-regexp '^url\..*\.(insteadOf|pushInsteadOf)$' >/dev/null 2>&1; then
+  echo "git URL rewrite configuration is not allowed for reviewed push" >&2
+  exit 55
+fi
+idx=$(mktemp "\${TMPDIR:-/tmp}/reasonfirst-index.XXXXXX")
+trap 'rm -f "$idx"' EXIT HUP INT TERM
+export GIT_INDEX_FILE="$idx"
+rm -f "$idx"
+git -C "$wt" read-tree "$expected_head"
+git -C "$wt" add -A --
+tree=$(git -C "$wt" write-tree)
+[ "$tree" = "$expected_tree" ] || { echo "candidate tree changed after approval" >&2; exit 56; }
+git -C "$wt" diff --cached --check "$expected_head" --
+python3 - "$wt" "$expected_head" <<'PYRF'
+import os,pathlib,re,subprocess,sys
+root=pathlib.Path(sys.argv[1]).resolve(); head=sys.argv[2]
+env=dict(os.environ)
 patterns=[
  re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
  re.compile(rb"glpat-[A-Za-z0-9_-]{12,}"),
  re.compile(rb"sk-[A-Za-z0-9_-]{16,}"),
 ]
-blob=subprocess.check_output(["git","-C",str(root),"diff","--binary","HEAD","--"])
+blob=subprocess.check_output(["git","-C",str(root),"diff","--cached","--binary",head,"--"],env=env)
 for pat in patterns:
- if pat.search(blob): raise SystemExit("secret-like material detected in diff")
-for raw in subprocess.check_output(["git","-C",str(root),"ls-files","--others","--exclude-standard","-z"]).split(b"\0"):
- if not raw: continue
- p=(root/raw.decode("utf-8",errors="surrogateescape")).resolve(); p.relative_to(root)
- if p.is_file() and p.stat().st_size <= 2*1024*1024:
-  data=p.read_bytes()
-  for pat in patterns:
-   if pat.search(data): raise SystemExit(f"secret-like material detected in {p.name}")
+ if pat.search(blob): raise SystemExit("secret-like material detected in candidate tree")
 PYRF
-git -C "$wt" add -A
-git -C "$wt" diff --cached --check
-git -C "$wt" commit -m __MSG__
-git -C "$wt" rev-parse HEAD
-'''.replace("__WT__", wt).replace("__MSG__", qmessage)
+commit=$(printf '%s\n' __MSG__ | git -C "$wt" commit-tree "$tree" -p "$expected_head")
+rm -f "$idx"
+git -C "$wt" read-tree "$expected_head"
+git -C "$wt" add -A --
+tree2=$(git -C "$wt" write-tree)
+[ "$tree2" = "$expected_tree" ] || { echo "candidate changed before push" >&2; exit 57; }
+printf '%s\n' "$commit"
+'''.replace("__WT__", wt).replace("__HEAD__", expected_head).replace(
+            "__BRANCH__", expected_branch
+        ).replace("__TREE__", expected_tree).replace(
+            "__ORIGIN__", expected_origin
+        ).replace("__PUSH__", expected_push).replace("__MSG__", qmessage)
+
         committed = self._ssh(gate, timeout=180, check=False)
         if committed.returncode != 0:
             raise RemoteWorkspaceError(
-                f"commit safety/commit step failed (exit {committed.returncode}): {committed.stderr[-3000:]}"
+                f"reviewed commit construction failed (exit {committed.returncode}): "
+                f"{committed.stderr[-3000:]}"
             )
         commit_sha = committed.stdout.strip().splitlines()[-1]
 
-        origin = self._origin_url()
-        pushed = self._ssh(self._push_script(state, with_forwarded_credential=False), timeout=180, check=False)
+        pushed = self._ssh(
+            self._push_script(
+                worktree=str(state["worktree_path"]),
+                approved_url=approved_url,
+                branch=branch,
+                commit_sha=commit_sha,
+                with_forwarded_credential=False,
+            ),
+            timeout=180,
+            check=False,
+        )
         auth_forwarded = False
-        if pushed.returncode != 0 and self._can_forward_git_credential(origin):
-            pushed = self._ssh(self._push_script(state, with_forwarded_credential=True), timeout=180, check=False)
+        if pushed.returncode != 0 and self._can_forward_git_credential(approved_url):
+            pushed = self._ssh(
+                self._push_script(
+                    worktree=str(state["worktree_path"]),
+                    approved_url=approved_url,
+                    branch=branch,
+                    commit_sha=commit_sha,
+                    with_forwarded_credential=True,
+                ),
+                timeout=180,
+                check=False,
+            )
             auth_forwarded = True
         if pushed.returncode != 0:
             raise RemoteWorkspaceError(
-                f"commit {commit_sha} was created, but push failed (exit {pushed.returncode}): {pushed.stderr[-3000:]}"
+                f"reviewed commit {commit_sha} was created, but push failed "
+                f"(exit {pushed.returncode}): {pushed.stderr[-3000:]}"
             )
+
+        qbranch_ref = shlex.quote("refs/heads/" + branch)
+        qcommit = shlex.quote(commit_sha)
+        qhead = shlex.quote(str(snap["head"]))
+        update = self._ssh(
+            f"git -C {wt} update-ref {qbranch_ref} {qcommit} {qhead}",
+            timeout=30,
+            check=False,
+        )
         return {
             "ok": True,
             "branch": branch,
             "commit_sha": commit_sha,
             "pushed": True,
             "git_auth_forwarded": auth_forwarded,
+            "local_ref_updated": update.returncode == 0,
             "stdout": pushed.stdout[-6000:],
             "stderr": pushed.stderr[-3000:],
         }
