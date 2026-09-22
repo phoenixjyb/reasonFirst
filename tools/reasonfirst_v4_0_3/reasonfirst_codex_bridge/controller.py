@@ -1593,15 +1593,41 @@ class BridgeController:
         if rec.get("kind")=="ssh" or self._git_only_mode(): raise BridgeError("CI inspection requires GitLab API authentication and a local ActualCoder workspace")
         return _run_json(_module_command("gitlab_agent.actual_coder_cli","ci",str(rec["workspace_id"])),timeout=120,allow_failure_json=True)
 
-    def finish_preview(self, *, thread_id: str, message: str) -> dict[str, Any]:
-        session=self._session(thread_id); rec=self._workspace_record(str(session["workspace_id"]))
+    def finish_preview(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        allow_protected: bool = False,
+        allow_secret_match: bool = False,
+    ) -> dict[str, Any]:
+        session = self._session(thread_id)
+        rec = self._workspace_record(str(session["workspace_id"]))
         if rec.get("kind") == "ssh":
             return self._remote_finish_plan(
                 thread_id=thread_id,
                 message=message,
+                allow_protected=allow_protected,
+                allow_secret_match=allow_secret_match,
             )
-        result=_run_json(_module_command("gitlab_agent.actual_coder_cli","finish",str(session["workspace_id"]),"--message",message,"--dry-run"),timeout=600,allow_failure_json=True)
-        return {"ok":bool(result.get("ok")),"dry_run":True,"raw":result}
+        argv = _module_command(
+            "gitlab_agent.actual_coder_cli",
+            "finish",
+            str(session["workspace_id"]),
+            "--message",
+            message,
+            "--dry-run",
+        )
+        if allow_protected:
+            argv.append("--allow-protected")
+        if allow_secret_match:
+            argv.append("--allow-secret-match")
+        result = _run_json(
+            argv,
+            timeout=600,
+            allow_failure_json=True,
+        )
+        return {"ok": bool(result.get("ok")), "dry_run": True, "raw": result}
 
     def finish(self, *, thread_id: str, message: str, snapshot_digest: str) -> dict[str, Any]:
         session=self._session(thread_id); rec=self._workspace_record(str(session["workspace_id"]))
