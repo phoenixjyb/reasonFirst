@@ -41,6 +41,24 @@ jobs:
       - name: Run v0.2 local workflow tests
         run: uv run python -m unittest discover -s tests -v
 
+      - name: Run v4 bridge regression bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          V4="tools/reasonfirst_v4_0_3"
+          export RF_V4_RUNTIME_DIR="$RUNNER_TEMP/reasonfirst-v4-runtime"
+          bash "$V4/install_v4_runtime.sh"
+          PY="$RF_V4_RUNTIME_DIR/.venv/bin/python"
+          export PYTHONPATH="$PWD/src:$PWD/$V4"
+          for script in "$V4"/tests/test_*.py; do
+            echo "== $script =="
+            "$PY" "$script"
+          done
+          bash "$V4/tests/test_first_run_config.sh"
+          for script in "$V4"/*.sh; do
+            bash -n "$script"
+          done
+
       - name: Enforce zero OpenAI model API usage in project code
         shell: bash
         run: |
