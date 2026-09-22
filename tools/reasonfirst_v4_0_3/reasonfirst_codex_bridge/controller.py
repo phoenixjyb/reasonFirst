@@ -964,12 +964,29 @@ class BridgeController:
         )
 
     def _hybrid_remote_prompt(self, rec: dict[str, Any], goal: str) -> str:
+        target_data = rec.get("target") if isinstance(rec.get("target"), dict) else {}
+        validation_enabled = bool(
+            target_data.get("validation_engine")
+            and target_data.get("validation_image")
+            and target_data.get("validation_allowed_executables")
+        )
+        validation_rule = (
+            "- Use reasonfirst_remote.run only for structured build/test commands; "
+            "it executes inside the user-configured container sandbox. Report exact argv, "
+            "exit code and failures.\n"
+            if validation_enabled
+            else "- Remote command execution is unavailable because no container validation "
+            "runner is configured; do not claim remote tests ran through ReasonFirst.\n"
+        )
         return (
-            "You are Codex running locally on the user's Mac as the implementation/test backend for ReasonFirst v4. ChatGPT is the planner/reviewer; do not redesign the task.\n"
+            "You are Codex running locally as the implementation/test backend for ReasonFirst. "
+            "ChatGPT is the planner/reviewer; do not redesign the task.\n"
             "The authoritative source tree is NOT local. It is the managed SSH worktree below.\n"
-            "Use the reasonfirst_remote dynamic tools for ALL source reads, edits, diffs, builds and tests.\n"
-            "Do not copy the repository into this local proxy directory and do not treat local proxy files as source.\n\n"
-            f"Project: {rec.get('project')}\nRemote host: {(rec.get('target') or {}).get('host')}\n"
+            "Use the reasonfirst_remote dynamic tools for source reads, edits, diffs, and "
+            "configured validation.\n"
+            "Do not copy the repository into this local proxy directory and do not treat local "
+            "proxy files as source.\n\n"
+            f"Project: {rec.get('project')}\nRemote host: {target_data.get('host')}\n"
             f"Remote worktree: {rec.get('worktree_path')}\nBase ref: {rec.get('base_ref')}\n"
             f"Base SHA: {rec.get('base_sha')}\nFeature branch: {rec.get('branch')}\nGoal: {goal}\n\n"
             "Rules:\n"
@@ -978,8 +995,8 @@ class BridgeController:
             "- Do not push, merge, deploy, reset --hard, clean, stash, sudo, or open nested SSH sessions.\n"
             "- Inspect the real remote code before editing.\n"
             "- Use reasonfirst_remote.write or apply_patch for edits.\n"
-            "- Remote arbitrary command execution is intentionally disabled until a real sandboxed runner is configured; do not claim remote tests ran through ReasonFirst.\n"
-            "- Use reasonfirst_remote.diff before finishing.\n"
+            + validation_rule
+            + "- Use reasonfirst_remote.diff before finishing.\n"
             "- Keep changes scoped to the reviewed ChatGPT plan and acceptance criteria.\n"
         )
 
