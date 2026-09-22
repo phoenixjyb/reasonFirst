@@ -17,7 +17,15 @@ from urllib.parse import unquote, urlparse
 
 from .app_server import AppServerClient, AppServerError, managed_app_server_socket, resolve_codex_binary
 from .artifacts import artifact_file, scan_artifacts
-from .bridge_config import ExecutionTarget, config_path, load_bridge_config, resolve_target
+from .bridge_config import (
+    ExecutionTarget,
+    config_path,
+    load_bridge_config,
+    resolve_configured_target,
+    resolve_target,
+)
+from gitlab_agent.config import AgentSettings
+from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 from .remote_workspace import RemoteWorkspaceManager
 
 
@@ -140,6 +148,13 @@ class BridgeController:
 
     def _target_from_dict(self, data: Any) -> ExecutionTarget:
         return resolve_target(data, config=self.bridge_config)
+
+    def _requested_target(self, data: Any = None) -> ExecutionTarget:
+        return resolve_configured_target(data, config=self.bridge_config)
+
+    @staticmethod
+    def _codex_policy() -> WorkerPolicy:
+        return resolve_worker_policy(AgentSettings.load(), "codex")
 
     def _remote_manager(self, target: ExecutionTarget) -> RemoteWorkspaceManager:
         # Reuse the already-configured ReasonFirst Git credential for remote HTTPS
@@ -476,7 +491,7 @@ class BridgeController:
         return result
 
     def target_probe(self, execution: Any = None) -> dict[str, Any]:
-        target = resolve_target(execution, config=self.bridge_config)
+        target = self._requested_target(execution)
         if target.type == "ssh":
             result = self._remote_manager(target).probe()
             result["remote_codex_required"] = target.codex_backend == "remote-ssh"
@@ -526,9 +541,9 @@ class BridgeController:
         parsed = self.parse_gitlab_url(gitlab_url)
         focus = str(module or parsed.get("hinted_path") or ".").strip() or "."
         task = re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{intent}-{focus}").strip("-._")[:48] or "chatgpt-analysis"
-        target = resolve_target(execution, config=self.bridge_config)
+        target = self._requested_target(execution)
         goal = f"Prepare the real repository for ChatGPT analysis. Do not modify files. User request: {request or intent}. Focus: {focus}."
-        prepared = self.prepare(project=parsed["project"], task=task, goal=goal, base_ref=base_ref, execution=target.to_dict())
+        prepared = self.prepare(project=parsed["project"], task=task, goal=goal, base_ref=base_ref, execution=target.name)
         record = self._workspace_record(str(prepared["workspace_id"])); record.update({"focus": focus, "request": request, "intent": intent, "gitlab_url": gitlab_url, "updated_at": int(time.time())}); self._save_state()
         try: listing = self.files(workspace_id=str(prepared["workspace_id"]), path=focus, max_entries=120)
         except Exception as exc: listing = {"ok": False, "error": redact(str(exc),1200), "path": focus}
@@ -547,7 +562,7 @@ class BridgeController:
         return report
 
     def prepare(self, *, project: str, task: str = "chatgpt-analysis", goal: str = "Prepare repository for ChatGPT analysis only; do not modify files.", base_ref: str = "", execution: Any = None) -> dict[str, Any]:
-        target = resolve_target(execution, config=self.bridge_config)
+        target = self._requested_target(execution)
         if target.type == "ssh":
             manager = self._remote_manager(target)
             probe = manager.probe()
@@ -658,7 +673,8 @@ class BridgeController:
         target = self._target_from_dict(rec.get("target") or "local")
         target, execution_migrated = self._migrate_legacy_remote_target_if_needed(wid, rec, target)
         dynamic_tools: list[dict[str, Any]] | None = None
-        sandbox_mode = "workspace-write"
+        policy = self._codex_policy()
+        sandbox_mode = policy.sandbox_mode or "workspace-write"
         if rec.get("kind") == "ssh":
             workspace = self._remote_manager(target).status(rec)
             remote_worktree = str(rec["worktree_path"])
@@ -680,7 +696,12 @@ class BridgeController:
             )
             prompt = str(handoff.get("agent_prompt") or "").strip()
         app_key, app = self._get_app(target)
-        thread_id = app.start_thread(cwd=codex_cwd, dynamic_tools=dynamic_tools, sandbox_mode=sandbox_mode)
+        thread_id = app.start_thread(
+            cwd=codex_cwd,
+            policy=policy,
+            dynamic_tools=dynamic_tools,
+            sandbox_mode=sandbox_mode,
+        )
         with self._lock:
             self._state["sessions"][thread_id] = {
                 "thread_id": thread_id,
@@ -695,16 +716,21 @@ class BridgeController:
                 "last_turn_status": "prepared",
                 "last_agent_message": "",
                 "events": [],
+                "worker_policy": policy.to_dict(),
                 "created_at": int(time.time()),
                 "updated_at": int(time.time()),
             }
             self._app_current_thread[app_key] = thread_id
             self._save_state()
+        effective_network = bool(policy.network_access) and bool(target.network_access)
+        if self._is_remote_proxy_target(target):
+            effective_network = False
         turn_id = app.start_turn(
             thread_id=thread_id,
             cwd=codex_cwd,
             prompt=prompt,
-            network_access=False if self._is_remote_proxy_target(target) else target.network_access,
+            policy=policy,
+            network_access=effective_network,
             sandbox_mode=sandbox_mode,
         )
         with self._lock:
@@ -730,6 +756,8 @@ class BridgeController:
             "thread_metadata_errors": decorated["errors"],
             "execution": target.to_dict(),
             "codex_backend": app.backend_name,
+            "worker_backend": "codex-desktop",
+            "worker_policy": policy.to_dict(),
             "remote_tools": bool(dynamic_tools),
             "execution_migrated": execution_migrated,
         }
@@ -748,7 +776,13 @@ class BridgeController:
         session, app = self._ensure_loaded(thread_id)
         rec = self._workspace_record(str(session["workspace_id"]))
         target = self._target_from_dict(session["target"])
-        sandbox_mode = "workspace-write"
+        raw_policy = session.get("worker_policy")
+        policy = (
+            WorkerPolicy.from_dict(raw_policy)
+            if isinstance(raw_policy, dict)
+            else self._codex_policy()
+        )
+        sandbox_mode = policy.sandbox_mode or "workspace-write"
         if rec.get("kind") == "ssh":
             if self._is_remote_proxy_target(target):
                 prompt = self._hybrid_remote_prompt(rec, goal)
@@ -762,11 +796,15 @@ class BridgeController:
             )
             prompt = str(handoff.get("agent_prompt") or "")
         cwd = str(session.get("codex_cwd") or session["worktree_path"])
+        effective_network = bool(policy.network_access) and bool(target.network_access)
+        if self._is_remote_proxy_target(target):
+            effective_network = False
         turn_id = app.start_turn(
             thread_id=thread_id,
             cwd=cwd,
             prompt=prompt,
-            network_access=False if self._is_remote_proxy_target(target) else target.network_access,
+            policy=policy,
+            network_access=effective_network,
             sandbox_mode=sandbox_mode,
         )
         with self._lock:
