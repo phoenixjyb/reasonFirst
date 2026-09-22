@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "reasonfirst-v4",
+  "version": "4.0.3",
+  "description": "ChatGPT-led software analysis and ReasonFirst orchestration with Codex as an execution-only coding backend.",
+  "author": {
+    "name": "Local ReasonFirst"
+  },
+  "keywords": ["reasonfirst", "coding", "gitlab", "codex", "ssh"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "ReasonFirst v4",
+        "shortDescription": "ChatGPT-led code analysis and execution orchestration",
+        "longDescription": "Read and analyze managed source workspaces, hand reviewed implementation plans to Codex, run remote builds/tests, review diffs and evidence, and hand execution tasks to Codex, which uses the user's existing global/project Git configuration for commit/push.",
+        "developerName": "Local ReasonFirst",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"]
+      }
+    }
+  }
+}

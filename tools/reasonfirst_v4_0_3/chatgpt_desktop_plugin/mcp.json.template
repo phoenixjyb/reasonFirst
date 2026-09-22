@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "reasonfirst": {
+      "type": "streamable-http",
+      "url": "__RF_MCP_URL__"
+    }
+  }
+}
