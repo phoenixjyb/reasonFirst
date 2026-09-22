@@ -73,8 +73,20 @@ class FakeApp:
     def list_threads(self, **kwargs):
         return {"data": [{"id": "thr_test", "name": self.name}]}
 
-    def resume_thread(self, thread_id):
-        return None
+    def resume_thread(self, thread_id, *, policy=None):
+        assert policy is not None
+        self.policy_evidence = {
+            "status": "satisfied",
+            "satisfied": True,
+            "verification_scope": "fake-resume",
+            "requested": policy.to_dict(),
+            "resolved": {
+                "model": policy.model,
+                "reasoning_effort": policy.reasoning_effort,
+            },
+            "runtime_violations": [],
+        }
+        return dict(self.policy_evidence)
 
     def read_thread(self, thread_id, include_turns=False):
         return {"thread": {"id": thread_id, "name": self.name, "status": {"type": "idle"}}}
