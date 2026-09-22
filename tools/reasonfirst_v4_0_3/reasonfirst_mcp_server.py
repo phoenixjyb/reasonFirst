@@ -10,6 +10,7 @@ import secrets
 import sys
 from typing import Any
 
+from gitlab_agent import __version__ as REASONFIRST_VERSION
 from reasonfirst_codex_bridge.controller import BridgeController, BridgeError, redact
 
 
@@ -65,7 +66,7 @@ def build_server():
     @server.custom_route("/healthz", methods=["GET"], include_in_schema=False)
     async def healthz(_request):
         from starlette.responses import JSONResponse
-        return JSONResponse({"ok": True, "service": "reasonfirst", "version": "4.0.3"})
+        return JSONResponse({"ok": True, "service": "reasonfirst", "version": REASONFIRST_VERSION, "bridge": "preview", "config_schema": 4})
     read = ToolAnnotations(read_only_hint=True, idempotent_hint=True)
     write = ToolAnnotations(read_only_hint=False, idempotent_hint=False)
 
