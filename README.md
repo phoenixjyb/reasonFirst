@@ -76,7 +76,7 @@ Inspect actual local changes before `finish --dry-run`, then explicitly approve 
 
 `resume --from-ci` returns matching-HEAD failure evidence, not automatic repair execution. Do not invent changes for successful CI. Low-level `commit`/`push` commands and some existing generated handoffs do not run every finish gate; retain explicit task boundaries and use the reviewed finish flow. See [workflow](docs/WORKFLOW.md).
 
-GitLab is the implemented target SCM/CI integration. Hosting this tool's source on GitHub does not imply a GitHub-target task adapter exists. The coding backends are currently `codex` and `copilot`.
+GitLab is the implemented target SCM/CI integration. Hosting this tool's source on GitHub does not imply a GitHub-target task adapter exists. The coding backends are `codex-cli`, `copilot-cli`, and `codex-desktop` (Codex App Server via the Desktop-bundled binary when available). Legacy `codex` and `copilot` names remain compatibility aliases. Users can select a backend explicitly with `--agent`, or use `auto`/project preferences.
 
 ## Try the source without production credentials
 
