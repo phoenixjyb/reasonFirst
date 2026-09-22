@@ -145,7 +145,7 @@ def main() -> None:
             mgr.write_file(
                 rec,
                 "a.txt",
-                "token=glpat-abcdefghijklmnopqrstuvwxyz\n",
+                "token="glpat-" + ("a" * 26)\n",
             )
             blocked_secret = ctrl.finish_preview(
                 thread_id=thread_id,
