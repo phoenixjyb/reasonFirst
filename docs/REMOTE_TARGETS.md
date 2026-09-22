@@ -70,3 +70,31 @@ The bridge/executor must resolve the supplied name with `resolve_remote_target(.
 Repository-owned `.actualcoder.yaml` may narrow task behavior, but it must never add an SSH target or expand `allowed_projects`.
 
 This registry only establishes **where** ReasonFirst is permitted to operate. It is not a process sandbox and does not itself authorize arbitrary remote shell commands or remote publication. Those require separate execution and finish policies.
+
+
+## Remote validation execution
+
+A configured SSH target does not authorize arbitrary shell execution.
+
+The hardened remote execution primitive is `RemoteValidationRunner`. It accepts a **validation name**, resolves the exact argv from the already policy-checked `.actualcoder.yaml`, and sends that argv as JSON stdin to a fixed SSH-side Python runner.
+
+For example, if the project contract contains:
+
+```yaml
+validation:
+  commands:
+    - name: unit
+      argv: [pytest, -q]
+```
+
+the reasoning/coding worker may request `unit`; it may not replace that with `bash -lc ...`, `python -c ...`, or another arbitrary command.
+
+The remote helper:
+
+- verifies the managed worktree resolves under the target's configured `workspace_root`;
+- verifies the path is the actual Git worktree root;
+- executes the exact argv with `shell=False`;
+- strips credential-shaped environment variables and SSH agent forwarding from the validation process;
+- enforces the contract timeout and returns bounded stdout/stderr.
+
+This is an **execution-policy boundary, not a container sandbox**. A validation command can execute repository code, and repository code should be treated as code the user chose to run on that target. Strong filesystem/network isolation, when required, should be supplied by a container/VM/OS sandbox rather than a command denylist.
