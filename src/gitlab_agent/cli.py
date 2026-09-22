@@ -724,8 +724,8 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
-        default="codex",
-        help="Coding backend to hand off to; 'auto' uses project preference then installed fallback (default: codex)",
+        default="auto",
+        help="Coding backend to hand off to; 'auto' honors REASONFIRST_WORKER_BACKEND, then project preference, then installed fallback",
     )
 
     p = sub.add_parser(
@@ -764,7 +764,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
-        default="codex",
+        default="auto",
     )
 
     p = sub.add_parser(
@@ -777,7 +777,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
-        default="codex",
+        default="auto",
     )
 
     p = sub.add_parser(
@@ -812,7 +812,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
-        default="codex",
+        default="auto",
     )
     p.add_argument(
         "--from-ci",
