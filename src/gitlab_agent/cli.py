@@ -516,6 +516,62 @@ def _agent_launch_argv(
     return build_worker_argv(policy, prompt)
 
 
+def _tty_codex_approval_handler(
+    msg: dict[str, Any],
+    *,
+    input_stream: Any = None,
+    output_stream: Any = None,
+) -> dict[str, Any]:
+    input_stream = input_stream or sys.stdin
+    output_stream = output_stream or sys.stderr
+    method = str(msg.get("method") or "")
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+
+    if not getattr(input_stream, "isatty", lambda: False)():
+        if method == "item/permissions/requestApproval":
+            return {"permissions": {}}
+        return {"decision": "decline"}
+
+    if method == "item/commandExecution/requestApproval":
+        command = str(params.get("command") or "<network/command approval>")
+        cwd = str(params.get("cwd") or "")
+        reason = str(params.get("reason") or "")
+        print("\n[actual-coder] Codex Desktop requests command approval:", file=output_stream)
+        print(f"  command: {command}", file=output_stream)
+        if cwd:
+            print(f"  cwd: {cwd}", file=output_stream)
+        if reason:
+            print(f"  reason: {reason}", file=output_stream)
+    elif method == "item/fileChange/requestApproval":
+        reason = str(params.get("reason") or "")
+        grant_root = str(params.get("grantRoot") or "")
+        print("\n[actual-coder] Codex Desktop requests file-change approval.", file=output_stream)
+        if grant_root:
+            print(f"  requested root: {grant_root}", file=output_stream)
+        if reason:
+            print(f"  reason: {reason}", file=output_stream)
+    elif method == "item/permissions/requestApproval":
+        permissions = params.get("permissions")
+        print("\n[actual-coder] Codex Desktop requests additional permissions:", file=output_stream)
+        print(json.dumps(permissions or {}, indent=2, ensure_ascii=False), file=output_stream)
+    else:
+        return {"decision": "decline"}
+
+    print("Approve once? [y/N] ", end="", file=output_stream, flush=True)
+    answer = input_stream.readline().strip().lower()
+    approved = answer in {"y", "yes"}
+
+    if method == "item/permissions/requestApproval":
+        requested = params.get("permissions")
+        return {
+            "scope": "turn",
+            "permissions": (
+                requested if approved and isinstance(requested, dict) else {}
+            ),
+        }
+    return {"decision": "accept" if approved else "decline"}
+
+
 def _launch_codex_desktop(
     *,
     cwd: Path,
@@ -541,7 +597,15 @@ def _launch_codex_desktop(
     factory = client_factory or (
         lambda **kwargs: AppServerClient.desktop_preferred(required=True, **kwargs)
     )
-    app = factory(event_handler=on_event)
+    approval_handler = (
+        _tty_codex_approval_handler
+        if policy.approval_policy == "on-request"
+        else None
+    )
+    app = factory(
+        event_handler=on_event,
+        approval_request_handler=approval_handler,
+    )
     try:
         thread_id = app.start_thread(cwd=str(cwd), policy=policy)
         turn_id = app.start_turn(
@@ -560,6 +624,21 @@ def _launch_codex_desktop(
             finally:
                 raise
         status = str(outcome.get("status") or "completed")
+        policy_evidence = (
+            app.worker_policy_evidence(thread_id)
+            if hasattr(app, "worker_policy_evidence")
+            else {
+                "satisfied": True,
+                "verification_scope": "test-double",
+                "requested": policy.to_dict(),
+            }
+        )
+        if not bool(policy_evidence.get("satisfied", False)):
+            status = "failed"
+            outcome["error"] = (
+                "WORKER_POLICY_UNSATISFIED: "
+                + json.dumps(policy_evidence, ensure_ascii=False, default=str)
+            )
         return {
             "agent": "codex-desktop",
             "backend": app.backend_name,
@@ -567,6 +646,7 @@ def _launch_codex_desktop(
             "turn_id": turn_id,
             "turn_status": status,
             "worker_policy": policy.to_dict(),
+            "worker_policy_evidence": policy_evidence,
             "cwd": str(cwd),
             "returncode": 0 if status in {"completed", "success"} else 1,
             **({"error": outcome["error"]} if "error" in outcome else {}),
