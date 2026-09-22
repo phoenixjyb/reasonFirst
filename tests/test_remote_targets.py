@@ -33,6 +33,7 @@ targets:
     type: ssh
     host: gpu-a
     repo: /srv/recomo/app
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects:
       - recomo/app
       - phoenixjyb/cloud-pipeline
@@ -48,6 +49,7 @@ targets:
         )
         self.assertEqual(target.host, "gpu-a")
         self.assertEqual(target.repo, "/srv/recomo/app")
+        self.assertEqual(target.workspace_root, "/srv/reasonfirst/worktrees")
         self.assertEqual(target.ssh_connect_timeout, 10)
 
         with self.assertRaisesRegex(RemoteTargetError, "not allowlisted"):
@@ -78,6 +80,7 @@ targets:
   bad:
     host: --proxy-command
     repo: /srv/repo
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects: [team/project]
 """,
             """
@@ -94,6 +97,7 @@ targets:
   bad:
     host: gpu
     repo: /srv/repo
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects: []
 """,
         ]
@@ -114,6 +118,7 @@ targets:
     host: one
     host: two
     repo: /srv/repo
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects: [team/project]
 """,
             )
@@ -132,6 +137,7 @@ targets:
   gpu:
     host: gpu
     repo: /srv/repo
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects: [team/project]
 """,
             )
@@ -149,6 +155,7 @@ targets:
   gpu:
     host: gpu
     repo: /srv/repo
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects: [team/project]
 """,
             )
