@@ -24,6 +24,7 @@ class ExecutionTarget:
     remote_codex: str = "codex"
     ssh_connect_timeout: int = 8
     network_access: bool = False
+    remote_allowed_executables: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -176,6 +177,24 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
     ssh_backend = str(raw.get("codex_backend") or "desktop-proxy").strip() or "desktop-proxy"
     if ssh_backend not in allowed:
         raise BridgeConfigError(f"Unsupported SSH codex_backend: {ssh_backend!r}")
+    raw_allowed = raw.get("remote_allowed_executables", [])
+    if raw_allowed is None:
+        raw_allowed = []
+    if not isinstance(raw_allowed, list) or any(
+        not isinstance(item, str) or not item.strip() for item in raw_allowed
+    ):
+        raise BridgeConfigError(
+            "SSH target remote_allowed_executables must be a list of executable names"
+        )
+    allowed_executables: list[str] = []
+    for item in raw_allowed:
+        value = item.strip()
+        if "/" in value or "\\" in value or value.startswith("-"):
+            raise BridgeConfigError(
+                "remote_allowed_executables entries must be bare executable names"
+            )
+        if value not in allowed_executables:
+            allowed_executables.append(value)
     return ExecutionTarget(
         type="ssh",
         name=str(raw.get("name") or host),
@@ -186,4 +205,5 @@ def resolve_target(spec: Any = None, *, config: dict[str, Any] | None = None) ->
         remote_codex=str(raw.get("remote_codex") or "codex").strip() or "codex",
         ssh_connect_timeout=max(1, min(int(raw.get("ssh_connect_timeout") or 8), 30)),
         network_access=bool(raw.get("network_access", False)),
+        remote_allowed_executables=tuple(allowed_executables),
     )
