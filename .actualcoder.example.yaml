@@ -10,6 +10,8 @@ version: 1
 project:
   base_branch: main
 
+# Supported backend names: codex (Codex CLI), copilot (Copilot CLI),
+# codex-desktop (managed Codex Desktop App Server). Order is preference order.
 agents:
   preferred:
     - codex
