@@ -112,7 +112,7 @@ The last documented release is **v0.3.0**; merged source changes need not be in 
 | API/MCP transport | Verified roots plus optional Python-only private CA, destination checks and no API redirects |
 | Read-only MCP | Files, projects, MRs, pipelines and jobs; no local task-execution endpoint |
 
-**Still planned:** native Git trust/destination integration, uniform project context on every handoff route, general workspace locking/transactional recovery, persistent TaskSpec/attempt records and EvidencePack access. Migration and tunnel-owner locks do not provide general workspace concurrency protection. [Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) and [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) track task-loop/HTTPS work.
+Named SSH execution destinations can be granted locally through the user-owned [SSH target registry](docs/REMOTE_TARGETS.md). External/MCP callers may select configured names but cannot create new host/repository trust destinations.\n\n**Still planned:** native Git trust/destination integration, uniform project context on every handoff route, general workspace locking/transactional recovery, persistent TaskSpec/attempt records and EvidencePack access. Migration and tunnel-owner locks do not provide general workspace concurrency protection. [Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) and [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) track task-loop/HTTPS work.
 
 API/MCP clients reject disabled TLS verification and every API redirect. Configure the final endpoint. `GITLAB_CA_BUNDLE` adds Python API/MCP trust, not native Git or the migration `--check-tls` probe. Keep those scopes distinct; see [runtime TLS](docs/HTTPS_API_TLS.md).
 
