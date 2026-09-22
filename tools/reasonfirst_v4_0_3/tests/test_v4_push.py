@@ -37,14 +37,32 @@ def main():
             # Any post-review change invalidates approval.
             mgr.write_file(ws,'b.txt','later\n')
             try:
-                mgr.commit_push(ws,expected_digest=snap['digest'],message='test: should reject stale approval')
+                mgr.commit_push(
+                    ws,
+                    expected_digest=snap['digest'],
+                    expected_tree=snap['candidate_tree'],
+                    expected_branch=snap['branch'],
+                    expected_origin=snap['origin_url'],
+                    expected_head=snap['head'],
+                    message='test: should reject stale approval',
+                )
                 raise AssertionError('stale digest should fail')
             except RemoteWorkspaceError as exc:
-                assert 'changed after ChatGPT push approval' in str(exc)
+                assert 'changed after ChatGPT push approval' in str(exc) or 'publication identity mismatch' in str(exc)
             # Review the new exact snapshot, then commit/push.
             snap2=mgr.snapshot(ws)
-            result=mgr.commit_push(ws,expected_digest=snap2['digest'],message='test: v4 reviewed push')
+            result=mgr.commit_push(
+                ws,
+                expected_digest=snap2['digest'],
+                expected_tree=snap2['candidate_tree'],
+                expected_branch=snap2['branch'],
+                expected_origin=snap2['origin_url'],
+                expected_head=snap2['head'],
+                message='test: v4 reviewed push',
+            )
             assert result['ok'] and result['pushed']
+            assert result['candidate_tree']==snap2['candidate_tree']
+            assert result['origin_url']==snap2['origin_url']
             branch=result['branch']
             sha=run('git','--git-dir',str(bare),'rev-parse',f'refs/heads/{branch}',capture=True).stdout.strip()
             assert sha==result['commit_sha']
