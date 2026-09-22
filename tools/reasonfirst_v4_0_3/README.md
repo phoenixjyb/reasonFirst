@@ -9,8 +9,18 @@ cd reasonfirst_v4_0_3
 ./apply_to_reasonfirst.sh /path/to/reasonFirst
 ```
 
-安装程序会备份并迁移 v3/v4 `bridge.yaml`，仅新增或更新 `~/.codex/config.toml` 的 ReasonFirst MCP 与插件条目，保留其他全局模型、profile、MCP、skills、rules 和登录态。它还会安装 ChatGPT Desktop 插件、启动本地 MCP LaunchAgent，并在现有 GitHub CLI 登录有效时启动网页控制 relay。重复运行可安全更新 ReasonFirst 配置。
-为兼容 macOS 系统代理，安装程序只给本机登录环境追加 `127.0.0.1,localhost` 的 `NO_PROXY` 例外；外网代理保持开启。新例外在重启 ChatGPT Desktop/Codex 后生效。
+默认安装只更新 ReasonFirst 核心运行时与 bridge/Codex MCP 配置；不会因为本机已有登录态就自动安装插件、启动 LaunchAgent、开启 GitHub relay 或配置 Tunnel。先用 `./configure_v4.sh --plan ...` 检查计划，再显式选择持久化集成。
+
+例如：
+
+```bash
+./configure_v4.sh --plan --worker-backend codex-desktop --install-codex-plugin --enable-login-service
+./configure_v4.sh --worker-backend codex-desktop --install-codex-plugin --enable-login-service
+./configure_v4.sh --enable-login-service --enable-web-relay
+./configure_v4.sh --enable-login-service --configure-tunnel tunnel_xxx
+```
+
+只有 `--enable-login-service` 才会修改登录环境中的本地代理例外、stage 登录运行时并安装 MCP LaunchAgent；Web relay/Tunnel 也必须显式开启。
 
 ## 选择 coding backend
 
@@ -28,8 +38,8 @@ ReasonFirst 保留用户对实际 coding worker 的选择，不会把 Codex Desk
 
 ## 启动与检查
 
-本地 MCP 在用户登录后由 `com.reasonfirst.v4-mcp` 自动启动，地址为 `http://127.0.0.1:8765/mcp`。Codex 插件和网页控制 relay 共用这个 MCP 进程及 `~/.local/share/reasonfirst/codex-web-bridge/state.json`。普通 ChatGPT Desktop 聊天不会因本地安装而自动获得该 MCP 工具。
-安装时会把运行代码复制到 `~/.local/share/reasonfirst/v4-service`，供 macOS 登录项读取；源目录仍是更新入口。
+若用户显式执行 `--enable-login-service`，本地 MCP 才会由 `com.reasonfirst.v4-mcp` 在登录后自动启动，地址为 `http://127.0.0.1:8765/mcp`。只有显式安装的 Codex 插件和 Web relay 才会连接该 MCP 进程及 `~/.local/share/reasonfirst/codex-web-bridge/state.json`。普通 ChatGPT Desktop 聊天不会因本地安装而自动获得该 MCP 工具。
+启用登录服务时会把运行代码复制到 `~/.local/share/reasonfirst/v4-service`；源目录仍是更新入口。
 
 ```bash
 cd /path/to/reasonFirst
@@ -40,7 +50,7 @@ launchctl print gui/$(id -u)/com.reasonfirst.v4-mcp
 launchctl print gui/$(id -u)/com.reasonfirst.web-bridge
 ```
 
-安装程序会通过 Codex CLI 安装并启用个人插件。安装后重启 Codex，以重新读取插件与 MCP 配置。`codex plugin list` 和 Codex 中的实际工具调用只验证 Codex 接入，不代表普通 ChatGPT Web/App 会话已接入。
+只有显式使用 `--install-codex-plugin` 时才会通过 Codex CLI 安装并启用个人插件。安装后重启 Codex，以重新读取插件与 MCP 配置。`codex plugin list` 和 Codex 中的实际工具调用只验证 Codex 接入，不代表普通 ChatGPT Web/App 会话已接入。
 
 ## 网页端
 
