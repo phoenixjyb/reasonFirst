@@ -19,6 +19,8 @@ from .app_server import AppServerClient, AppServerError, managed_app_server_sock
 from .artifacts import artifact_file, scan_artifacts
 from .bridge_config import ExecutionTarget, config_path, load_bridge_config, resolve_target
 from .remote_workspace import RemoteWorkspaceManager
+from gitlab_agent.config import AgentSettings
+from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 
 
 class BridgeError(RuntimeError):
@@ -191,6 +193,7 @@ class BridgeController:
             name=target.name,
             host=target.host,
             repo=target.repo,
+            worker_backend=target.worker_backend,
             codex_backend="desktop-proxy",
             remote_codex=target.remote_codex,
             ssh_connect_timeout=target.ssh_connect_timeout,
@@ -208,6 +211,34 @@ class BridgeController:
             self._state["workspaces"][workspace_id] = rec
             self._save_state()
         return migrated, True
+
+    def _resolved_worker_policy(self, target: ExecutionTarget) -> WorkerPolicy:
+        """Resolve the user-owned worker policy for the configured execution backend."""
+        backend = str(target.worker_backend or "codex-desktop")
+        provider = {
+            "codex-cli": "codex",
+            "codex-desktop": "codex",
+            "copilot-cli": "copilot",
+        }.get(backend)
+        if provider is None:
+            raise BridgeError(f"Unsupported worker backend: {backend!r}")
+        try:
+            return resolve_worker_policy(AgentSettings.load(), provider)
+        except Exception as exc:
+            raise BridgeError(
+                f"Could not resolve WorkerPolicy for {backend}: {redact(str(exc), 1200)}"
+            ) from exc
+
+    def _require_codex_desktop_backend(self, target: ExecutionTarget) -> WorkerPolicy:
+        if target.worker_backend != "codex-desktop":
+            raise BridgeError(
+                "This App Server route requires worker_backend='codex-desktop'. "
+                "Use ActualCoder's existing CLI launch path for codex-cli or copilot-cli."
+            )
+        policy = self._resolved_worker_policy(target)
+        if policy.backend != "codex":
+            raise BridgeError("codex-desktop resolved to a non-Codex WorkerPolicy")
+        return policy
 
     def _app_key(self, target: ExecutionTarget) -> str:
         if target.type == "ssh" and target.codex_backend == "remote-ssh":
@@ -679,8 +710,14 @@ class BridgeController:
                 timeout=120,
             )
             prompt = str(handoff.get("agent_prompt") or "").strip()
+        policy = self._require_codex_desktop_backend(target)
         app_key, app = self._get_app(target)
-        thread_id = app.start_thread(cwd=codex_cwd, dynamic_tools=dynamic_tools, sandbox_mode=sandbox_mode)
+        thread_id = app.start_thread(
+            cwd=codex_cwd,
+            policy=policy,
+            dynamic_tools=dynamic_tools,
+            sandbox_mode=sandbox_mode,
+        )
         with self._lock:
             self._state["sessions"][thread_id] = {
                 "thread_id": thread_id,
@@ -704,7 +741,12 @@ class BridgeController:
             thread_id=thread_id,
             cwd=codex_cwd,
             prompt=prompt,
-            network_access=False if self._is_remote_proxy_target(target) else target.network_access,
+            policy=policy,
+            network_access=(
+                False
+                if self._is_remote_proxy_target(target)
+                else policy.network_access
+            ),
             sandbox_mode=sandbox_mode,
         )
         with self._lock:
@@ -729,6 +771,8 @@ class BridgeController:
             "thread_name": decorated["name"],
             "thread_metadata_errors": decorated["errors"],
             "execution": target.to_dict(),
+            "worker_backend": target.worker_backend,
+            "worker_policy": policy.to_dict(),
             "codex_backend": app.backend_name,
             "remote_tools": bool(dynamic_tools),
             "execution_migrated": execution_migrated,
@@ -761,12 +805,18 @@ class BridgeController:
                 timeout=120,
             )
             prompt = str(handoff.get("agent_prompt") or "")
+        policy = self._require_codex_desktop_backend(target)
         cwd = str(session.get("codex_cwd") or session["worktree_path"])
         turn_id = app.start_turn(
             thread_id=thread_id,
             cwd=cwd,
             prompt=prompt,
-            network_access=False if self._is_remote_proxy_target(target) else target.network_access,
+            policy=policy,
+            network_access=(
+                False
+                if self._is_remote_proxy_target(target)
+                else policy.network_access
+            ),
             sandbox_mode=sandbox_mode,
         )
         with self._lock:
