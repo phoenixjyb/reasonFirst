@@ -30,7 +30,7 @@ for line in sys.stdin:
     elif method == "thread/start":
         params=m.get("params",{})
         has_dynamic_tools=bool(params.get("dynamicTools"))
-        expected="read-only" if has_dynamic_tools else "workspace-write"
+        expected="readOnly" if has_dynamic_tools else "workspaceWrite"
         if params.get("sandbox") != expected:
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad sandbox mode"}}), flush=True)
         else:
