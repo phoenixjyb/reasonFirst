@@ -6,6 +6,7 @@ sys.path.insert(0,str(ROOT))
 from reasonfirst_codex_bridge.bridge_config import ExecutionTarget
 from reasonfirst_codex_bridge.remote_workspace import RemoteWorkspaceManager
 from reasonfirst_codex_bridge.app_server import AppServerClient
+from gitlab_agent.worker_policy import default_worker_policy
 
 
 def run(*args, cwd=None):
@@ -50,8 +51,9 @@ def main():
         assert blob['size']>0 and blob['base64']
 
         app=AppServerClient.remote_ssh('fake-host',event_handler=lambda e: None)
-        tid=app.start_thread(cwd=state['worktree_path'])
-        turn=app.start_turn(thread_id=tid,cwd=state['worktree_path'],prompt='remote test',network_access=False)
+        policy=default_worker_policy("codex")
+        tid=app.start_thread(cwd=state['worktree_path'],policy=policy)
+        turn=app.start_turn(thread_id=tid,cwd=state['worktree_path'],prompt='remote test',policy=policy,network_access=False)
         assert tid.startswith('thr_') and turn.startswith('turn_')
         app.close()
         os.environ['PATH']=oldpath
