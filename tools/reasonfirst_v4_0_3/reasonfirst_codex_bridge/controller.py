@@ -29,6 +29,7 @@ from .bridge_config import (
     resolve_configured_target,
     resolve_target,
 )
+from gitlab_agent import __version__ as REASONFIRST_VERSION
 from gitlab_agent.config import AgentSettings
 from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 from .remote_workspace import RemoteWorkspaceManager
@@ -466,7 +467,9 @@ class BridgeController:
     def doctor(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "ok": True,
-            "bridge_version": "4.0.3",
+            "reasonfirst_version": REASONFIRST_VERSION,
+            "bridge": "preview",
+            "config_schema": 4,
             "config_file": str(config_path()),
             "codex_bin": None,
             "desktop_managed_socket": str(managed_app_server_socket()),
