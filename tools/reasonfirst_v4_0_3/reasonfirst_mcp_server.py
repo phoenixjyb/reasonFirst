@@ -204,6 +204,21 @@ def build_server():
             for_session=False,
         )
 
+    @server.tool(name="reasonfirst_finish_preview", annotations=read)
+    def reasonfirst_finish_preview(
+        thread_id: str,
+        commit_message: str,
+        allow_protected: bool = False,
+        allow_secret_match: bool = False,
+    ) -> dict[str, Any]:
+        """Run the complete local/SSH finish review without publishing."""
+        return ctrl.finish_preview(
+            thread_id=thread_id,
+            message=commit_message,
+            allow_protected=allow_protected,
+            allow_secret_match=allow_secret_match,
+        )
+
     @server.tool(name="reasonfirst_review_bundle", annotations=read)
     def reasonfirst_review_bundle(thread_id: str, artifact_path: str = ".") -> dict[str, Any]:
         """Return bounded status, recent evidence, real diff, and changed artifacts for ChatGPT review."""
@@ -233,9 +248,19 @@ def build_server():
     ).strip().lower() in {"1", "true", "yes", "on"}
     if remote_push_enabled:
         @server.tool(name="reasonfirst_authorize_push", annotations=write)
-        def reasonfirst_authorize_push(thread_id: str, commit_message: str) -> dict[str, Any]:
-            """Authorize the exact reviewed remote candidate/destination for experimental publication."""
-            return ctrl.authorize_push(thread_id=thread_id, commit_message=commit_message)
+        def reasonfirst_authorize_push(
+            thread_id: str,
+            commit_message: str,
+            allow_protected: bool = False,
+            allow_secret_match: bool = False,
+        ) -> dict[str, Any]:
+            """Authorize only an unblocked fresh SSH finish plan and exact snapshot."""
+            return ctrl.authorize_push(
+                thread_id=thread_id,
+                commit_message=commit_message,
+                allow_protected=allow_protected,
+                allow_secret_match=allow_secret_match,
+            )
 
     # Keep controller alive for the process lifetime. MCPServer does not own it.
     setattr(server, "_reasonfirst_controller", ctrl)
