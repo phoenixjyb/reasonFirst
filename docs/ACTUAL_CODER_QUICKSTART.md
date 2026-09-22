@@ -78,7 +78,17 @@ Use a dedicated read API credential (`read_api` and, where needed, `read_reposit
 
 ### Coding-worker policy
 
-ReasonFirst passes a user-owned worker policy explicitly to the selected coding backend instead of relying on whichever interactive model/permission choice happened to be active previously. `codex` / `codex-cli` mean Codex CLI, `copilot` / `copilot-cli` mean GitHub Copilot CLI, and `codex-desktop` means the managed Codex Desktop App Server. The two Codex surfaces share the same Codex WorkerPolicy. The default Codex policy is:
+ReasonFirst passes a user-owned worker policy explicitly to the selected coding backend instead of relying on whichever interactive model/permission choice happened to be active previously. `codex` / `codex-cli` mean Codex CLI, `copilot` / `copilot-cli` mean GitHub Copilot CLI, and `codex-desktop` means the managed Codex Desktop App Server. The two Codex surfaces share the same Codex WorkerPolicy.
+
+Set a persistent user default once:
+
+```dotenv
+REASONFIRST_DEFAULT_BACKEND=codex-cli
+```
+
+Accepted values are `auto`, `codex-cli`, `copilot-cli`, and `codex-desktop` (historical `codex` / `copilot` aliases remain accepted). Selection precedence is: an explicit `--agent` value first; when `--agent auto` is used, a non-`auto` user default is authoritative; otherwise ReasonFirst uses repository preference and then installed fallback.
+
+The default Codex policy is:
 
 ```dotenv
 REASONFIRST_CODEX_MODEL=gpt-5.6-sol
@@ -91,6 +101,8 @@ REASONFIRST_CODEX_NETWORK_ACCESS=false
 
 Set `REASONFIRST_CODEX_EXECUTION_MODE=exec` for non-interactive `codex exec`. For unattended execution, `REASONFIRST_CODEX_APPROVAL_POLICY=never` keeps the configured sandbox boundary but never pauses for approval; operations that need more privilege must fail instead of silently escaping the policy. ReasonFirst intentionally does not expose Codex full-access/yolo as a supported worker policy.
 
+With `codex-desktop` and `approval_policy=on-request`, ActualCoder CLI displays command/file/permission requests on the terminal and grants only the individual request after an explicit yes. In the bridge/MCP flow, use `reasonfirst_pending_approvals`, then `reasonfirst_approve` or `reasonfirst_decline`. Requests time out to deny; permission grants default to turn scope and are never silently upgraded to session scope.
+
 Copilot remains on its provider-selected model/effort unless explicitly pinned:
 
 ```dotenv
@@ -102,7 +114,9 @@ REASONFIRST_COPILOT_ALLOW_TOOLS=
 REASONFIRST_COPILOT_DENY_TOOLS=shell(git push)
 ```
 
-Set `REASONFIRST_COPILOT_EXECUTION_MODE=programmatic` to use `copilot -p`. Built-in Copilot MCPs are disabled by default so the worker cannot bypass ReasonFirst's Git/MR publication path through a remote-write integration. The allow/deny values are comma-separated Copilot CLI permission patterns; deny rules are passed explicitly and win over allow rules. `git push` is denied by default so remote publication stays in the reviewed ReasonFirst `finish` flow. Use `actual-coder config` to inspect the resolved non-secret worker defaults before launching a task.
+Set `REASONFIRST_COPILOT_EXECUTION_MODE=programmatic` to use `copilot -p`. Built-in Copilot MCPs are disabled by default so the worker cannot bypass ReasonFirst's Git/MR publication path through a remote-write integration. The allow/deny values are comma-separated Copilot CLI permission patterns; deny rules are passed explicitly and win over allow rules. `git push` is denied by default so remote publication stays in the reviewed ReasonFirst `finish` flow.
+
+Policy evidence is explicit about certainty. CLI workers report that policy was encoded into launch arguments; Codex CLI also gets a no-model-use App Server catalog/admin-policy preflight for model/effort compatibility. Codex Desktop validates the live model catalog and the resolved `thread/start` model/effort/sandbox/approval response, and records model-reroute events as policy violations. Current App Server does not expose the provider response-envelope model, so ReasonFirst does not claim independent provider-level model attestation. Use `actual-coder config` to inspect the requested non-secret defaults and launch/status output for verification evidence.
 
 Configuration file selection: `GITLAB_AGENT_ENV_FILE`, then the user config above, then a local `.env`. CLI fallback is relative to its working directory; MCP's fallback is relative to its server source directory. Already-exported variables take precedence over the file. Use simple literal assignments; do not rely on shell interpolation or inline comments in values.
 
