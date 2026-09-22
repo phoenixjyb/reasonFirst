@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from gitlab_agent.cli import (
     _prepare_start,
     _select_agent,
     _selection_for_request,
+    _tty_codex_approval_handler,
 )
 
 
@@ -102,6 +104,11 @@ class FakeStartManager:
             "dirty": False,
             "commits_ahead_of_base": 0,
         }
+
+
+class TTYStringIO(io.StringIO):
+    def isatty(self) -> bool:
+        return True
 
 
 class ActualCoderCLITests(unittest.TestCase):
@@ -678,6 +685,53 @@ mr:
         )
         self.assertFalse(calls[0][2])
 
+    def test_tty_desktop_approval_handler_approves_once(self) -> None:
+        inp = TTYStringIO("y\n")
+        out = TTYStringIO()
+        result = _tty_codex_approval_handler(
+            {
+                "method": "item/commandExecution/requestApproval",
+                "params": {
+                    "command": "pytest -q",
+                    "cwd": "/tmp/worktree",
+                    "reason": "run tests",
+                },
+            },
+            input_stream=inp,
+            output_stream=out,
+        )
+        self.assertEqual(result, {"decision": "accept"})
+        self.assertIn("pytest -q", out.getvalue())
+
+        perms = _tty_codex_approval_handler(
+            {
+                "method": "item/permissions/requestApproval",
+                "params": {
+                    "permissions": {
+                        "fileSystem": {"write": ["/tmp/generated"]}
+                    }
+                },
+            },
+            input_stream=TTYStringIO("y\n"),
+            output_stream=TTYStringIO(),
+        )
+        self.assertEqual(perms["scope"], "turn")
+        self.assertEqual(
+            perms["permissions"],
+            {"fileSystem": {"write": ["/tmp/generated"]}},
+        )
+
+    def test_non_tty_desktop_approval_handler_denies(self) -> None:
+        result = _tty_codex_approval_handler(
+            {
+                "method": "item/fileChange/requestApproval",
+                "params": {"reason": "edit"},
+            },
+            input_stream=io.StringIO("y\n"),
+            output_stream=io.StringIO(),
+        )
+        self.assertEqual(result, {"decision": "decline"})
+
     def test_codex_desktop_launch_uses_managed_app_server_not_subprocess(self) -> None:
         seen: dict[str, object] = {}
 
@@ -757,6 +811,53 @@ mr:
         self.assertEqual(seen["turn_policy"].model, "gpt-5.6-sol")
         self.assertIsNotNone(seen["approval_handler"])
         self.assertTrue(seen["closed"])
+
+    def test_codex_cli_launch_preflights_policy_catalog(self) -> None:
+        calls: list[list[str]] = []
+        closed = {"value": False}
+
+        class FakeVerifier:
+            def assert_worker_policy_supported(self, policy):
+                self_policy = policy
+                return {
+                    "verification_scope": "fake-catalog",
+                    "requested": self_policy.to_dict(),
+                    "catalog_model_id": self_policy.model,
+                    "catalog_model": self_policy.model,
+                    "supported_reasoning_efforts": ["high"],
+                    "sandbox_mode": self_policy.sandbox_mode,
+                    "approval_policy": "unlessTrusted",
+                }
+
+            def close(self):
+                closed["value"] = True
+
+        def fake_runner(argv, *, cwd, check):
+            calls.append(list(argv))
+            return SimpleNamespace(returncode=0)
+
+        with tempfile.TemporaryDirectory() as td:
+            result = _launch_handoff(
+                {
+                    "agent": "codex-cli",
+                    "agent_prompt": "Inspect",
+                    "worktree_path": td,
+                },
+                runner=fake_runner,
+                codex_policy_client_factory=lambda: FakeVerifier(),
+            )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertTrue(closed["value"])
+        self.assertEqual(
+            result["worker_policy_evidence"]["status"],
+            "catalog_verified_launch_arguments_encoded",
+        )
+        self.assertEqual(
+            result["worker_policy_evidence"]["catalog_model"],
+            "gpt-5.6-sol",
+        )
+        self.assertEqual(calls[0][0], "codex")
 
     def test_resolve_worker_policy_uses_reasonfirst_settings(self) -> None:
         with tempfile.TemporaryDirectory() as td:
