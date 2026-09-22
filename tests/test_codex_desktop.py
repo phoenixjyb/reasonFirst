@@ -45,6 +45,7 @@ class CodexDesktopPolicyTests(unittest.TestCase):
     def test_run_sends_model_effort_permissions_and_network(self) -> None:
         worker = object.__new__(CodexDesktopWorker)
         worker._closed = False
+        worker.binary = "/Applications/Codex.app/Contents/Resources/codex"
         worker._events = []
         worker._turn_status = {}
         worker._turn_done = threading.Condition()
@@ -101,16 +102,7 @@ class CodexDesktopPolicyTests(unittest.TestCase):
     def test_managed_requirements_fail_closed(self) -> None:
         worker = object.__new__(CodexDesktopWorker)
 
-        def fake_request(self, method, params=None, *, timeout=60.0):
-            self.assertEqual(method, "configRequirements/read")
-            return {
-                "requirements": {
-                    "allowedApprovalPolicies": ["never"],
-                    "allowedSandboxModes": ["readOnly"],
-                }
-            }
-
-        # Bind a tiny assertion helper without depending on TestCase as self.
+        # Bind a tiny protocol stub directly onto the worker.
         def request(self, method, params=None, *, timeout=60.0):
             if method != "configRequirements/read":
                 raise AssertionError(method)
