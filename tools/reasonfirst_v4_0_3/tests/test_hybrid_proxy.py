@@ -33,6 +33,11 @@ def main():
         os.environ['RF_FAKE_CODEX']=str(ROOT/'tests'/'fake_codex.py')
         os.environ['CODEX_BRIDGE_CODEX_BIN']=str(ROOT/'tests'/'fake_codex.py')
         os.environ['RF_CODEX_BRIDGE_STATE_DIR']=str(state_dir)
+        os.environ['GITLAB_BASE_URL']='https://gitlab.example.test'
+        os.environ['GITLAB_TOKEN']='test-token'
+        os.environ['GITLAB_GIT_TOKEN']='test-token'
+        os.environ['GITLAB_ALLOWED_PROJECTS']='group/project'
+        os.environ['GITLAB_WORKSPACE_ROOT']=str(root/'local-workspaces')
 
         try:
             proxy_target=ExecutionTarget(type='ssh',name='fake',host='fake-host',repo=str(repo),codex_backend='desktop-proxy')
