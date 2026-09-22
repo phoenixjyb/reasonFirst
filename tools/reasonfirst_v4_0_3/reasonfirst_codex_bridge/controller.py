@@ -299,7 +299,13 @@ class BridgeController:
         return str(root.resolve())
 
     @staticmethod
-    def _remote_dynamic_tools() -> list[dict[str, Any]]:
+    def _remote_push_enabled() -> bool:
+        return os.getenv(
+            "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _remote_dynamic_tools(cls) -> list[dict[str, Any]]:
         def fn(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
             schema: dict[str, Any] = {
                 "type": "object",
@@ -314,32 +320,40 @@ class BridgeController:
                 "description": description,
                 "inputSchema": schema,
             }
+        tools = [
+            fn("status", "Read the remote Git worktree status and pinned branch/base information.", {}),
+            fn("files", "List files inside the remote managed worktree.", {
+                "path": {"type": "string"},
+                "recursive": {"type": "boolean"},
+                "max_entries": {"type": "integer", "minimum": 1, "maximum": 500},
+            }),
+            fn("read", "Read one UTF-8 source/config/test file from the remote managed worktree.", {
+                "path": {"type": "string"},
+                "max_bytes": {"type": "integer", "minimum": 1, "maximum": 2097152},
+            }, ["path"]),
+            fn("write", "Replace one file inside the remote managed worktree. Parent directories may be created.", {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            }, ["path", "content"]),
+            fn("apply_patch", "Apply a unified Git patch to the remote managed worktree.", {
+                "patch": {"type": "string"},
+            }, ["patch"]),
+            fn("snapshot", "Read the exact remote review snapshot digest.", {}),
+            fn("diff", "Read the real remote Git diff against the pinned base SHA.", {}),
+        ]
+        if cls._remote_push_enabled():
+            tools.append(
+                fn(
+                    "commit_push",
+                    "Publish the exact ChatGPT-approved candidate tree to the exact approved remote/branch.",
+                    {},
+                )
+            )
         return [{
             "type": "namespace",
             "name": "reasonfirst_remote",
             "description": "Operate only on the managed remote ReasonFirst worktree selected for this task.",
-            "tools": [
-                fn("status", "Read the remote Git worktree status and pinned branch/base information.", {}),
-                fn("files", "List files inside the remote managed worktree.", {
-                    "path": {"type": "string"},
-                    "recursive": {"type": "boolean"},
-                    "max_entries": {"type": "integer", "minimum": 1, "maximum": 500},
-                }),
-                fn("read", "Read one UTF-8 source/config/test file from the remote managed worktree.", {
-                    "path": {"type": "string"},
-                    "max_bytes": {"type": "integer", "minimum": 1, "maximum": 2097152},
-                }, ["path"]),
-                fn("write", "Replace one file inside the remote managed worktree. Parent directories may be created.", {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                }, ["path", "content"]),
-                fn("apply_patch", "Apply a unified Git patch to the remote managed worktree.", {
-                    "patch": {"type": "string"},
-                }, ["patch"]),
-                fn("snapshot", "Read the exact remote review snapshot digest. Use before requesting ChatGPT push approval.", {}),
-                fn("commit_push", "Publish the exact ChatGPT-approved candidate tree to the exact approved remote/branch. Experimental remote publication must also be explicitly enabled by the local user.", {}),
-                fn("diff", "Read the real remote Git diff against the pinned base SHA.", {}),
-            ],
+            "tools": tools,
         }]
 
     def _handle_dynamic_tool_request(self, app_key: str, msg: dict[str, Any]) -> dict[str, Any]:
@@ -840,10 +854,7 @@ class BridgeController:
 
     def authorize_push(self, *, thread_id: str, commit_message: str) -> dict[str, Any]:
         """Authorize publication of one exact reviewed remote candidate/destination."""
-        enabled = os.getenv(
-            "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", "false"
-        ).strip().lower() in {"1", "true", "yes", "on"}
-        if not enabled:
+        if not self._remote_push_enabled():
             raise BridgeError(
                 "Remote publication is experimental and disabled by default. "
                 "Keep using the local ActualCoder finish path, or explicitly enable "
