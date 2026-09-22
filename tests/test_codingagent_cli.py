@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from gitlab_agent.config import AgentSettings
+from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 
 from gitlab_agent.cli import (
     _agent_prompt,
@@ -416,14 +417,86 @@ mr:
         self.assertIn("deploy/", str(result["agent_prompt"]))
         self.assertIn("Expected validation commands", str(result["agent_prompt"]))
 
-    def test_launch_argv_uses_interactive_prompt_modes(self) -> None:
+    def test_launch_argv_applies_default_worker_policies(self) -> None:
         self.assertEqual(
             _agent_launch_argv("codex", "hello"),
-            ["codex", "hello"],
+            [
+                "codex",
+                "--model",
+                "gpt-5.6-sol",
+                "--sandbox",
+                "workspace-write",
+                "--ask-for-approval",
+                "on-request",
+                "--config",
+                'model_reasoning_effort="high"',
+                "--config",
+                "sandbox_workspace_write.network_access=false",
+                "hello",
+            ],
         )
         self.assertEqual(
             _agent_launch_argv("copilot", "hello"),
-            ["copilot", "-i", "hello"],
+            [
+                "copilot",
+                "--disable-builtin-mcps",
+                "--deny-tool=shell(git push)",
+                "-i",
+                "hello",
+            ],
+        )
+
+    def test_launch_argv_supports_noninteractive_provider_controls(self) -> None:
+        codex = WorkerPolicy(
+            backend="codex",
+            model="gpt-5.6-sol",
+            reasoning_effort="xhigh",
+            execution_mode="exec",
+            sandbox_mode="read-only",
+            approval_policy="never",
+            network_access=False,
+        )
+        self.assertEqual(
+            _agent_launch_argv("codex", "repair", worker_policy=codex),
+            [
+                "codex",
+                "exec",
+                "--model",
+                "gpt-5.6-sol",
+                "--sandbox",
+                "read-only",
+                "--ask-for-approval",
+                "never",
+                "--config",
+                'model_reasoning_effort="xhigh"',
+                "--config",
+                "sandbox_workspace_write.network_access=false",
+                "repair",
+            ],
+        )
+
+        copilot = WorkerPolicy(
+            backend="copilot",
+            model="gpt-5.3-codex",
+            reasoning_effort="high",
+            execution_mode="programmatic",
+            disable_builtin_mcps=True,
+            allow_tools=("write", "shell(pytest)"),
+            deny_tools=("shell(git push)",),
+        )
+        self.assertEqual(
+            _agent_launch_argv("copilot", "repair", worker_policy=copilot),
+            [
+                "copilot",
+                "--model=gpt-5.3-codex",
+                "--effort=high",
+                "--disable-builtin-mcps",
+                "--allow-tool=write",
+                "--allow-tool=shell(pytest)",
+                "--deny-tool=shell(git push)",
+                "-p",
+                "repair",
+            ],
         )
 
     def test_launch_handoff_uses_direct_subprocess_without_shell(self) -> None:
@@ -445,8 +518,70 @@ mr:
             )
 
         self.assertEqual(result["returncode"], 0)
-        self.assertEqual(calls[0][0], ["copilot", "-i", "Inspect only"])
+        self.assertEqual(
+            calls[0][0],
+            [
+                "copilot",
+                "--disable-builtin-mcps",
+                "--deny-tool=shell(git push)",
+                "-i",
+                "Inspect only",
+            ],
+        )
+        self.assertEqual(
+            result["worker_policy"]["deny_tools"],
+            ("shell(git push)",),
+        )
         self.assertFalse(calls[0][2])
+
+    def test_resolve_worker_policy_uses_reasonfirst_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            settings = AgentSettings(
+                config_file=root / ".env",
+                gitlab_base_url="https://gitlab.example.test",
+                api_token="token",
+                api_verify_ssl=True,
+                api_trust_env=False,
+                git_token="token",
+                git_username="oauth2",
+                git_trust_env=False,
+                allowed_projects={"team/project"},
+                require_write_allowlist=True,
+                workspace_root=root / "workspace",
+                branch_prefix="chatgpt/",
+                default_base_ref="main",
+                allowed_executables={"uv"},
+                command_timeout_seconds=300,
+                max_output_bytes=120000,
+                max_file_bytes=1000000,
+                git_author_name=None,
+                git_author_email=None,
+                codex_model="gpt-5.6-sol",
+                codex_reasoning_effort="high",
+                codex_execution_mode="exec",
+                codex_sandbox_mode="workspace-write",
+                codex_approval_policy="never",
+                codex_network_access=False,
+                copilot_model="gpt-5.3-codex",
+                copilot_reasoning_effort="medium",
+                copilot_execution_mode="programmatic",
+                copilot_allow_tools=("write",),
+                copilot_deny_tools=("shell(git push)",),
+            )
+
+        codex = resolve_worker_policy(settings, "codex")
+        self.assertEqual(codex.model, "gpt-5.6-sol")
+        self.assertEqual(codex.reasoning_effort, "high")
+        self.assertEqual(codex.execution_mode, "exec")
+        self.assertEqual(codex.approval_policy, "never")
+
+        copilot = resolve_worker_policy(settings, "copilot")
+        self.assertEqual(copilot.model, "gpt-5.3-codex")
+        self.assertEqual(copilot.reasoning_effort, "medium")
+        self.assertEqual(copilot.execution_mode, "programmatic")
+        self.assertTrue(copilot.disable_builtin_mcps)
+        self.assertEqual(copilot.allow_tools, ("write",))
 
     def test_finish_parser_accepts_dry_run_and_safety_overrides(self) -> None:
         parser = _build_parser(prog="actual-coder")

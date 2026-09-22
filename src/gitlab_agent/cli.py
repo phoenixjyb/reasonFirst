@@ -19,6 +19,13 @@ from .project_config import (
     parse_project_config,
 )
 from .runner import CommandRunner
+from .worker_policy import (
+    WorkerPolicy,
+    build_worker_argv,
+    default_worker_policy,
+    display_worker_argv,
+    resolve_worker_policy,
+)
 from .workspace import WorkspaceManager
 
 
@@ -196,6 +203,7 @@ def _handoff(
     agent_selection: dict[str, object] | None = None,
     project_context: dict[str, object] | None = None,
     ci_context: str | None = None,
+    worker_policy: WorkerPolicy | None = None,
 ) -> dict[str, object]:
     if agent not in SUPPORTED_CODING_AGENTS:
         raise ValueError(
@@ -205,6 +213,11 @@ def _handoff(
 
     status = manager.status(workspace_id)
     executable = SUPPORTED_CODING_AGENTS[agent]
+    policy = worker_policy or default_worker_policy(agent)
+    if policy.backend != agent:
+        raise ValueError(
+            f"Worker policy backend {policy.backend!r} does not match selected agent {agent!r}"
+        )
     result: dict[str, object] = {
         "workspace": status,
         "worktree_path": status["worktree_path"],
@@ -224,6 +237,8 @@ def _handoff(
             }
         ),
         "agent_command": f"cd {status['worktree_path']} && {executable}",
+        "worker_policy": policy.to_dict(),
+        "agent_argv_shape": display_worker_argv(policy),
         "agent_prompt": _agent_prompt(
             status,
             goal,
@@ -399,13 +414,15 @@ def _prepare_start(
         task_slug=task_slug,
         refresh_remote=False,
     )
+    selected_agent = str(selection["selected"])
     handoff = _handoff(
         manager,
         str(created["workspace_id"]),
         goal,
-        agent=str(selection["selected"]),
+        agent=selected_agent,
         agent_selection=selection,
         project_context=project_context,
+        worker_policy=resolve_worker_policy(settings, selected_agent),
     )
 
     return {
@@ -425,14 +442,18 @@ def _prepare_start(
     }
 
 
-def _agent_launch_argv(agent: str, prompt: str) -> list[str]:
-    if agent == "codex":
-        # Codex TUI accepts an optional positional prompt.
-        return ["codex", prompt]
-    if agent == "copilot":
-        # Copilot -i/--interactive starts an interactive session and submits a prompt.
-        return ["copilot", "-i", prompt]
-    raise ValueError(f"Unsupported coding agent {agent!r}")
+def _agent_launch_argv(
+    agent: str,
+    prompt: str,
+    *,
+    worker_policy: WorkerPolicy | None = None,
+) -> list[str]:
+    policy = worker_policy or default_worker_policy(agent)
+    if policy.backend != agent:
+        raise ValueError(
+            f"Worker policy backend {policy.backend!r} does not match selected agent {agent!r}"
+        )
+    return build_worker_argv(policy, prompt)
 
 
 def _launch_handoff(
@@ -444,7 +465,13 @@ def _launch_handoff(
     agent = str(handoff["agent"])
     prompt = str(handoff["agent_prompt"])
     cwd = Path(str(handoff["worktree_path"])).resolve()
-    argv = _agent_launch_argv(agent, prompt)
+    raw_policy = handoff.get("worker_policy")
+    policy = (
+        WorkerPolicy.from_dict(raw_policy)
+        if isinstance(raw_policy, dict)
+        else default_worker_policy(agent)
+    )
+    argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
 
     proc = launch(
         argv,
@@ -453,11 +480,8 @@ def _launch_handoff(
     )
     return {
         "agent": agent,
-        "argv_shape": (
-            ["codex", "<agent_prompt>"]
-            if agent == "codex"
-            else ["copilot", "-i", "<agent_prompt>"]
-        ),
+        "argv_shape": display_worker_argv(policy),
+        "worker_policy": policy.to_dict(),
         "cwd": str(cwd),
         "returncode": int(proc.returncode),
     }
@@ -567,6 +591,10 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
         "default_base_ref": settings.default_base_ref,
         "allowed_executables": sorted(settings.allowed_executables),
         "command_timeout_seconds": settings.command_timeout_seconds,
+        "worker_defaults": {
+            "codex": resolve_worker_policy(settings, "codex").to_dict(),
+            "copilot": resolve_worker_policy(settings, "copilot").to_dict(),
+        },
     }
 
 
@@ -1007,12 +1035,14 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 base_ref=args.base_ref,
                 task_slug=args.task,
             )
+            selected_agent = str(selection["selected"])
             result = _handoff(
                 manager,
                 str(created["workspace_id"]),
                 args.goal,
-                agent=str(selection["selected"]),
+                agent=selected_agent,
                 agent_selection=selection,
+                worker_policy=resolve_worker_policy(settings, selected_agent),
             )
         elif args.command == "checkout-branch":
             selection = _selection_for_request(
@@ -1027,12 +1057,14 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 args.branch,
                 base_ref=args.base_ref,
             )
+            selected_agent = str(selection["selected"])
             result = _handoff(
                 manager,
                 str(restored["workspace_id"]),
                 args.goal,
-                agent=str(selection["selected"]),
+                agent=selected_agent,
                 agent_selection=selection,
+                worker_policy=resolve_worker_policy(settings, selected_agent),
             )
         elif args.command == "checkout-mr":
             mr = gitlab_api.merge_request(args.project, args.iid)
@@ -1064,12 +1096,14 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 base_ref=target_branch,
                 merge_request_url=web_url,
             )
+            selected_agent = str(selection["selected"])
             handoff = _handoff(
                 manager,
                 str(restored["workspace_id"]),
                 args.goal or f"Resume MR !{args.iid}: {mr.get('title', '')}",
-                agent=str(selection["selected"]),
+                agent=selected_agent,
                 agent_selection=selection,
+                worker_policy=resolve_worker_policy(settings, selected_agent),
             )
             result = {
                 "merge_request": {
@@ -1134,13 +1168,15 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                     )
                 ci_context = str(ci_feedback.get("repair_context") or "")
 
+            selected_agent = str(selection["selected"])
             handoff = _handoff(
                 manager,
                 args.workspace_id,
                 args.goal,
-                agent=str(selection["selected"]),
+                agent=selected_agent,
                 agent_selection=selection,
                 ci_context=ci_context,
+                worker_policy=resolve_worker_policy(settings, selected_agent),
             )
             result = (
                 {"ci": ci_feedback, **handoff}

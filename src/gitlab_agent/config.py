@@ -62,6 +62,21 @@ def csv_set(name: str, default: set[str] | None = None) -> set[str]:
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
+def csv_tuple(name: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None:
+        return tuple(default)
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
+def env_choice(name: str, default: str, allowed: set[str]) -> str:
+    value = os.getenv(name, default).strip() or default
+    if value not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise RuntimeError(f"{name} must be one of: {choices}")
+    return value
+
+
 def resolve_env_file() -> Path:
     """Resolve config for global CLI use while keeping local .env compatibility."""
     explicit = os.getenv("GITLAB_AGENT_ENV_FILE")
@@ -97,6 +112,18 @@ class AgentSettings:
     git_author_name: str | None
     git_author_email: str | None
     api_ca_bundle: Path | None = None
+    codex_model: str = "gpt-5.6-sol"
+    codex_reasoning_effort: str = "high"
+    codex_execution_mode: str = "interactive"
+    codex_sandbox_mode: str = "workspace-write"
+    codex_approval_policy: str = "on-request"
+    codex_network_access: bool = False
+    copilot_model: str | None = None
+    copilot_reasoning_effort: str | None = None
+    copilot_execution_mode: str = "interactive"
+    copilot_disable_builtin_mcps: bool = True
+    copilot_allow_tools: tuple[str, ...] = ()
+    copilot_deny_tools: tuple[str, ...] = ("shell(git push)",)
 
     @classmethod
     def load(cls) -> "AgentSettings":
@@ -151,6 +178,53 @@ class AgentSettings:
             max_file_bytes=int(os.getenv("GITLAB_MAX_WRITE_FILE_BYTES", "1000000")),
             git_author_name=os.getenv("GITLAB_GIT_AUTHOR_NAME") or None,
             git_author_email=os.getenv("GITLAB_GIT_AUTHOR_EMAIL") or None,
+            codex_model=os.getenv("REASONFIRST_CODEX_MODEL", "gpt-5.6-sol").strip()
+            or "gpt-5.6-sol",
+            codex_reasoning_effort=env_choice(
+                "REASONFIRST_CODEX_REASONING_EFFORT",
+                "high",
+                {"minimal", "low", "medium", "high", "xhigh", "max"},
+            ),
+            codex_execution_mode=env_choice(
+                "REASONFIRST_CODEX_EXECUTION_MODE",
+                "interactive",
+                {"interactive", "exec"},
+            ),
+            codex_sandbox_mode=env_choice(
+                "REASONFIRST_CODEX_SANDBOX",
+                "workspace-write",
+                {"read-only", "workspace-write"},
+            ),
+            codex_approval_policy=env_choice(
+                "REASONFIRST_CODEX_APPROVAL_POLICY",
+                "on-request",
+                {"on-request", "never"},
+            ),
+            codex_network_access=env_bool("REASONFIRST_CODEX_NETWORK_ACCESS", False),
+            copilot_model=os.getenv("REASONFIRST_COPILOT_MODEL", "").strip() or None,
+            copilot_reasoning_effort=(
+                env_choice(
+                    "REASONFIRST_COPILOT_REASONING_EFFORT",
+                    "high",
+                    {"low", "medium", "high", "xhigh"},
+                )
+                if os.getenv("REASONFIRST_COPILOT_REASONING_EFFORT", "").strip()
+                else None
+            ),
+            copilot_execution_mode=env_choice(
+                "REASONFIRST_COPILOT_EXECUTION_MODE",
+                "interactive",
+                {"interactive", "programmatic"},
+            ),
+            copilot_disable_builtin_mcps=env_bool(
+                "REASONFIRST_COPILOT_DISABLE_BUILTIN_MCPS",
+                True,
+            ),
+            copilot_allow_tools=csv_tuple("REASONFIRST_COPILOT_ALLOW_TOOLS"),
+            copilot_deny_tools=csv_tuple(
+                "REASONFIRST_COPILOT_DENY_TOOLS",
+                ("shell(git push)",),
+            ),
         )
 
     def assert_project_allowed_for_workspace(self, project: str) -> None:
