@@ -74,11 +74,11 @@ GITLAB_REQUIRE_WRITE_ALLOWLIST=true
 GITLAB_WORKSPACE_ROOT=~/.local/share/chatgpt-gitlab-mcp
 ```
 
-Use a dedicated read API credential (`read_api` and, where needed, `read_repository`). For Git writes, prefer a separate `GITLAB_GIT_TOKEN` with `write_repository`, not a broad `api` token. Empty Git-token configuration falls back to the API token; that does not magically give it push rights. Restrict the project allowlist to exact intended `path_with_namespace` values. Install/authenticate Codex CLI or Copilot CLI separately using the provider's supported flow; ReasonFirst does not manage their accounts.
+Use a dedicated read API credential (`read_api` and, where needed, `read_repository`). For Git writes, prefer a separate `GITLAB_GIT_TOKEN` with `write_repository`, not a broad `api` token. Empty Git-token configuration falls back to the API token; that does not magically give it push rights. Restrict the project allowlist to exact intended `path_with_namespace` values. Install/authenticate Codex CLI or Copilot CLI separately using the provider's supported flow; for `codex-desktop`, start/enable the managed Codex Desktop App Server. ReasonFirst does not manage provider accounts.
 
 ### Coding-worker policy
 
-ReasonFirst passes a user-owned worker policy explicitly to the selected coding CLI instead of relying on whichever interactive model/permission choice happened to be active previously. The default Codex policy is:
+ReasonFirst passes a user-owned worker policy explicitly to the selected coding backend instead of relying on whichever interactive model/permission choice happened to be active previously. `codex` means Codex CLI, `copilot` means GitHub Copilot CLI, and `codex-desktop` means the managed Codex Desktop App Server. The two Codex surfaces share the same Codex WorkerPolicy. The default Codex policy is:
 
 ```dotenv
 REASONFIRST_CODEX_MODEL=gpt-5.6-sol
@@ -127,7 +127,7 @@ uv run actual-coder doctor
 uv run actual-coder project-config team/project-a --validate
 ```
 
-Inspect `config` locally; even token-free diagnostics can expose private hostnames and paths. `agents` checks executable presence, not authentication/quota. `doctor` checks API authentication unless `--offline`; it does not test Git push rights. `project-config` performs managed Git fetch/read and validates the contract, without creating a worktree or pushing.
+Inspect `config` locally; even token-free diagnostics can expose private hostnames and paths. `agents` checks CLI executable presence and the managed Desktop App Server socket; it does not authenticate or consume quota. `doctor` checks API authentication unless `--offline`; it does not test Git push rights. For an intentional Git-only deployment with no `GITLAB_TOKEN`, configure exactly one Git credential source and use `actual-coder doctor --git-only` / `actual-coder start ... --git-only`. `project-config` performs managed Git fetch/read and validates the contract, without creating a worktree or pushing.
 
 `found: false, valid: true` means `.actualcoder.yaml` is absent, not that application tests passed. No project-specific validation commands were loaded. Copy and adapt [the example contract](../.actualcoder.example.yaml) **in the target GitLab project**, use its actual test commands, and review it through that project's normal process. Validate a candidate without fetching it:
 
@@ -145,7 +145,7 @@ Define the goal, non-goals, and acceptance criteria with your reasoning interfac
 uv run actual-coder start team/project-a --task fix-timeout --goal "Fix the timeout bug; preserve the API and add regression coverage" --no-launch
 ```
 
-This fetches project context and creates a worktree. Save the returned workspace ID. Inspect the handoff and use its returned backend command/prompt. On a new task, omit `--no-launch` to launch interactively; add `--agent codex` or `--agent copilot` to select explicitly. No existing-workspace ID is accepted by `start`.
+This fetches project context and creates a worktree. Save the returned workspace ID. Inspect the handoff and use its returned backend command/prompt. On a new task, omit `--no-launch` to launch the selected worker; use `--agent codex`, `--agent copilot`, or `--agent codex-desktop` to choose Codex CLI, Copilot CLI, or Codex Desktop explicitly. No existing-workspace ID is accepted by `start`.
 
 After edits, set `WS` to the returned ID, not the illustrative value below:
 
