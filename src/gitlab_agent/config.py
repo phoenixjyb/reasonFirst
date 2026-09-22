@@ -124,6 +124,7 @@ class AgentSettings:
     copilot_disable_builtin_mcps: bool = True
     copilot_allow_tools: tuple[str, ...] = ()
     copilot_deny_tools: tuple[str, ...] = ("shell(git push)",)
+    worker_backend: str = "auto"
 
     @classmethod
     def load(cls) -> "AgentSettings":
@@ -224,6 +225,11 @@ class AgentSettings:
             copilot_deny_tools=csv_tuple(
                 "REASONFIRST_COPILOT_DENY_TOOLS",
                 ("shell(git push)",),
+            ),
+            worker_backend=env_choice(
+                "REASONFIRST_WORKER_BACKEND",
+                "auto",
+                {"auto", "codex", "copilot", "codex-desktop"},
             ),
         )
 
