@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from . import __version__
 from .config import AgentSettings
+from .codex_app_server import managed_app_server_socket
 from .gitlab_api import GitLabAPI
 
 
@@ -126,6 +127,23 @@ def run_doctor(
             path=resolved,
             authentication_checked=False,
         )
+
+    desktop_socket = managed_app_server_socket()
+    desktop_available = desktop_socket.exists()
+    if desktop_available:
+        installed_agents.append("codex-desktop")
+    _check(
+        checks,
+        "agent_codex_desktop",
+        "pass" if desktop_available else "warn",
+        (
+            "Codex Desktop managed App Server is available"
+            if desktop_available
+            else "Codex Desktop managed App Server is not available; start/enable Desktop to use this backend"
+        ),
+        path=str(desktop_socket),
+        authentication_checked=False,
+    )
 
     _check(
         checks,
