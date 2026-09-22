@@ -23,6 +23,7 @@ targets:
     type: ssh
     host: gpu-a
     repo: /srv/recomo/app
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects:
       - recomo/app
     ssh_connect_timeout: 8
@@ -31,6 +32,7 @@ targets:
     type: ssh
     host: build-box
     repo: /srv/cloud-pipeline
+    workspace_root: /srv/reasonfirst/worktrees
     allowed_projects:
       - phoenixjyb/cloud-pipeline
 ```
