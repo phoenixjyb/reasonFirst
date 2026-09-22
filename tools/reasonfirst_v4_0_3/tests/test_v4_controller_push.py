@@ -25,11 +25,30 @@ def main():
         os.environ['PATH']=str(binp)+os.pathsep+os.environ.get('PATH','')
         os.environ['RF_FAKE_REMOTE_HOME']=str(home); os.environ['RF_FAKE_CODEX']=str(ROOT/'tests'/'fake_codex.py')
         os.environ['CODEX_BRIDGE_CODEX_BIN']=str(ROOT/'tests'/'fake_codex.py'); os.environ['RF_CODEX_BRIDGE_STATE_DIR']=str(state)
+        os.environ['GITLAB_BASE_URL']='https://gitlab.example.test'
+        os.environ['GITLAB_ALLOWED_PROJECTS']='g/p'
+        os.environ['GITLAB_WORKSPACE_ROOT']=str(root/'local-workspaces')
         try:
             target=ExecutionTarget(type='ssh',name='fake',host='fake-host',repo=str(repo),codex_backend='desktop-proxy')
             mgr=RemoteWorkspaceManager(target)
             ws=mgr.create_workspace(project='g/p',base_ref='main',task='v4')
-            rec={**ws,'task':'v4','goal':'g','target':target.to_dict(),'kind':'ssh','updated_at':int(time.time())}
+            rec={
+                **ws,'task':'v4','goal':'g','target':target.to_dict(),'kind':'ssh',
+                'updated_at':int(time.time()),
+                'project_config':{
+                    'found':False,
+                    'effective':{
+                        'base_branch':'main',
+                        'preferred_agents':[],
+                        'validation_commands':[],
+                        'protected_paths':[],
+                        'instructions':[],
+                        'required_executables':[],
+                        'mr':{'target_branch':'main','title_prefix':''},
+                    },
+                    'warnings':[],
+                },
+            }
             ctrl=BridgeController(); ctrl._remote_manager=lambda target: mgr
             ctrl._codex_policy=lambda: default_worker_policy("codex")
             ctrl._state['workspaces'][ws['workspace_id']]=rec; ctrl._save_state()
@@ -42,6 +61,13 @@ def main():
             except BridgeError as exc:
                 assert 'disabled by default' in str(exc)
             os.environ['RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH']='true'
+            preview=ctrl.finish_preview(
+                thread_id=tid,
+                message='test: controller approved push',
+            )
+            assert preview['ok'] is True, preview
+            assert preview['secret_scan']['coverage_complete'] is True, preview
+            assert preview['reviewability']['ok'] is True, preview
             auth=ctrl.authorize_push(thread_id=tid,commit_message='test: controller approved push')
             assert auth['digest'] and auth['candidate_tree'] and auth['branch'].startswith('chatgpt/')
             assert auth['origin_url'] == auth['push_url']
