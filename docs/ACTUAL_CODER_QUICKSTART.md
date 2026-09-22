@@ -177,7 +177,7 @@ uv run actual-coder resume "$WS" --agent auto --from-ci --goal "Repair the match
 Prefer `status`/`resume` for an existing workspace. Only when local state is unavailable and the feature branch remains on GitLab, use the existing MR:
 
 ```bash
-uv run actual-coder checkout-mr team/project-a 123 --agent copilot --goal "Continue this MR and address reviewed feedback"
+uv run actual-coder checkout-mr team/project-a 123 --agent copilot-cli --goal "Continue this MR and address reviewed feedback"
 ```
 
 Replace the project/IID and review the returned handoff. Recovery refuses to overwrite an abandoned local branch with unpublished commits. Normal `cleanup` checks dirty state and fresh publication evidence; offline/deleted-remote cases can deliberately block it. `cleanup --force` discards local work and is not an installation repair command.
