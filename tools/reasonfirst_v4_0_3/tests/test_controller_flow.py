@@ -35,10 +35,14 @@ class FakeApp:
     def admin_requirements(self):
         return {}
 
-    def start_thread(self, *, cwd, dynamic_tools=None, sandbox_mode="workspace-write"):
+    def start_thread(self, *, cwd, policy=None, dynamic_tools=None, sandbox_mode=None):
+        assert policy is not None
+        assert policy.model == "gpt-5.6-sol"
         return "thr_test"
 
-    def start_turn(self, *, thread_id, cwd, prompt, network_access=False, sandbox_mode="workspace-write"):
+    def start_turn(self, *, thread_id, cwd, prompt, policy=None, network_access=None, sandbox_mode=None):
+        assert policy is not None
+        assert policy.reasoning_effort == "high"
         assert thread_id == "thr_test"
         assert "implement reviewed plan" in prompt
         return "turn_test"
