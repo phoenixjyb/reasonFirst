@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+APPLY_CONFIG=false
+if [ "${1:-}" = "--configure" ]; then
+  APPLY_CONFIG=true
+  shift
+fi
 if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 /path/to/reasonFirst" >&2
+  echo "Usage: $0 [--configure] /path/to/reasonFirst" >&2
   exit 2
 fi
 SRC="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -65,4 +70,17 @@ ChatGPT direct access requires an MCP connection registered in ChatGPT.
 Manual Web relay command:
   $TARGET/run_github_relay.sh
 EOF
-"$TARGET/configure_v4.sh"
+if [ "$APPLY_CONFIG" = true ]; then
+  echo "Applying user/global configuration because --configure was explicitly requested."
+  "$TARGET/configure_v4.sh"
+else
+  cat <<EOF
+No user/global configuration, plugin marketplace, LaunchAgent, proxy environment,
+GitHub relay, or Tunnel setting was changed.
+
+Review the staged files first. Then explicitly run:
+  $TARGET/configure_v4.sh --plan
+  $TARGET/configure_v4.sh
+EOF
+fi
+
