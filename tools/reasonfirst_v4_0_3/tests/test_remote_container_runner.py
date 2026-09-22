@@ -48,7 +48,7 @@ def main() -> None:
 import sys
 args=sys.argv[1:]
 required=[
-    "run","--rm","--read-only","--cap-drop=ALL",
+    "run","--rm","--pull=never","--read-only","--cap-drop=ALL",
     "--security-opt","no-new-privileges",
 ]
 for item in required:
