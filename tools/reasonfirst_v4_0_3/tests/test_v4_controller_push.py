@@ -24,6 +24,11 @@ def main():
         os.environ['PATH']=str(binp)+os.pathsep+os.environ.get('PATH','')
         os.environ['RF_FAKE_REMOTE_HOME']=str(home); os.environ['RF_FAKE_CODEX']=str(ROOT/'tests'/'fake_codex.py')
         os.environ['CODEX_BRIDGE_CODEX_BIN']=str(ROOT/'tests'/'fake_codex.py'); os.environ['RF_CODEX_BRIDGE_STATE_DIR']=str(state)
+        os.environ['GITLAB_BASE_URL']='https://gitlab.example.test'
+        os.environ['GITLAB_TOKEN']='test-token'
+        os.environ['GITLAB_GIT_TOKEN']='test-token'
+        os.environ['GITLAB_ALLOWED_PROJECTS']='g/p'
+        os.environ['GITLAB_WORKSPACE_ROOT']=str(root/'local-workspaces')
         try:
             target=ExecutionTarget(type='ssh',name='fake',host='fake-host',repo=str(repo),codex_backend='desktop-proxy')
             mgr=RemoteWorkspaceManager(target)
@@ -36,6 +41,7 @@ def main():
             mgr.write_file(rec,'a.txt','two\n')
             auth=ctrl.authorize_push(thread_id=tid,commit_message='test: controller approved push')
             assert auth['digest'] and auth['branch'].startswith('chatgpt/')
+            assert auth['candidate_tree'] and auth['origin_url']
             msg={'method':'item/tool/call','params':{'threadId':tid,'namespace':'reasonfirst_remote','tool':'commit_push','arguments':{}}}
             response=ctrl._handle_dynamic_tool_request(str(session['app_key']),msg)
             assert response['success'] is True
