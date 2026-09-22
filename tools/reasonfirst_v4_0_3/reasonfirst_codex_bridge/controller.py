@@ -1255,34 +1255,252 @@ class BridgeController:
             "last_push": session.get("last_push"),
         }
 
-    def authorize_push(self, *, thread_id: str, commit_message: str) -> dict[str, Any]:
-        """Authorize publication of one exact reviewed remote candidate/destination."""
-        if not self._remote_push_enabled():
-            raise BridgeError(
-                "Remote publication is experimental and disabled by default. "
-                "Keep using the local ActualCoder finish path, or explicitly enable "
-                "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH after reviewing the reduced remote "
-                "validation scope."
-            )
+    def _remote_finish_plan(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        allow_protected: bool = False,
+        allow_secret_match: bool = False,
+    ) -> dict[str, Any]:
         session = self._session(thread_id)
         rec = self._workspace_record(str(session["workspace_id"]))
         if rec.get("kind") != "ssh":
-            raise BridgeError(
-                "authorize_push supports managed SSH workspaces only; "
-                "use the local ActualCoder finish flow for local workspaces"
+            raise BridgeError("remote finish review requires an SSH workspace")
+
+        project_config = rec.get("project_config")
+        if not isinstance(project_config, dict):
+            project_config = self._project_contract_at_ref(
+                str(rec.get("project") or ""),
+                str(rec.get("base_sha") or ""),
             )
+            rec["project_config"] = project_config
+            with self._lock:
+                self._state["workspaces"][str(session["workspace_id"])] = rec
+                self._save_state()
+        project_context = project_config.get("effective")
+        if not isinstance(project_context, dict):
+            raise BridgeError("Remote workspace has no effective project policy")
+
+        settings = AgentSettings.load()
         target = self._target_from_dict(rec.get("target") or {})
+        manager = self._remote_manager(target)
+        validations: list[dict[str, Any]] = []
+
         with self._bridge_mutation_lock(rec):
-            snap = self._remote_manager(target).snapshot(rec)
-        if not snap.get("dirty"):
-            raise BridgeError("workspace has no changes to push")
-        if snap.get("url_rewrites"):
-            raise BridgeError(
-                "Git URL rewrite configuration must be removed before reviewed remote push"
+            for raw_command in project_context.get("validation_commands", []):
+                if not isinstance(raw_command, dict):
+                    continue
+                argv = [
+                    str(item)
+                    for item in raw_command.get("argv", [])
+                    if isinstance(item, str)
+                ]
+                if not argv:
+                    continue
+                required = bool(raw_command.get("required", True))
+                timeout_raw = raw_command.get(
+                    "timeout_seconds",
+                    settings.command_timeout_seconds,
+                )
+                timeout = (
+                    int(timeout_raw)
+                    if isinstance(timeout_raw, int)
+                    and not isinstance(timeout_raw, bool)
+                    else settings.command_timeout_seconds
+                )
+                try:
+                    result = manager.run_argv(
+                        rec,
+                        argv,
+                        timeout_seconds=timeout,
+                    )
+                    passed = (
+                        not bool(result.get("timed_out"))
+                        and result.get("returncode") == 0
+                    )
+                except Exception as exc:
+                    result = {
+                        "argv": argv,
+                        "timed_out": False,
+                        "returncode": None,
+                        "error": redact(str(exc), 2000),
+                    }
+                    passed = False
+
+                safe_result = dict(result)
+                for key in ("stdout", "stderr"):
+                    if isinstance(safe_result.get(key), str):
+                        safe_result[key] = redact(str(safe_result[key]), 12000)
+                validations.append({
+                    "name": str(raw_command.get("name") or argv[0]),
+                    "argv": argv,
+                    "required": required,
+                    "passed": passed,
+                    "blocking": required and not passed,
+                    "result": safe_result,
+                })
+
+            status = manager.status(rec)
+            changed_paths = manager.changed_paths(rec)
+            reviewability = manager.reviewability(rec, changed_paths)
+
+            if bool(reviewability.get("ok")):
+                try:
+                    security_diff = manager.security_diff(rec)
+                    history_scan = manager.history_secret_scan(rec)
+                    raw = security_diff.encode("utf-8", errors="replace")
+                    cap = settings.max_output_bytes
+                    review_raw = raw[:cap]
+                    diff_result: dict[str, Any] = {
+                        "workspace_id": rec["workspace_id"],
+                        "base_sha": rec["base_sha"],
+                        "truncated": len(raw) > len(review_raw),
+                        "original_bytes": len(raw),
+                        "diff": review_raw.decode("utf-8", errors="ignore"),
+                    }
+                except Exception as exc:
+                    security_diff = ""
+                    history_scan = {
+                        "coverage_complete": False,
+                        "findings": [],
+                        "error": redact(str(exc), 2000),
+                    }
+                    diff_result = {
+                        "workspace_id": rec["workspace_id"],
+                        "base_sha": rec["base_sha"],
+                        "truncated": True,
+                        "original_bytes": None,
+                        "diff": "Remote candidate evidence collection failed.",
+                    }
+            else:
+                security_diff = ""
+                history_scan = {
+                    "coverage_complete": False,
+                    "findings": [],
+                    "error": (
+                        "History scan skipped because candidate content is "
+                        "not reviewable"
+                    ),
+                }
+                diff_result = {
+                    "workspace_id": rec["workspace_id"],
+                    "base_sha": rec["base_sha"],
+                    "truncated": True,
+                    "original_bytes": None,
+                    "diff": (
+                        "Full diff/security scan skipped because one or more "
+                        "changed paths are not safely reviewable."
+                    ),
+                }
+
+            gates = evaluate_review_gates(
+                project_context=project_context,
+                validations=validations,
+                changed_paths=changed_paths,
+                reviewability=reviewability,
+                diff_result=diff_result,
+                security_diff=security_diff,
+                history_scan=history_scan,
+                allow_protected=allow_protected,
+                allow_secret_match=allow_secret_match,
             )
-        message = str(commit_message or "").strip()
-        if not message or len(message) > 240 or "\n" in message or "\r" in message:
-            raise BridgeError("commit_message must be one non-empty line up to 240 characters")
+            snapshot = manager.snapshot(rec)
+
+        blockers = list(gates["blockers"])
+        warnings = list(gates["warnings"])
+        commit_message = str(message or "").strip()
+        if (
+            not commit_message
+            or len(commit_message) > 240
+            or "\n" in commit_message
+            or "\r" in commit_message
+        ):
+            blockers.append(
+                "commit message must be one non-empty line up to 240 characters"
+            )
+        if not bool(status.get("dirty")):
+            if int(status.get("commits_ahead_of_base") or 0) > 0:
+                blockers.append(
+                    "Experimental remote finish does not publish pre-existing "
+                    "unreviewed commits; keep the reviewed candidate uncommitted "
+                    "until ReasonFirst constructs the exact commit."
+                )
+            else:
+                blockers.append("Remote workspace has no changes to finish.")
+        if snapshot.get("url_rewrites"):
+            blockers.append(
+                "Git URL rewrite configuration is not allowed for reviewed remote push."
+            )
+        branch = str(snapshot.get("branch") or "")
+        if not branch.startswith("chatgpt/"):
+            blockers.append(
+                "Remote publication is allowed only from managed chatgpt/* branches."
+            )
+        if not validations:
+            warnings.append(
+                "No project validation commands are configured at the pinned base commit."
+            )
+        if not bool(project_config.get("found")):
+            warnings.append(
+                "No .actualcoder.yaml was present at the pinned remote base; "
+                "default project policy is in effect."
+            )
+
+        return {
+            "ok": not blockers,
+            "dry_run": True,
+            "remote": True,
+            "experimental_publication": True,
+            "workspace": status,
+            "project_config": project_config,
+            "changed_paths": changed_paths,
+            "reviewability": reviewability,
+            "protected_paths": gates["protected_paths"],
+            "protected_path_changes": gates["protected_path_changes"],
+            "secret_scan": gates["secret_scan"],
+            "validations": validations,
+            "review_diff": gates["review_diff"],
+            "snapshot": snapshot,
+            "plan": {
+                "commit_required": True,
+                "commit_message": commit_message or None,
+                "push_action": "reviewed-remote-push",
+            },
+            "warnings": warnings,
+            "blockers": blockers,
+        }
+
+    def authorize_push(
+        self,
+        *,
+        thread_id: str,
+        commit_message: str,
+        allow_protected: bool = False,
+        allow_secret_match: bool = False,
+    ) -> dict[str, Any]:
+        """Authorize publication only after a fresh, unblocked remote finish plan."""
+
+        if not self._remote_push_enabled():
+            raise BridgeError(
+                "Remote publication is experimental and disabled by default."
+            )
+        plan = self._remote_finish_plan(
+            thread_id=thread_id,
+            message=commit_message,
+            allow_protected=allow_protected,
+            allow_secret_match=allow_secret_match,
+        )
+        if not bool(plan.get("ok")):
+            raise BridgeError(
+                "Remote finish review is blocked: "
+                + "; ".join(str(item) for item in plan.get("blockers", []))
+            )
+
+        session = self._session(thread_id)
+        snap = plan.get("snapshot")
+        if not isinstance(snap, dict):
+            raise BridgeError("Remote finish plan returned no reviewed snapshot")
         approved_snapshot = {
             key: snap.get(key)
             for key in (
@@ -1294,11 +1512,17 @@ class BridgeController:
         with self._lock:
             session["push_approval"] = {
                 "snapshot": approved_snapshot,
-                "message": message,
+                "message": str(commit_message).strip(),
+                "review": {
+                    "protected_override": allow_protected,
+                    "secret_override": allow_secret_match,
+                    "approved_at": int(time.time()),
+                },
                 "approved_at": int(time.time()),
             }
             session["updated_at"] = int(time.time())
             self._save_state()
+
         return {
             "ok": True,
             "experimental": True,
@@ -1312,7 +1536,13 @@ class BridgeController:
             "candidate_tree": snap.get("candidate_tree"),
             "digest": snap.get("digest"),
             "changed_paths": snap.get("changed_paths"),
-            "commit_message": message,
+            "commit_message": str(commit_message).strip(),
+            "review_summary": {
+                "validation_count": len(plan.get("validations", [])),
+                "protected_path_changes": plan.get("protected_path_changes", []),
+                "secret_scan": plan.get("secret_scan"),
+                "warnings": plan.get("warnings", []),
+            },
             "next": (
                 "Ask Codex to call reasonfirst_remote.commit_push. Any source, HEAD, "
                 "branch, target, origin, push URL, or candidate-tree change invalidates "
@@ -1366,7 +1596,10 @@ class BridgeController:
     def finish_preview(self, *, thread_id: str, message: str) -> dict[str, Any]:
         session=self._session(thread_id); rec=self._workspace_record(str(session["workspace_id"]))
         if rec.get("kind") == "ssh":
-            return {"ok":False,"remote_finish_supported":False,"workspace":self.workspace_status(thread_id=thread_id).get("workspace"),"diff":self.diff(thread_id=thread_id),"blockers":["v4 remote push is performed by Codex only after ChatGPT calls authorize_push for the exact reviewed snapshot; use that flow instead of finish."],"message":message}
+            return self._remote_finish_plan(
+                thread_id=thread_id,
+                message=message,
+            )
         result=_run_json(_module_command("gitlab_agent.actual_coder_cli","finish",str(session["workspace_id"]),"--message",message,"--dry-run"),timeout=600,allow_failure_json=True)
         return {"ok":bool(result.get("ok")),"dry_run":True,"raw":result}
 
