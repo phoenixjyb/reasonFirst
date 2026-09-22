@@ -21,6 +21,60 @@ def test_callback_failure_does_not_kill_reader():
 
 
 
+def test_command_approval_roundtrip():
+    fake = str(ROOT / "tests" / "fake_codex.py")
+    events = []
+    approvals = []
+
+    def approve(msg):
+        approvals.append(msg)
+        return {"decision": "accept"}
+
+    client = AppServerClient(
+        codex_bin=fake,
+        event_handler=events.append,
+        approval_request_handler=approve,
+    )
+    tid = client.start_thread(cwd=str(ROOT))
+    turn = client.start_turn(
+        thread_id=tid,
+        cwd=str(ROOT),
+        prompt="approval-command",
+    )
+    time.sleep(0.15)
+    assert approvals
+    assert approvals[0]["method"] == "item/commandExecution/requestApproval"
+    assert any(e.get("method") == "turn/completed" for e in events)
+    evidence = client.worker_policy_evidence(tid)
+    assert evidence["satisfied"] is True, evidence
+    assert evidence["resolved"]["model"] == "gpt-5.6-sol", evidence
+    assert evidence["resolved"]["reasoning_effort"] == "high", evidence
+    client.close()
+
+
+def test_unsupported_reasoning_effort_fails_before_turn():
+    fake = str(ROOT / "tests" / "fake_codex.py")
+    client = AppServerClient(codex_bin=fake)
+    from gitlab_agent.worker_policy import WorkerPolicy
+    policy = WorkerPolicy(
+        backend="codex",
+        model="gpt-5.6-sol",
+        reasoning_effort="max",
+        execution_mode="interactive",
+        sandbox_mode="workspace-write",
+        approval_policy="on-request",
+        network_access=False,
+    )
+    try:
+        client.start_thread(cwd=str(ROOT), policy=policy)
+    except Exception as exc:
+        assert "WORKER_POLICY_UNSATISFIED" in str(exc), exc
+    else:
+        raise AssertionError("unsupported effort should fail before thread start")
+    finally:
+        client.close()
+
+
 def test_dynamic_tool_roundtrip():
     fake = str(ROOT / "tests" / "fake_codex.py")
     events = []
@@ -56,6 +110,8 @@ def test_dynamic_tool_roundtrip():
 
 def main():
     test_callback_failure_does_not_kill_reader()
+    test_command_approval_roundtrip()
+    test_unsupported_reasoning_effort_fails_before_turn()
     test_dynamic_tool_roundtrip()
     events = []
     fake = str(ROOT / "tests" / "fake_codex.py")
