@@ -1,5 +1,5 @@
 from __future__ import annotations
-import pathlib, subprocess, tempfile, yaml
+import pathlib, subprocess, sys, tempfile, yaml
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 
@@ -10,7 +10,7 @@ def main():
         bridge.write_text('version: 3\ndefaults:\n  target: local\ntargets:\n  gpu:\n    type: ssh\n    host: gpu\n    repo: /work/app\n')
         codex.write_text('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"\n\n[mcp_servers.context7]\nurl = "https://example.invalid/mcp"\n\n[mcp_servers.reasonfirst]\ncommand = "/old/reasonfirst"\n')
         subprocess.run([
-            'python',str(ROOT/'configure_v4.py'),
+            sys.executable,str(ROOT/'configure_v4.py'),
             '--bridge-dir',str(ROOT),
             '--bridge-config',str(bridge),
             '--codex-config',str(codex),
