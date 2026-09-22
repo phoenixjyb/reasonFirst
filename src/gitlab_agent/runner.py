@@ -82,16 +82,17 @@ class CommandRunner:
         timeout = max(1, min(requested_timeout, self.settings.command_timeout_seconds))
 
         try:
-            proc = subprocess.run(
-                argv,
-                cwd=cwd,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=self._safe_env(workspace_id),
-                timeout=timeout,
-                check=False,
-            )
+            with self.workspaces.mutation_lock(workspace_id):
+                proc = subprocess.run(
+                    argv,
+                    cwd=cwd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=self._safe_env(workspace_id),
+                    timeout=timeout,
+                    check=False,
+                )
         except subprocess.TimeoutExpired as exc:
             stdout = exc.stdout or ""
             stderr = exc.stderr or ""
