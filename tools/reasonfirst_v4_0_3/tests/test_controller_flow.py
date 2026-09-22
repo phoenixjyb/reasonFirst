@@ -8,6 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from gitlab_agent.worker_policy import default_worker_policy
 import reasonfirst_codex_bridge.controller as controller
 
 
@@ -126,6 +127,7 @@ def main():
         controller._run_json = fake_run
         try:
             ctrl = controller.BridgeController()
+            ctrl._codex_policy=lambda: default_worker_policy("codex")
             routed = ctrl.dispatch_request(
                 gitlab_url="https://gitlab.example.com/group/project",
                 module="src/perception",
