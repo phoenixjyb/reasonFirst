@@ -70,8 +70,22 @@ def resolve_desktop_or_codex_binary() -> str:
     return resolve_codex_binary()
 
 def managed_app_server_socket() -> Path:
-    codex_home = Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser().resolve()
-    return codex_home / "app-server-control" / "app-server-control.sock"
+    """Return the managed Desktop socket path without requiring a resolvable HOME.
+
+    Diagnostic/test environments may intentionally clear HOME/USERPROFILE. That
+    should make the Desktop backend unavailable, not crash Doctor or backend
+    discovery.
+    """
+    configured = os.getenv("CODEX_HOME", "").strip()
+    if configured:
+        codex_home = Path(configured).expanduser()
+    else:
+        try:
+            codex_home = Path.home() / ".codex"
+        except RuntimeError:
+            fallback = os.getenv("LOCALAPPDATA") or os.getenv("TEMP") or os.getcwd()
+            codex_home = Path(fallback) / ".reasonfirst-unavailable-codex-home"
+    return codex_home.resolve(strict=False) / "app-server-control" / "app-server-control.sock"
 
 
 class AppServerClient:
