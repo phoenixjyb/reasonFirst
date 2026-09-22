@@ -51,16 +51,36 @@ def desktop_app_server_argv(binary: str) -> list[str]:
     ]
 
 
+def _app_server_approval(value: str | None) -> str:
+    mapping = {
+        "on-request": "onRequest",
+        "never": "never",
+    }
+    raw = value or "on-request"
+    if raw not in mapping:
+        raise ValueError(f"Unsupported App Server approval policy {raw!r}")
+    return mapping[raw]
+
+
+def _app_server_sandbox(value: str | None) -> str:
+    mapping = {
+        "read-only": "readOnly",
+        "workspace-write": "workspaceWrite",
+    }
+    raw = value or "workspace-write"
+    if raw not in mapping:
+        raise ValueError(f"Unsupported App Server sandbox mode {raw!r}")
+    return mapping[raw]
+
+
 def desktop_thread_params(policy: WorkerPolicy, cwd: str) -> dict[str, Any]:
     if normalize_backend(policy.backend) != "codex-desktop":
         raise ValueError("desktop thread policy must target codex-desktop")
-    approval = policy.approval_policy or "on-request"
     return {
         "cwd": cwd,
         "model": policy.model,
-        "effort": policy.reasoning_effort,
-        "approvalPolicy": approval,
-        "sandbox": policy.sandbox_mode or "workspace-write",
+        "approvalPolicy": _app_server_approval(policy.approval_policy),
+        "sandbox": _app_server_sandbox(policy.sandbox_mode),
         "serviceName": "reasonfirst",
         "threadSource": "user",
     }
@@ -92,7 +112,7 @@ def desktop_turn_params(
         "cwd": cwd,
         "model": policy.model,
         "effort": policy.reasoning_effort,
-        "approvalPolicy": policy.approval_policy or "on-request",
+        "approvalPolicy": _app_server_approval(policy.approval_policy),
         "sandboxPolicy": sandbox_policy,
     }
 
