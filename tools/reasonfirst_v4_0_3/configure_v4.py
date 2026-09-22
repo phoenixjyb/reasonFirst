@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import os
 from pathlib import Path
 import re
 import shutil
@@ -56,6 +57,12 @@ def main() -> int:
     ap.add_argument("--codex-config", default="~/.codex/config.toml")
     ap.add_argument("--backup-dir", default="~/.local/share/reasonfirst/backups")
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument(
+        "--worker-backend",
+        choices=("codex-cli", "copilot-cli", "codex-desktop"),
+        default=os.getenv("RF_WORKER_BACKEND", "").strip() or None,
+        help="Explicit coding backend; default preserves existing config or uses codex-desktop",
+    )
     args = ap.parse_args()
     root = Path(args.bridge_dir).expanduser().resolve()
     if not (root / "run_mcp_server.sh").is_file():
@@ -94,12 +101,26 @@ def main() -> int:
     data.setdefault("control", {})["mode"] = "mcp"
     defaults = data.setdefault("defaults", {})
     defaults["target"] = defaults.get("target") or "local"
+    worker_backend = (
+        args.worker_backend
+        or str(defaults.get("worker_backend") or "").strip()
+        or "codex-desktop"
+    )
+    if worker_backend not in {"codex-cli", "copilot-cli", "codex-desktop"}:
+        ap.error(
+            "defaults.worker_backend must be codex-cli, copilot-cli, or codex-desktop"
+        )
+    defaults["worker_backend"] = worker_backend
     defaults["codex_backend"] = "global-config-local"
     targets = data.setdefault("targets", {})
     local = targets.setdefault("local", {})
     if not isinstance(local, dict):
         ap.error("bridge.yaml targets.local must be an object")
-    local.update(type="local", codex_backend="global-config-local")
+    local.update(
+        type="local",
+        worker_backend=worker_backend,
+        codex_backend="global-config-local",
+    )
     data.setdefault("mcp", {}).update(transport="streamable-http", host="127.0.0.1",
                                       port=args.port, path="/mcp")
     data.setdefault("audit", {}).setdefault("github_enabled", False)
@@ -111,6 +132,7 @@ def main() -> int:
         backup(codex, backups)
         atomic_write(codex, new_codex)
     print(f"ReasonFirst bridge: {bridge}")
+    print(f"Worker backend: {worker_backend}")
     print(f"Codex global MCP: {url}")
     print(f"Backups: {backups}")
     return 0
