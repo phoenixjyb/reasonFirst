@@ -26,7 +26,7 @@ for line in sys.stdin:
         print(json.dumps({"method":"account/updated","params":{"account":None}}), flush=True)
         print(json.dumps({"id":rid,"result":{"userAgent":"fake"}}), flush=True)
     elif method == "configRequirements/read":
-        print(json.dumps({"id":rid,"result":{"requirements":{"allowedApprovalPolicies":["never","onRequest"],"allowedSandboxModes":["workspace-write","read-only","readOnly"]}}}), flush=True)
+        print(json.dumps({"id":rid,"result":{"requirements":{"allowedApprovalPolicies":["never","unlessTrusted","onRequest"],"allowedSandboxModes":["workspace-write","read-only","readOnly"]}}}), flush=True)
     elif method == "thread/start":
         params=m.get("params",{})
         has_dynamic_tools=bool(params.get("dynamicTools"))
