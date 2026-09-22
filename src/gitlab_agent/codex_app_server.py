@@ -109,11 +109,13 @@ class AppServerClient:
         backend_name: str = "standalone-local",
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         request_timeout: float = 60.0,
     ) -> None:
         self.codex_bin = codex_bin or (resolve_codex_binary() if launch_argv is None and unix_socket is None else "")
         self.event_handler = event_handler
         self.server_request_handler = server_request_handler
+        self.approval_request_handler = approval_request_handler
         self.request_timeout = request_timeout
         self.backend_name = backend_name
         self._next_id = 1
@@ -122,6 +124,8 @@ class AppServerClient:
         self._send_lock = threading.Lock()
         self._closed = False
         self._stderr_tail: list[str] = []
+        self._thread_policy_evidence: dict[str, dict[str, Any]] = {}
+        self._thread_policy_violations: dict[str, list[dict[str, Any]]] = {}
         self.proc: subprocess.Popen[str] | None = None
         self.ws: Any = None
 
@@ -169,6 +173,7 @@ class AppServerClient:
         *,
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> "AppServerClient":
         """Launch a dedicated local app-server using the user's normal Codex config.
 
@@ -193,6 +198,7 @@ class AppServerClient:
             backend_name="global-config-local",
             event_handler=event_handler,
             server_request_handler=server_request_handler,
+            approval_request_handler=approval_request_handler,
         )
 
     @classmethod
@@ -201,6 +207,7 @@ class AppServerClient:
         *,
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         required: bool = False,
     ) -> "AppServerClient":
         sock = managed_app_server_socket()
@@ -211,6 +218,7 @@ class AppServerClient:
                     backend_name="desktop-managed",
                     event_handler=event_handler,
                     server_request_handler=server_request_handler,
+                    approval_request_handler=approval_request_handler,
                 )
             except Exception as exc:
                 if required:
@@ -236,8 +244,14 @@ class AppServerClient:
                     backend_name="desktop-bundled",
                     event_handler=event_handler,
                     server_request_handler=server_request_handler,
+                    approval_request_handler=approval_request_handler,
                 )
-        return cls(event_handler=event_handler, server_request_handler=server_request_handler, backend_name="standalone-local")
+        return cls(
+            event_handler=event_handler,
+            server_request_handler=server_request_handler,
+            approval_request_handler=approval_request_handler,
+            backend_name="standalone-local",
+        )
 
     @classmethod
     def remote_ssh(
@@ -247,6 +261,7 @@ class AppServerClient:
         remote_codex: str = "codex",
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         connect_timeout: int = 8,
     ) -> "AppServerClient":
         host = str(host).strip()
@@ -272,6 +287,7 @@ class AppServerClient:
             backend_name=f"ssh:{host}",
             event_handler=event_handler,
             server_request_handler=server_request_handler,
+            approval_request_handler=approval_request_handler,
         )
 
     def _connect_unix_socket(self, socket_path: str) -> None:
@@ -333,15 +349,64 @@ class AppServerClient:
                 self.proc.stdin.write(payload + "\n")
                 self.proc.stdin.flush()
 
+    @staticmethod
+    def _is_approval_method(method: str) -> bool:
+        return method in {
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+            "item/permissions/requestApproval",
+        }
+
+    @staticmethod
+    def _decline_approval_result(method: str) -> dict[str, Any]:
+        if method in {
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+        }:
+            return {"decision": "decline"}
+        if method == "item/permissions/requestApproval":
+            return {"permissions": {}}
+        return {}
+
+    @staticmethod
+    def _validate_approval_result(method: str, result: Any) -> dict[str, Any]:
+        if not isinstance(result, dict):
+            raise AppServerError("approval handler must return a JSON object")
+        if method in {
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+        }:
+            decision = result.get("decision")
+            simple = {"accept", "acceptForSession", "decline", "cancel"}
+            if isinstance(decision, str) and decision in simple:
+                return result
+            if isinstance(decision, dict) and len(decision) == 1:
+                return result
+            raise AppServerError(
+                f"invalid approval decision for {method}: {decision!r}"
+            )
+        if method == "item/permissions/requestApproval":
+            permissions = result.get("permissions")
+            if not isinstance(permissions, dict):
+                raise AppServerError(
+                    "permissions approval response must contain a permissions object"
+                )
+            scope = result.get("scope")
+            if scope is not None and scope not in {"turn", "session"}:
+                raise AppServerError("permissions approval scope must be turn or session")
+            return result
+        raise AppServerError(f"unsupported approval request method {method!r}")
+
     def _reject_server_request(self, msg: dict[str, Any]) -> None:
         method = str(msg.get("method") or "")
         rid = msg.get("id")
         if not isinstance(rid, int):
             return
-        if method in {"item/commandExecution/requestApproval", "item/fileChange/requestApproval"}:
-            response: dict[str, Any] = {"id": rid, "result": "decline"}
-        elif method == "item/permissions/requestApproval":
-            response = {"id": rid, "result": {"permissions": {}}}
+        if self._is_approval_method(method):
+            response: dict[str, Any] = {
+                "id": rid,
+                "result": self._decline_approval_result(method),
+            }
         elif method in {"mcpServer/elicitation/request", "tool/requestUserInput"}:
             response = {"id": rid, "result": {"action": "decline", "content": None}}
         elif method == "item/tool/call":
@@ -349,13 +414,58 @@ class AppServerClient:
         else:
             response = {
                 "id": rid,
-                "error": {"code": -32601, "message": "ReasonFirst bridge declines unsupported server request"},
+                "error": {
+                    "code": -32601,
+                    "message": "ReasonFirst declines unsupported server request",
+                },
             }
         try:
             self._write(response)
         except Exception:
             pass
-        self._emit_event({"method": "bridge/serverRequestDeclined", "params": {"method": method}})
+        self._emit_event({
+            "method": "bridge/serverRequestDeclined",
+            "params": {"method": method},
+        })
+
+    def _handle_approval_request_async(self, msg: dict[str, Any]) -> None:
+        rid = msg.get("id")
+        method = str(msg.get("method") or "")
+        if not isinstance(rid, int):
+            return
+        try:
+            if self.approval_request_handler is None:
+                result = self._decline_approval_result(method)
+            else:
+                result = self._validate_approval_result(
+                    method,
+                    self.approval_request_handler(msg),
+                )
+            self._write({"id": rid, "result": result})
+            self._emit_event({
+                "method": "bridge/approvalResponded",
+                "params": {
+                    "requestId": rid,
+                    "method": method,
+                    "result": result,
+                },
+            })
+        except Exception as exc:
+            try:
+                self._write({
+                    "id": rid,
+                    "result": self._decline_approval_result(method),
+                })
+            except Exception:
+                pass
+            self._emit_event({
+                "method": "bridge/approvalHandlerError",
+                "params": {
+                    "requestId": rid,
+                    "method": method,
+                    "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+                },
+            })
 
     def _handle_server_request_async(self, msg: dict[str, Any]) -> None:
         rid = msg.get("id")
@@ -367,14 +477,25 @@ class AppServerClient:
                 return
             result = self.server_request_handler(msg)
             if not isinstance(result, dict):
-                result = {"contentItems": [{"type": "inputText", "text": str(result)}], "success": True}
+                result = {
+                    "contentItems": [
+                        {"type": "inputText", "text": str(result)}
+                    ],
+                    "success": True,
+                }
             self._write({"id": rid, "result": result})
         except Exception as exc:
             try:
                 self._write({
                     "id": rid,
                     "result": {
-                        "contentItems": [{"type": "inputText", "text": f"ReasonFirst tool error: {type(exc).__name__}: {str(exc)[:2000]}"}],
+                        "contentItems": [{
+                            "type": "inputText",
+                            "text": (
+                                "ReasonFirst tool error: "
+                                f"{type(exc).__name__}: {str(exc)[:2000]}"
+                            ),
+                        }],
                         "success": False,
                     },
                 })
@@ -387,7 +508,14 @@ class AppServerClient:
         rid = msg.get("id")
         method = msg.get("method")
         if isinstance(rid, int) and isinstance(method, str):
-            if method == "item/tool/call" and self.server_request_handler is not None:
+            if self._is_approval_method(method):
+                threading.Thread(
+                    target=self._handle_approval_request_async,
+                    args=(msg,),
+                    name="codex-approval-request",
+                    daemon=True,
+                ).start()
+            elif method == "item/tool/call" and self.server_request_handler is not None:
                 threading.Thread(
                     target=self._handle_server_request_async,
                     args=(msg,),
@@ -404,6 +532,14 @@ class AppServerClient:
                 waiter.put(msg)
             return
         if isinstance(method, str):
+            if method == "model/rerouted":
+                params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+                thread_id = str(params.get("threadId") or "")
+                if thread_id:
+                    self._thread_policy_violations.setdefault(thread_id, []).append({
+                        "type": "model_rerouted",
+                        "params": params,
+                    })
             self._emit_event(msg)
 
     def _mark_closed(self) -> None:
@@ -542,6 +678,176 @@ class AppServerClient:
             raise AppServerError(f"Unsupported WorkerPolicy sandbox for App Server: {value!r}")
         return value
 
+    def model_catalog(self) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(10):
+            params: dict[str, Any] = {"limit": 100, "includeHidden": True}
+            if cursor:
+                params["cursor"] = cursor
+            result = self.request("model/list", params, timeout=30)
+            if not isinstance(result, dict):
+                raise AppServerError("model/list returned an invalid response")
+            data = result.get("data")
+            if not isinstance(data, list):
+                raise AppServerError("model/list returned no model catalog")
+            items.extend(item for item in data if isinstance(item, dict))
+            next_cursor = result.get("nextCursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                break
+            cursor = next_cursor
+        return items
+
+    def assert_worker_policy_supported(
+        self,
+        policy: WorkerPolicy,
+        *,
+        sandbox_mode: str | None = None,
+    ) -> dict[str, Any]:
+        mode = self._sandbox_mode(policy, sandbox_mode)
+        approval = self._approval_policy(policy)
+        self.assert_noninteractive_policy_allowed(
+            sandbox_mode=mode,
+            approval_policy=approval,
+        )
+
+        if not policy.model:
+            raise AppServerError(
+                "WORKER_POLICY_UNSATISFIED: Codex Desktop requires an explicit model"
+            )
+        if not policy.reasoning_effort:
+            raise AppServerError(
+                "WORKER_POLICY_UNSATISFIED: Codex Desktop requires explicit reasoning effort"
+            )
+
+        catalog = self.model_catalog()
+        selected = next(
+            (
+                item for item in catalog
+                if str(item.get("id") or "") == policy.model
+                or str(item.get("model") or "") == policy.model
+            ),
+            None,
+        )
+        if selected is None:
+            raise AppServerError(
+                "WORKER_POLICY_UNSATISFIED: requested model "
+                f"{policy.model!r} is not in the App Server model catalog"
+            )
+
+        efforts = selected.get("supportedReasoningEfforts")
+        supported_efforts = {
+            str(item.get("reasoningEffort"))
+            for item in efforts
+            if isinstance(item, dict) and item.get("reasoningEffort")
+        } if isinstance(efforts, list) else set()
+        if policy.reasoning_effort not in supported_efforts:
+            raise AppServerError(
+                "WORKER_POLICY_UNSATISFIED: requested reasoning effort "
+                f"{policy.reasoning_effort!r} is not supported by {policy.model!r}; "
+                f"supported={sorted(supported_efforts)}"
+            )
+
+        return {
+            "verification_scope": "app-server-catalog-and-resolved-thread",
+            "requested": policy.to_dict(),
+            "catalog_model_id": selected.get("id"),
+            "catalog_model": selected.get("model"),
+            "supported_reasoning_efforts": sorted(supported_efforts),
+            "sandbox_mode": mode,
+            "approval_policy": approval,
+        }
+
+    @staticmethod
+    def _sandbox_response_mode(value: Any) -> str | None:
+        if isinstance(value, str):
+            raw = value
+        elif isinstance(value, dict):
+            raw = str(value.get("type") or "")
+        else:
+            return None
+        normalized = raw.replace("_", "-")
+        normalized = normalized.replace("workspaceWrite", "workspace-write")
+        normalized = normalized.replace("readOnly", "read-only")
+        return normalized.lower()
+
+    def _verify_thread_resolution(
+        self,
+        *,
+        result: dict[str, Any],
+        policy: WorkerPolicy,
+        expected_sandbox: str,
+        expected_approval: str,
+        evidence: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        thread = result.get("thread") if isinstance(result.get("thread"), dict) else {}
+        tid = thread.get("id")
+        if not isinstance(tid, str) or not tid:
+            raise AppServerError("thread/start returned no thread id")
+
+        resolved_model = (
+            thread.get("model")
+            or result.get("model")
+        )
+        resolved_effort = (
+            thread.get("reasoningEffort")
+            or result.get("reasoningEffort")
+        )
+        resolved_approval = result.get("approvalPolicy")
+        resolved_sandbox = self._sandbox_response_mode(result.get("sandbox"))
+
+        mismatches: list[str] = []
+        if str(resolved_model or "") != str(policy.model or ""):
+            mismatches.append(
+                f"model requested={policy.model!r} resolved={resolved_model!r}"
+            )
+        if str(resolved_effort or "") != str(policy.reasoning_effort or ""):
+            mismatches.append(
+                "reasoning_effort "
+                f"requested={policy.reasoning_effort!r} resolved={resolved_effort!r}"
+            )
+        if resolved_approval is not None:
+            normalized = str(resolved_approval).replace("-", "").lower()
+            wanted = expected_approval.replace("-", "").lower()
+            if normalized != wanted:
+                mismatches.append(
+                    f"approval requested={expected_approval!r} resolved={resolved_approval!r}"
+                )
+        if resolved_sandbox is not None and resolved_sandbox != expected_sandbox:
+            mismatches.append(
+                f"sandbox requested={expected_sandbox!r} resolved={resolved_sandbox!r}"
+            )
+        if mismatches:
+            raise AppServerError(
+                "WORKER_POLICY_UNSATISFIED: " + "; ".join(mismatches)
+            )
+
+        verified = {
+            **evidence,
+            "satisfied": True,
+            "resolved": {
+                "model": resolved_model,
+                "reasoning_effort": resolved_effort,
+                "approval_policy": resolved_approval,
+                "sandbox_mode": resolved_sandbox,
+            },
+            "provider_reported_model_verified": False,
+            "provider_reported_model_note": (
+                "Current App Server protocol exposes configured/resolved thread model, "
+                "not the provider response envelope model."
+            ),
+        }
+        self._thread_policy_evidence[tid] = verified
+        self._thread_policy_violations.setdefault(tid, [])
+        return tid, verified
+
+    def worker_policy_evidence(self, thread_id: str) -> dict[str, Any]:
+        evidence = dict(self._thread_policy_evidence.get(thread_id) or {})
+        violations = list(self._thread_policy_violations.get(thread_id) or [])
+        evidence["runtime_violations"] = violations
+        evidence["satisfied"] = bool(evidence.get("satisfied")) and not violations
+        return evidence
+
     def start_thread(
         self,
         *,
@@ -553,9 +859,9 @@ class AppServerClient:
         resolved = policy or default_worker_policy("codex")
         mode = self._sandbox_mode(resolved, sandbox_mode)
         approval = self._approval_policy(resolved)
-        self.assert_noninteractive_policy_allowed(
+        evidence = self.assert_worker_policy_supported(
+            resolved,
             sandbox_mode=mode,
-            approval_policy=approval,
         )
         params: dict[str, Any] = {
             "cwd": cwd,
@@ -573,10 +879,15 @@ class AppServerClient:
             params,
             timeout=30,
         )
-        thread = result.get("thread") if isinstance(result, dict) else None
-        tid = thread.get("id") if isinstance(thread, dict) else None
-        if not isinstance(tid, str) or not tid:
-            raise AppServerError("thread/start returned no thread id")
+        if not isinstance(result, dict):
+            raise AppServerError("thread/start returned an invalid response")
+        tid, _verified = self._verify_thread_resolution(
+            result=result,
+            policy=resolved,
+            expected_sandbox=mode,
+            expected_approval=approval,
+            evidence=evidence,
+        )
         return tid
 
     def resume_thread(self, thread_id: str) -> None:
