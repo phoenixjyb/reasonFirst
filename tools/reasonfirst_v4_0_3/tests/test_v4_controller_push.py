@@ -31,6 +31,7 @@ def main():
             ws=mgr.create_workspace(project='g/p',base_ref='main',task='v4')
             rec={**ws,'task':'v4','goal':'g','target':target.to_dict(),'kind':'ssh','updated_at':int(time.time())}
             ctrl=BridgeController(); ctrl._remote_manager=lambda target: mgr
+            ctrl._codex_policy=lambda: default_worker_policy("codex")
             ctrl._state['workspaces'][ws['workspace_id']]=rec; ctrl._save_state()
             started=ctrl.start_codex(workspace_id=ws['workspace_id'],goal='edit only')
             tid=started['thread_id']; session=ctrl._session(tid)
