@@ -75,7 +75,18 @@ for line in sys.stdin:
                 "sandbox":{"type":params.get("sandbox")}
             }}), flush=True)
     elif method == "thread/resume":
-        print(json.dumps({"id":rid,"result":{"thread":{"id":thread,"name":thread_name}}}), flush=True)
+        print(json.dumps({"id":rid,"result":{
+            "thread":{
+                "id":thread,
+                "name":thread_name,
+                "model":"gpt-5.6-sol",
+                "reasoningEffort":"high"
+            },
+            "model":"gpt-5.6-sol",
+            "reasoningEffort":"high",
+            "approvalPolicy":"unlessTrusted",
+            "sandbox":{"type":"workspaceWrite"}
+        }}), flush=True)
     elif method == "turn/start":
         params=m.get("params",{})
         policy=params.get("sandboxPolicy",{}).get("type")
