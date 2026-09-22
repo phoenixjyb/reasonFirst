@@ -278,17 +278,6 @@ try:
         stderr=subprocess.DEVNULL,
     )
 
-    origin = subprocess.check_output(
-        ["git", "-C", str(wt), "remote", "get-url", "origin"],
-        text=True,
-    ).strip()
-    push_origin = subprocess.check_output(
-        ["git", "-C", str(wt), "remote", "get-url", "--push", "origin"],
-        text=True,
-    ).strip()
-    if origin != payload["origin_url"] or push_origin != payload["origin_url"]:
-        raise SystemExit("Git origin/push destination changed after review")
-
     rewrites = subprocess.run(
         [
             "git", "-C", str(wt), "config", "--show-origin", "--get-regexp",
@@ -303,6 +292,17 @@ try:
         raise SystemExit(
             "Git URL rewrite rules are not allowed for reviewed publication"
         )
+
+    origin = subprocess.check_output(
+        ["git", "-C", str(wt), "remote", "get-url", "origin"],
+        text=True,
+    ).strip()
+    push_origin = subprocess.check_output(
+        ["git", "-C", str(wt), "remote", "get-url", "--push", "origin"],
+        text=True,
+    ).strip()
+    if origin != payload["origin_url"] or push_origin != payload["origin_url"]:
+        raise SystemExit("Git origin/push destination changed after review")
 
     fd, index_path = tempfile.mkstemp(prefix="reasonfirst-index-")
     os.close(fd)
@@ -519,6 +519,10 @@ class ReviewedRemotePublisher:
             "candidate_tree",
         )
 
+        if str(result.get("url_rewrites") or "").strip():
+            raise RemotePublicationError(
+                "Git URL rewrite rules are not allowed for reviewed publication"
+            )
         origin = _safe_origin(str(result.get("origin_url") or ""))
         push_origin = _safe_origin(
             str(result.get("push_origin_url") or "")
@@ -526,10 +530,6 @@ class ReviewedRemotePublisher:
         if origin != expected_origin or push_origin != expected_origin:
             raise RemotePublicationError(
                 "Remote Git origin/push destination does not match managed workspace"
-            )
-        if str(result.get("url_rewrites") or "").strip():
-            raise RemotePublicationError(
-                "Git URL rewrite rules are not allowed for reviewed publication"
             )
 
         raw_paths = result.get("changed_paths")
