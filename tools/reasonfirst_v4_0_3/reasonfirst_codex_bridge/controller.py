@@ -383,11 +383,16 @@ class BridgeController:
                 fn("apply_patch", "Apply a unified Git patch to the remote managed worktree.", {
                     "patch": {"type": "string"},
                 }, ["patch"]),
-                fn("run", "Run a build/test/inspection command on the remote host with cwd constrained to this worktree. Destructive/admin/network-hop commands are blocked.", {
-                    "command": {"type": "string"},
+                fn("run", "Run one locally-approved build/test executable on the remote host without a shell. The target defaults to no executable authority.", {
+                    "argv": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 128
+                    },
                     "cwd": {"type": "string"},
                     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800},
-                }, ["command"]),
+                }, ["argv"]),
                 fn("snapshot", "Read the exact remote review snapshot digest. Use before requesting ChatGPT push approval.", {}),
                 fn("commit_push", "Commit and push the exact ChatGPT-approved snapshot. This succeeds only after an explicit ReasonFirst push approval for the unchanged digest; force-push and protected branches are never allowed.", {}),
                 fn("diff", "Read the real remote Git diff against the pinned base SHA.", {}),
@@ -432,9 +437,12 @@ class BridgeController:
         elif tool == "apply_patch":
             result = manager.apply_patch(rec, str(args.get("patch") or ""))
         elif tool == "run":
-            result = manager.run_command(
+            raw_argv = args.get("argv")
+            if not isinstance(raw_argv, list):
+                raise BridgeError("reasonfirst_remote.run requires argv as a list")
+            result = manager.run_argv(
                 rec,
-                str(args.get("command") or ""),
+                [str(item) for item in raw_argv],
                 cwd=str(args.get("cwd") or "."),
                 timeout_seconds=int(args.get("timeout_seconds") or 300),
             )
@@ -737,7 +745,7 @@ class BridgeController:
             "- Do not push, merge, deploy, reset --hard, clean, stash, sudo, or open nested SSH sessions.\n"
             "- Inspect the real remote code before editing.\n"
             "- Use reasonfirst_remote.write or apply_patch for edits.\n"
-            "- Use reasonfirst_remote.run for build/tests and report exact commands and exit codes.\n"
+            "- Use reasonfirst_remote.run only with the target's locally approved argv executables for build/tests; report exact argv and exit codes.\n"
             "- Use reasonfirst_remote.diff before finishing.\n"
             "- Keep changes scoped to the reviewed ChatGPT plan and acceptance criteria.\n"
         )
