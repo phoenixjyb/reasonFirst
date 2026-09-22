@@ -11,6 +11,8 @@ import sys
 import threading
 from typing import Any, Callable
 
+from gitlab_agent.worker_policy import WorkerPolicy, default_worker_policy
+
 
 class AppServerError(RuntimeError):
     pass
@@ -505,21 +507,38 @@ class AppServerClient:
                     f"Codex admin requirements do not allow {sandbox_mode} sandbox mode."
                 )
 
+    @staticmethod
+    def _approval_policy(policy: WorkerPolicy) -> str:
+        # App Server names the interactive approval mode "unlessTrusted".
+        return "never" if policy.approval_policy == "never" else "unlessTrusted"
+
+    @staticmethod
+    def _sandbox_mode(policy: WorkerPolicy, override: str | None = None) -> str:
+        value = override or policy.sandbox_mode or "workspace-write"
+        if value not in {"read-only", "workspace-write"}:
+            raise AppServerError(f"Unsupported WorkerPolicy sandbox for App Server: {value!r}")
+        return value
+
     def start_thread(
         self,
         *,
         cwd: str,
+        policy: WorkerPolicy | None = None,
         dynamic_tools: list[dict[str, Any]] | None = None,
-        sandbox_mode: str = "workspace-write",
+        sandbox_mode: str | None = None,
     ) -> str:
-        self.assert_noninteractive_policy_allowed(sandbox_mode=sandbox_mode)
+        resolved = policy or default_worker_policy("codex")
+        mode = self._sandbox_mode(resolved, sandbox_mode)
+        self.assert_noninteractive_policy_allowed(sandbox_mode=mode)
         params: dict[str, Any] = {
             "cwd": cwd,
-            "approvalPolicy": "never",
-            "sandbox": sandbox_mode,
-            "serviceName": "codex_work_desktop",
+            "approvalPolicy": self._approval_policy(resolved),
+            "sandbox": "readOnly" if mode == "read-only" else "workspaceWrite",
+            "serviceName": "reasonfirst_codex_desktop",
             "threadSource": "user",
         }
+        if resolved.model:
+            params["model"] = resolved.model
         if dynamic_tools:
             params["dynamicTools"] = dynamic_tools
         result = self.request(
@@ -536,18 +555,38 @@ class AppServerClient:
     def resume_thread(self, thread_id: str) -> None:
         self.request("thread/resume", {"threadId": thread_id}, timeout=30)
 
-    def start_turn(self, *, thread_id: str, cwd: str, prompt: str, network_access: bool = False, sandbox_mode: str = "workspace-write") -> str:
+    def start_turn(
+        self,
+        *,
+        thread_id: str,
+        cwd: str,
+        prompt: str,
+        policy: WorkerPolicy | None = None,
+        network_access: bool | None = None,
+        sandbox_mode: str | None = None,
+    ) -> str:
+        resolved = policy or default_worker_policy("codex")
+        mode = self._sandbox_mode(resolved, sandbox_mode)
+        effective_network = (
+            bool(resolved.network_access)
+            if network_access is None
+            else bool(network_access)
+        )
         params = {
             "threadId": thread_id,
             "input": [{"type": "text", "text": prompt}],
             "cwd": cwd,
-            "approvalPolicy": "never",
+            "approvalPolicy": self._approval_policy(resolved),
             "sandboxPolicy": (
-                {"type": "readOnly", "networkAccess": bool(network_access)}
-                if sandbox_mode == "read-only"
-                else {"type": "workspaceWrite", "writableRoots": [cwd], "networkAccess": bool(network_access)}
+                {"type": "readOnly", "networkAccess": effective_network}
+                if mode == "read-only"
+                else {"type": "workspaceWrite", "writableRoots": [cwd], "networkAccess": effective_network}
             ),
         }
+        if resolved.model:
+            params["model"] = resolved.model
+        if resolved.reasoning_effort:
+            params["effort"] = resolved.reasoning_effort
         result = self.request("turn/start", params, timeout=30)
         turn = result.get("turn") if isinstance(result, dict) else None
         turn_id = turn.get("id") if isinstance(turn, dict) else None
