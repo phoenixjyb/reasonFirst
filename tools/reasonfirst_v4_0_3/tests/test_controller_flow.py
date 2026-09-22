@@ -19,19 +19,20 @@ class FakeApp:
         self.name = ""
         self.goal = ""
         self.metadata = {}
+        self.policy_evidence = {}
 
 
     @classmethod
-    def global_config_local(cls, *, event_handler=None, server_request_handler=None):
-        return cls(event_handler=event_handler, server_request_handler=server_request_handler, backend_name="global-config-local")
+    def global_config_local(cls, *, event_handler=None, server_request_handler=None, approval_request_handler=None):
+        return cls(event_handler=event_handler, server_request_handler=server_request_handler, approval_request_handler=approval_request_handler, backend_name="global-config-local")
 
     @classmethod
-    def desktop_preferred(cls, *, event_handler=None, server_request_handler=None, required=False):
-        return cls(event_handler=event_handler, server_request_handler=server_request_handler, backend_name="desktop-managed-test")
+    def desktop_preferred(cls, *, event_handler=None, server_request_handler=None, approval_request_handler=None, required=False):
+        return cls(event_handler=event_handler, server_request_handler=server_request_handler, approval_request_handler=approval_request_handler, backend_name="desktop-managed-test")
 
     @classmethod
-    def remote_ssh(cls, host, *, remote_codex="codex", event_handler=None, server_request_handler=None, connect_timeout=8):
-        return cls(event_handler=event_handler, server_request_handler=server_request_handler, backend_name=f"ssh:{host}")
+    def remote_ssh(cls, host, *, remote_codex="codex", event_handler=None, server_request_handler=None, approval_request_handler=None, connect_timeout=8):
+        return cls(event_handler=event_handler, server_request_handler=server_request_handler, approval_request_handler=approval_request_handler, backend_name=f"ssh:{host}")
 
     def admin_requirements(self):
         return {}
@@ -39,6 +40,16 @@ class FakeApp:
     def start_thread(self, *, cwd, policy=None, dynamic_tools=None, sandbox_mode=None):
         assert policy is not None
         assert policy.model == "gpt-5.6-sol"
+        self.policy_evidence = {
+            "satisfied": True,
+            "verification_scope": "fake",
+            "requested": policy.to_dict(),
+            "resolved": {
+                "model": policy.model,
+                "reasoning_effort": policy.reasoning_effort,
+            },
+            "runtime_violations": [],
+        }
         return "thr_test"
 
     def start_turn(self, *, thread_id, cwd, prompt, policy=None, network_access=None, sandbox_mode=None):
@@ -67,6 +78,9 @@ class FakeApp:
 
     def read_thread(self, thread_id, include_turns=False):
         return {"thread": {"id": thread_id, "name": self.name, "status": {"type": "idle"}}}
+
+    def worker_policy_evidence(self, thread_id):
+        return dict(self.policy_evidence)
 
     def close(self):
         return None
