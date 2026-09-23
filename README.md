@@ -14,30 +14,30 @@ The goal is to spend reasoning capacity on architecture, diagnosis, and review w
 
 **Early-stage developer tooling:** use trusted repositories on a trusted development host. A Git worktree is not a security sandbox. Read [SECURITY.md](SECURITY.md) before using real credentials or executing repository code. A private MCP endpoint still returns selected data to the connected reasoning service; obtain the relevant data-sharing approval.
 
-## Start here: get connected before asking ChatGPT to work
+## Start here: choose the path you actually need
 
-**Follow [the complete first-time setup guide](docs/GETTING_STARTED.md) ([中文](docs/GETTING_STARTED_CN.md)) in order.** It includes installation commands, where to obtain each credential, Keychain storage, a local profile, service startup, ChatGPT app selection, and a live repository-read test. You should not need earlier chat messages to reconstruct setup.
+ReasonFirst does not require the same setup for every use case.
 
-| Prepare | Why it is needed |
-| --- | --- |
-| Git, uv/Python, ReasonFirst and the separate `tunnel-client` binary | The new supervisor does not install the upstream tunnel agent. |
-| GitLab URL, confirmed project/ref/file, read token and explicit local allowlist | A proposed project name or local folder does not prove remote existence or access. |
-| OpenAI Platform tunnel permissions, tunnel ID and runtime API key | Tunnel identity and runtime authentication are different values. |
-| ChatGPT custom-app/developer-mode permission and workspace association | A locally running tunnel is not automatically attached to a conversation. |
-| Keychain or another explicit supported secret source | An earlier shell export is not persistent storage. |
+| Goal | Recommended entry point | Tunnel required? |
+| --- | --- | --- |
+| Local controlled coding with `codex-cli`, `copilot-cli`, or `codex-desktop` | **[CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md)** | No |
+| Normal ChatGPT reads/reviews an approved GitLab repository, MR or CI | **[First-time ChatGPT connection](docs/GETTING_STARTED.md)** | Yes for this path |
+| App Server orchestration, explicit approvals, named SSH workspaces, remote validation / finish preview | **[Architecture](docs/ARCHITECTURE.md)** then the Bridge Preview guide | Optional / deployment-specific |
 
-Codex/Copilot login, Git write permissions and a CI runner are **later implementation prerequisites**, not prerequisites to reading GitLab in ChatGPT. Current provider permissions/eligibility are linked in the setup guide; no subscription name guarantees them. The tunnel runtime key is still required even though ReasonFirst makes no model API calls.
+For a ChatGPT read connection, follow the complete first-time setup guide in order. For local-only coding, skip Tunnel provisioning entirely and use ActualCoder directly. The optional Bridge Preview is more privileged than the read-only GitLab connector; enable it deliberately rather than treating it as a prerequisite.
 
 ```text
-First time: permissions -> install -> GitLab config -> tunnel ID/key/profile
-Each stopped session: start -> local status -> select the app in normal ChatGPT
-Each new project: gitlab_whoami -> check_project_access -> files at resolved commit
-Approved work: ChatGPT plan -> human handoff -> Codex/ActualCoder -> MR/CI -> review
+Local coding:
+install -> user config -> actual-coder doctor -> start/resume -> worker -> finish -> MR/CI
+
+ChatGPT read connection:
+permissions -> install -> GitLab config -> tunnel -> select app -> live identity/project/file read
+
+Bridge Preview:
+explicit local setup -> configured targets/policy -> App Server -> approvals -> finish preview
 ```
 
-Once configured, use `actual-coder-tunnel start` in Terminal A and `actual-coder-tunnel status` in Terminal B. **Keep Terminal A running.** `ready_for_chatgpt_check` is local readiness, not end-to-end acceptance. Select the existing app in the normal ChatGPT composer and perform the guide's live identity/preflight/file read before starting work.
-
-The **localhost Assistant is not required**. Overview/Logs are optional diagnostics. Omitting the Assistant UI does not uninstall Codex or guarantee that an upstream bundled helper is disabled. Do not disable approval controls to make that optional panel work.
+The **localhost Assistant is not required** for any of these paths. Overview/Logs remain optional diagnostics.
 
 ## Guides by task
 
