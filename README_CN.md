@@ -16,30 +16,30 @@ ReasonFirst 将交互式工程推理、可替换编程代理和本地 GitLab 流
 
 **这是早期开发工具：**在可信开发机使用可信仓库，Git worktree 不是安全沙箱。使用真实凭证或执行仓库代码前，阅读 [SECURITY_CN.md](SECURITY_CN.md)。MCP 端点保持私有，不意味着选定数据不会返回给推理服务；应获得相应数据共享批准。
 
-## 从这里开始：先接通，再让 ChatGPT 工作
+## 从这里开始：先选你真正需要的路径
 
-**按顺序完成[首次完整接入指南](docs/GETTING_STARTED_CN.md)（[English](docs/GETTING_STARTED.md)）。** 指南包括安装命令、每种凭证的来源、Keychain 保存、本地 profile、服务启动、ChatGPT 应用选择，以及实时仓库读取测试。不应再依赖翻找以前的聊天记录拼接配置。
+ReasonFirst 不要求所有使用场景都完成同一套接入。
 
-| 准备内容 | 为什么需要 |
-| --- | --- |
-| Git、uv/Python、ReasonFirst、单独的 `tunnel-client` | 新的管理助手不会安装上游隧道客户端。 |
-| GitLab 地址、确认的项目/ref/文件、只读 token、本地明确 allowlist | 提议的项目名称或本地目录不能证明远端存在或有权访问。 |
-| OpenAI Platform 隧道权限、Tunnel ID、runtime API key | 隧道标识与运行认证不是同一个值。 |
-| ChatGPT 自定义应用/developer mode 权限与 workspace 关联 | 本地隧道运行不等于已经加入当前对话。 |
-| Keychain 或其他明确、受支持的秘密来源 | 昨天的 shell export 不是持久存储。 |
+| 目标 | 推荐入口 | 是否需要 Tunnel |
+| --- | --- | --- |
+| 本地受控编程：`codex-cli` / `copilot-cli` / `codex-desktop` | **[CLI 快速上手](docs/QUICKSTART_CN.md)** | 不需要 |
+| 让普通 ChatGPT 读取/审查获批 GitLab 仓库、MR、CI | **[首次完整接入](docs/GETTING_STARTED_CN.md)** | 这条路径需要 |
+| App Server 编排、显式审批、命名 SSH workspace、远端 validation / finish preview | **[架构说明](docs/ARCHITECTURE_CN.md)** 后再看 Bridge Preview 指南 | 可选，取决于部署方式 |
 
-Codex/Copilot 登录、Git 写权限和 CI runner 是**后续实现阶段**的前置条件，不是 ChatGPT 读取 GitLab 的前置条件。服务资格/权限见接入指南所链官方资料，不以某个订阅名称作保证。ReasonFirst 不直接调用模型 API，不等于隧道不需要 runtime key。
+如果目标只是本地编程，不需要先配置 Tunnel。需要 ChatGPT read connection 时，再按首次完整接入逐步配置。Bridge Preview 的权限高于只读 GitLab connector，应明确选择和部署，不应作为普通读取的默认前置条件。
 
 ```text
-首次：权限 -> 安装 -> GitLab 配置 -> Tunnel ID/key/profile
-每次服务停止后：Start -> 本地 Status -> 在普通 ChatGPT 选择应用
-每个新项目：gitlab_whoami -> check_project_access -> 固定提交读取
-获批任务：ChatGPT 方案 -> 人工交接 -> Codex/ActualCoder -> MR/CI -> 审阅
+本地编程：
+安装 -> 用户配置 -> actual-coder doctor -> start/resume -> worker -> finish -> MR/CI
+
+ChatGPT 读取：
+权限 -> 安装 -> GitLab 配置 -> Tunnel -> 选择应用 -> 实时身份/项目/文件读取
+
+Bridge Preview：
+显式本地配置 -> target/policy -> App Server -> 审批 -> finish preview
 ```
 
-配置完成后，Terminal A 运行 `actual-coder-tunnel start`，Terminal B 运行 `actual-coder-tunnel status`。**保持 Terminal A 运行。** `ready_for_chatgpt_check` 只代表本地就绪，不是端到端验收。在普通 ChatGPT 输入框中选择已有应用，完成指南中的实时身份/预检/文件读取，再开始工作。
-
-**不需要 localhost Assistant。** Overview/Logs 仅为可选诊断。不使用 Assistant UI，不等于卸载 Codex，也不保证上游附带 helper 被禁用。不要为这个可选面板关闭审批控制。
+任何路径都**不要求 localhost Assistant**；Overview/Logs 只是可选诊断。
 
 ## 按任务选择指南
 
