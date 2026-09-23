@@ -23,6 +23,10 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Public documentation and contribution workflow
 
+- Add a bilingual current-architecture reference covering the two MCP surfaces, three worker backends, WorkerPolicy verification, approval mediation, workspace locking, structured SSH container validation, shared finish gates and experimental remote publication.
+- Rework README and Getting Started around three explicit entry paths: local ActualCoder, ChatGPT read connection, and the optional Bridge Preview orchestration surface.
+- Refresh English/Chinese workflow and documentation indexes so current `main` capabilities are separated from the still-unmerged TaskSpec/EvidencePack work.
+
 - Refresh README and current English/Chinese quickstarts for external contributors, keeping real deployment details out of examples.
 - Document Git-based PR review, normal editable-install updates, and separate configuration/MCP lifecycle steps; manual archive copying is not required.
 - Add English HTTPS migration and runtime TLS guides, a documentation index, CONTRIBUTING, issue/PR templates, and a public-release checklist.
