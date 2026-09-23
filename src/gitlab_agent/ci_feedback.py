@@ -45,6 +45,107 @@ def _job_summary(job: dict[str, Any]) -> dict[str, object]:
     }
 
 
+def _diagnose_ci(
+    *,
+    pipeline_status: str,
+    jobs: list[dict[str, object]],
+    failed_jobs: list[dict[str, object]],
+    logs: list[dict[str, object]],
+) -> dict[str, object]:
+    """Classify CI state conservatively so infra failures are not handed to a coding worker."""
+
+    status = pipeline_status.lower()
+    if status == "success":
+        return {
+            "category": "none",
+            "code": "pipeline_success",
+            "worker_repair_recommended": False,
+            "message": "Matching pipeline succeeded; there is no CI repair task.",
+            "next_action": "Review the successful matching-HEAD evidence.",
+        }
+
+    if status in _INCOMPLETE_STATUSES:
+        waiting_jobs = [
+            item
+            for item in jobs
+            if str(item.get("status") or "") in _INCOMPLETE_STATUSES
+            and not item.get("started_at")
+        ]
+        if waiting_jobs:
+            return {
+                "category": "runner_scheduling",
+                "code": "job_waiting_for_runner",
+                "worker_repair_recommended": False,
+                "message": "CI is incomplete and at least one job has not started; runner scheduling/availability should be checked before changing code.",
+                "next_action": "Check runner Online/Paused/Protected/Run-untagged/tag eligibility, then wait or retry the job without changing the candidate commit.",
+            }
+        return {
+            "category": "pipeline_incomplete",
+            "code": "pipeline_not_terminal",
+            "worker_repair_recommended": False,
+            "message": "CI is still running or otherwise incomplete.",
+            "next_action": "Wait for a terminal matching-HEAD result before deciding on a repair.",
+        }
+
+    log_text = "\n".join(str(item.get("content") or "") for item in logs).lower()
+    failure_reasons = {
+        str(item.get("failure_reason") or "").lower()
+        for item in failed_jobs
+    }
+
+    if "custom executor is missing runexec" in log_text:
+        return {
+            "category": "runner_configuration",
+            "code": "custom_executor_missing_runexec",
+            "worker_repair_recommended": False,
+            "message": "The job failed before repository tests because a GitLab custom executor has no RunExec.",
+            "next_action": "Fix/restart the runner with the intended executor and retry the same candidate commit; do not ask the coding worker to change application or CI code.",
+        }
+
+    runner_reasons = {
+        "runner_system_failure",
+        "scheduler_failure",
+        "stuck_or_timeout_failure",
+        "api_failure",
+    }
+    if failure_reasons & runner_reasons:
+        return {
+            "category": "runner_or_gitlab_infrastructure",
+            "code": "gitlab_runner_failure_reason",
+            "worker_repair_recommended": False,
+            "message": "GitLab classified the failed job as runner/scheduler/infrastructure failure.",
+            "next_action": "Repair runner/GitLab infrastructure and retry the same candidate before considering a code repair.",
+        }
+
+    if failed_jobs:
+        return {
+            "category": "code_or_build_failure",
+            "code": "failed_job_requires_reasoning",
+            "worker_repair_recommended": None,
+            "message": "A matching-HEAD job failed, but the failure is not a recognized runner-only signature.",
+            "next_action": "Review the sanitized trace and TaskSpec to determine whether the root cause is code, build environment, or infrastructure before launching a worker.",
+        }
+
+    return {
+        "category": "terminal_pipeline_without_failed_job",
+        "code": "terminal_non_success",
+        "worker_repair_recommended": False,
+        "message": f"Pipeline ended with status={pipeline_status!r} without a failed job to repair.",
+        "next_action": "Inspect GitLab pipeline metadata rather than inventing a code failure.",
+    }
+
+
+def _diagnosis_context(diagnosis: dict[str, object]) -> str:
+    return (
+        "\n\nReasonFirst CI classification:\n"
+        f"- category: {diagnosis.get('category')}\n"
+        f"- code: {diagnosis.get('code')}\n"
+        f"- worker repair recommended: {diagnosis.get('worker_repair_recommended')}\n"
+        f"- message: {diagnosis.get('message')}\n"
+        f"- next action: {diagnosis.get('next_action')}"
+    )
+
+
 def _repair_context(
     *,
     project: str,
@@ -188,6 +289,13 @@ def collect_ci_feedback(
             "jobs": [],
             "failed_jobs": [],
             "failed_job_logs": [],
+            "diagnosis": {
+                "category": "no_pipeline",
+                "code": "pipeline_not_found",
+                "worker_repair_recommended": False,
+                "message": "No CI pipeline exists for this workspace branch.",
+                "next_action": "Push/create the MR and wait for a matching pipeline before diagnosing CI.",
+            },
             "repair_context": context,
             "warnings": [
                 "No GitLab CI pipeline was found for the workspace branch."
@@ -299,6 +407,13 @@ def collect_ci_feedback(
     if unavailable_logs:
         warnings.append(f"{unavailable_logs} failed-job trace(s) could not be read; log evidence is incomplete.")
 
+    diagnosis = _diagnose_ci(
+        pipeline_status=pipeline_status,
+        jobs=jobs,
+        failed_jobs=failed_jobs,
+        logs=logs,
+    )
+
     context = _repair_context(
         project=project,
         branch=branch,
@@ -306,7 +421,7 @@ def collect_ci_feedback(
         head_matches=head_matches,
         failed_jobs=failed_jobs,
         logs=logs,
-    )
+    ) + _diagnosis_context(diagnosis)
 
     blocking_failed_jobs = [
         item
@@ -345,6 +460,7 @@ def collect_ci_feedback(
             len(logs) == len(failed_jobs)
             and all(item.get("read_complete") is True and not item.get("error") for item in logs)
         ),
+        "diagnosis": diagnosis,
         "repair_context": context,
         "warnings": warnings,
     }

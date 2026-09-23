@@ -33,10 +33,12 @@ class FakeAPI:
         pipeline_sha: str = "head123",
         pipeline_status: str = "failed",
         pipelines: list[dict[str, object]] | None = None,
+        trace_content: str | None = None,
     ) -> None:
         self.pipeline_sha = pipeline_sha
         self.pipeline_status = pipeline_status
         self._pipelines = pipelines
+        self.trace_content = trace_content
         self.trace_calls: list[int] = []
 
     def pipelines(
@@ -99,7 +101,7 @@ class FakeAPI:
     ) -> dict[str, object]:
         self.trace_calls.append(job_id)
         token = "gl" + "pat-" + "abcdefghijklmnop"
-        content = (
+        content = self.trace_content or (
             "\x1b[31mFAILED test_timeout\x1b[0m\n"
             f"GITLAB_TOKEN={token}\n"
             "AssertionError: expected 3 got 4\n"
@@ -132,6 +134,26 @@ class CIFeedbackTests(unittest.TestCase):
         self.assertNotIn("\x1b[31m", str(log["content"]))
         self.assertIn("[REDACTED", str(log["content"]))
         self.assertIn("untrusted", str(result["repair_context"]).lower())
+
+    def test_custom_executor_failure_is_classified_as_runner_configuration(self) -> None:
+        result = collect_ci_feedback(
+            manager=FakeManager(),  # type: ignore[arg-type]
+            api=FakeAPI(
+                trace_content=(
+                    'Preparing the "custom" executor\n'
+                    "WARNING: custom executor is missing RunExec\n"
+                    "ERROR: Job failed: custom executor is missing RunExec\n"
+                )
+            ),  # type: ignore[arg-type]
+            workspace_id="abc123def456",
+        )
+
+        diagnosis = result["diagnosis"]
+        self.assertEqual(diagnosis["category"], "runner_configuration")
+        self.assertEqual(diagnosis["code"], "custom_executor_missing_runexec")
+        self.assertFalse(diagnosis["worker_repair_recommended"])
+        self.assertIn("do not ask the coding worker", str(diagnosis["next_action"]).lower())
+        self.assertIn("runner_configuration", str(result["repair_context"]))
 
     def test_stale_pipeline_is_reported(self) -> None:
         result = collect_ci_feedback(
