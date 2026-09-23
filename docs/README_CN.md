@@ -10,7 +10,7 @@
 
 **新用户：**按顺序阅读 **[首次完整接入：从前置条件到真实 ChatGPT GitLab 读取](GETTING_STARTED_CN.md)**。它涵盖 macOS/Keychain 主路径的软件安装、GitLab 配置、OpenAI 隧道/权限/runtime key、本地 profile、启动、ChatGPT 应用选择和逐步验收。[英文版](GETTING_STARTED.md)使用相同可执行步骤。
 
-**已经接入：**使用[日常 start/status/stop/restart](TUNNEL_LIFECYCLE_CN.md)，不重新初始化。**纯本地编程：**使用 [CLI 快速上手](QUICKSTART_CN.md)，这条独立路径不需要隧道。**高级/手工/Windows：**使用[手工指南](OPENAI_TUNNEL_TEAM_SETUP_CN.md)和 [Windows 步骤](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell)。
+**先选择使用路径。** 只做**本地编程**时直接使用 [CLI 快速上手](QUICKSTART_CN.md)，不需要 Tunnel。需要让**普通 ChatGPT 读取 GitLab**时再按首次接入流程配置 read connector。可选的 **Bridge Preview** 是权限更高的本地编排 MCP（Codex App Server、审批、SSH workspace、finish preview），使用前应先阅读[架构说明](ARCHITECTURE_CN.md)，不要把它与只读 GitLab MCP 混为一谈。**已经接入：**使用[日常 start/status/stop/restart](TUNNEL_LIFECYCLE_CN.md)。
 
 ## 当前文档入口
 
@@ -25,7 +25,8 @@
 | 本地源码安装与受控实现 | [CLI 快速上手](QUICKSTART_CN.md) | [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) |
 | 手工/高级启动、凭证替代方式 | [运维指南/Windows](OPENAI_TUNNEL_TEAM_SETUP_CN.md) | [Manual operator guide](SETUP_TUTORIAL.md) |
 | 人工交接批准任务与结果 | [写作模板，不是运行时 API](TASK_HANDOFF_TEMPLATE_CN.md) | [Handoff template](TASK_HANDOFF_TEMPLATE.md) |
-| 架构意图 | [设计理念](DESIGN_PHILOSOPHY_CN.md) | [Design philosophy](DESIGN_PHILOSOPHY.md) |
+| 当前架构与信任边界 | **[架构说明](ARCHITECTURE_CN.md)** | **[Architecture](ARCHITECTURE.md)** |
+| 架构理念 / 设计动机 | [设计理念](DESIGN_PHILOSOPHY_CN.md) | [Design philosophy](DESIGN_PHILOSOPHY.md) |
 | HTTP 到 HTTPS 迁移 | [迁移指南](HTTPS_MIGRATION_CN.md) | [Migration](HTTPS_MIGRATION.md) |
 | API/MCP 私有 CA、重定向与原生 Git 边界 | [运行时 TLS](HTTPS_API_TLS_CN.md) | [Runtime TLS](HTTPS_API_TLS.md) |
 | PR 检出、测试、源码更新 | [本地 PR 审阅](LOCAL_PR_REVIEW_CN.md) | [Local PR review](LOCAL_PR_REVIEW.md) |
@@ -48,9 +49,9 @@ Keychain 是 Mac 指南推荐的 runtime-key 来源，不是所有平台强制�
 
 ## 一个推理界面，不额外要求聊天工具
 
-普通 ChatGPT 负责推理与审阅。Tunnel/MCP 提供读取；ActualCoder 配合选定编程 CLI 实现经人工交接的获批任务。localhost Assistant、Codex tunnel plugin、Inspector 不是前置条件或验收门槛，Overview/Logs 只是可选诊断。不使用 Assistant 不会禁用上游附带 helper，也不会卸载 Codex。
+普通 ChatGPT 负责推理与审阅。只读 GitLab Tunnel/MCP 提供仓库/MR/CI 读取；ActualCoder 使用 `codex-cli`、`copilot-cli` 或 `codex-desktop` 实现获批任务。可选 Bridge Preview 是另一条权限更高的本地编排接口。localhost Assistant、Codex tunnel plugin、Inspector 不是前置条件或验收门槛，Overview/Logs 只是可选诊断。不使用 Assistant 不会禁用上游附带 helper，也不会卸载 Codex。
 
-这些指南不启用本地任务提交 MCP 接口、自动 TaskSpec 导入或 EvidencePack 持久化。读取成功不证明 Git push、编程模型登录或完整应用 CI；这些在获批实现中验证。
+标准 GitLab read connector 不承担本地任务执行。可选 Bridge Preview 已支持本地编排、审批、finish preview 和用户配置 SSH 操作；持久化 core TaskSpec/EvidencePack 仍未进入 `main`。读取成功不证明 Git push、编程模型登录或完整应用 CI；这些在获批实现中验证。
 
 ## 翻译范围与维护
 

@@ -1,5 +1,7 @@
 # ReasonFirst Design Philosophy
 
+[Current architecture](ARCHITECTURE.md) · [Workflow](WORKFLOW.md) · [Security](../SECURITY.md)
+
 > **Reasoning-first coding orchestration**
 >
 > Use your strongest reasoning model for reasoning. Let coding agents do the coding.
@@ -97,10 +99,11 @@ The Reasoning Plane should be **interactive**. It benefits from dialogue, clarif
 
 ### 3.2 Execution Plane
 
-The Execution Plane contains coding agents such as:
+The Execution Plane contains replaceable coding surfaces such as:
 
-- Codex CLI;
-- GitHub Copilot CLI;
+- Codex CLI (`codex-cli`);
+- GitHub Copilot CLI (`copilot-cli`);
+- Codex Desktop / App Server (`codex-desktop`);
 - future local or subscription coding agents.
 
 These agents receive a bounded task context and work inside an isolated workspace.
@@ -137,7 +140,11 @@ Responsibilities include:
 - commit;
 - feature-branch push;
 - Merge Request lifecycle;
-- workspace recovery.
+- workspace recovery;
+- cross-process workspace mutation locking;
+- explicit worker approval mediation;
+- structured remote validation for configured SSH targets;
+- shared local/remote review gates.
 
 The key principle is:
 

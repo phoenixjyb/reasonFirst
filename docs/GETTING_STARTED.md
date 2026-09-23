@@ -1,6 +1,18 @@
 # First-time setup: from your Mac to a GitLab conversation in ChatGPT
 
-[简体中文](GETTING_STARTED_CN.md) · [Documentation index](README.md) · [Daily tunnel operations](TUNNEL_LIFECYCLE.md)
+[简体中文](GETTING_STARTED_CN.md) · [Documentation index](README.md) · [Architecture](ARCHITECTURE.md) · [Daily tunnel operations](TUNNEL_LIFECYCLE.md)
+
+## Choose your path first
+
+You do **not** need every ReasonFirst integration for every task.
+
+| Goal | Start here | Tunnel required? |
+| --- | --- | --- |
+| Use ActualCoder locally with Codex CLI, Copilot CLI, or Codex Desktop | [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) | No |
+| Let normal ChatGPT read an approved GitLab repository/MR/CI | Continue with this guide | Yes, for this connection path |
+| Use the local Bridge Preview for App Server control, approvals, SSH workspaces or finish preview | [Architecture](ARCHITECTURE.md) and the Bridge Preview README | Not inherently; depends on how you expose/connect it |
+
+The **read-only GitLab MCP** and the **Bridge Preview orchestration MCP** have different trust boundaries. Do not expose the more privileged Bridge Preview merely because you need repository reads.
 
 **Finish this guide in order before sending a repository-work prompt.** The result is a normal ChatGPT conversation that can read your explicitly approved GitLab project through ReasonFirst MCP. Installing Python packages or seeing a local health check pass is not that result.
 
@@ -26,7 +38,7 @@ Approved implementation: ChatGPT plan -> human handoff -> Codex/ActualCoder -> M
 | OpenAI Platform access | Correct Platform organization; tunnel manager with **Tunnels Read + Manage** and runtime principal with **Tunnels Read + Use**. | An authorized tunnel ID and usable runtime key are available. |
 | ChatGPT access | The intended ChatGPT workspace permits custom MCP apps/developer mode and the tunnel is associated with it. Workspace-admin permission is separate from Platform permission. | Step 7 can select the intended tunnel/app. |
 | Persistent key loading | An existing, exact Keychain password item for this runtime key, or another deliberately selected supported secret source. | `start` retrieves it without needing yesterday's shell export. |
-| Coding agent and Git writes | **Only needed later for implementation:** an installed/signed-in Codex or Copilot CLI, approved repository-write access, real project tests and a usable GitLab runner. | Not a prerequisite to the read-only connection. |
+| Coding backend and Git writes | **Only needed later for implementation:** a signed-in `codex-cli`, `copilot-cli`, or available `codex-desktop` App Server backend, approved repository-write access, real project tests and a usable GitLab runner. | Not a prerequisite to the read-only connection. |
 
 Provider access and UI labels can change. Check [OpenAI's tunnel permissions and workspace guidance](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) and [current developer-mode policy](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt); no subscription name in this guide guarantees access. A tunnel cannot override GitLab permissions or ReasonFirst's local allowlist.
 
@@ -38,7 +50,7 @@ Provider access and UI labels can change. Check [OpenAI's tunnel permissions and
 | `GITLAB_GIT_TOKEN` | ActualCoder's native Git fetch/push | Optional separate credential in that private config; defer writes until approved. |
 | `CONTROL_PLANE_API_KEY` | `tunnel-client` -> OpenAI tunnel service | Keychain (recommended here), or approved env/file reference. Not the GitLab token or an admin key. |
 | `tunnel_...` ID | Identifies the existing OpenAI tunnel | Tunnel profile and ChatGPT's Tunnel connection field. It is not the runtime credential. |
-| Codex/Copilot login | The chosen implementation worker | That client's own supported authentication. A tunnel key does not log the worker in. |
+| Coding-backend login/session | `codex-cli`, `copilot-cli`, or `codex-desktop` | That backend's own supported authentication/session. A tunnel key does not log the worker in. |
 
 ReasonFirst does not directly call a model-inference API. The tunnel still needs its runtime API key. This is not a promise of free tunnel service, unlimited coding quota, or transferable subscriptions. Do not test setup by making a paid model API request.
 

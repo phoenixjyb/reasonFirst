@@ -14,30 +14,30 @@ The goal is to spend reasoning capacity on architecture, diagnosis, and review w
 
 **Early-stage developer tooling:** use trusted repositories on a trusted development host. A Git worktree is not a security sandbox. Read [SECURITY.md](SECURITY.md) before using real credentials or executing repository code. A private MCP endpoint still returns selected data to the connected reasoning service; obtain the relevant data-sharing approval.
 
-## Start here: get connected before asking ChatGPT to work
+## Start here: choose the path you actually need
 
-**Follow [the complete first-time setup guide](docs/GETTING_STARTED.md) ([中文](docs/GETTING_STARTED_CN.md)) in order.** It includes installation commands, where to obtain each credential, Keychain storage, a local profile, service startup, ChatGPT app selection, and a live repository-read test. You should not need earlier chat messages to reconstruct setup.
+ReasonFirst does not require the same setup for every use case.
 
-| Prepare | Why it is needed |
-| --- | --- |
-| Git, uv/Python, ReasonFirst and the separate `tunnel-client` binary | The new supervisor does not install the upstream tunnel agent. |
-| GitLab URL, confirmed project/ref/file, read token and explicit local allowlist | A proposed project name or local folder does not prove remote existence or access. |
-| OpenAI Platform tunnel permissions, tunnel ID and runtime API key | Tunnel identity and runtime authentication are different values. |
-| ChatGPT custom-app/developer-mode permission and workspace association | A locally running tunnel is not automatically attached to a conversation. |
-| Keychain or another explicit supported secret source | An earlier shell export is not persistent storage. |
+| Goal | Recommended entry point | Tunnel required? |
+| --- | --- | --- |
+| Local controlled coding with `codex-cli`, `copilot-cli`, or `codex-desktop` | **[CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md)** | No |
+| Normal ChatGPT reads/reviews an approved GitLab repository, MR or CI | **[First-time ChatGPT connection](docs/GETTING_STARTED.md)** | Yes for this path |
+| App Server orchestration, explicit approvals, named SSH workspaces, remote validation / finish preview | **[Architecture](docs/ARCHITECTURE.md)** then the Bridge Preview guide | Optional / deployment-specific |
 
-Codex/Copilot login, Git write permissions and a CI runner are **later implementation prerequisites**, not prerequisites to reading GitLab in ChatGPT. Current provider permissions/eligibility are linked in the setup guide; no subscription name guarantees them. The tunnel runtime key is still required even though ReasonFirst makes no model API calls.
+For a ChatGPT read connection, follow the complete first-time setup guide in order. For local-only coding, skip Tunnel provisioning entirely and use ActualCoder directly. The optional Bridge Preview is more privileged than the read-only GitLab connector; enable it deliberately rather than treating it as a prerequisite.
 
 ```text
-First time: permissions -> install -> GitLab config -> tunnel ID/key/profile
-Each stopped session: start -> local status -> select the app in normal ChatGPT
-Each new project: gitlab_whoami -> check_project_access -> files at resolved commit
-Approved work: ChatGPT plan -> human handoff -> Codex/ActualCoder -> MR/CI -> review
+Local coding:
+install -> user config -> actual-coder doctor -> start/resume -> worker -> finish -> MR/CI
+
+ChatGPT read connection:
+permissions -> install -> GitLab config -> tunnel -> select app -> live identity/project/file read
+
+Bridge Preview:
+explicit local setup -> configured targets/policy -> App Server -> approvals -> finish preview
 ```
 
-Once configured, use `actual-coder-tunnel start` in Terminal A and `actual-coder-tunnel status` in Terminal B. **Keep Terminal A running.** `ready_for_chatgpt_check` is local readiness, not end-to-end acceptance. Select the existing app in the normal ChatGPT composer and perform the guide's live identity/preflight/file read before starting work.
-
-The **localhost Assistant is not required**. Overview/Logs are optional diagnostics. Omitting the Assistant UI does not uninstall Codex or guarantee that an upstream bundled helper is disabled. Do not disable approval controls to make that optional panel work.
+The **localhost Assistant is not required** for any of these paths. Overview/Logs remain optional diagnostics.
 
 ## Guides by task
 
@@ -50,7 +50,8 @@ The **localhost Assistant is not required**. Overview/Logs are optional diagnost
 | Understand interface responsibilities | [Workflow](docs/WORKFLOW.md) · [中文](docs/WORKFLOW_CN.md) |
 | Local-only installation and controlled implementation | [CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md) · [中文](docs/QUICKSTART_CN.md) |
 | Approved requirements and observed results | [Manual handoff template](docs/TASK_HANDOFF_TEMPLATE.md) · [中文](docs/TASK_HANDOFF_TEMPLATE_CN.md) |
-| Architecture | [Design philosophy](docs/DESIGN_PHILOSOPHY.md) · [中文](docs/DESIGN_PHILOSOPHY_CN.md) |
+| Current architecture | **[Architecture](docs/ARCHITECTURE.md)** · **[中文](docs/ARCHITECTURE_CN.md)** |
+| Design rationale | [Design philosophy](docs/DESIGN_PHILOSOPHY.md) · [中文](docs/DESIGN_PHILOSOPHY_CN.md) |
 | Existing HTTP-to-HTTPS migration | [Migration](docs/HTTPS_MIGRATION.md) · [中文](docs/HTTPS_MIGRATION_CN.md) |
 | Certificates, API redirects and native Git boundaries | [Runtime TLS](docs/HTTPS_API_TLS.md) · [中文](docs/HTTPS_API_TLS_CN.md) |
 | Review a PR or update the normal checkout | [Local PR review](docs/LOCAL_PR_REVIEW.md) · [中文](docs/LOCAL_PR_REVIEW_CN.md) |
@@ -61,14 +62,15 @@ The **localhost Assistant is not required**. Overview/Logs are optional diagnost
 
 ```text
 Human + reasoning interface: define goal, constraints, acceptance criteria
-    -> ActualCoder: prepare a worktree and bounded handoff
-    -> Codex/Copilot: inspect, implement, test
-    -> Human-reviewed finish: feature branch / GitLab MR
-    -> CI evidence and live ChatGPT review
-    -> Human decides whether to continue or merge
+    -> ReasonFirst control: ActualCoder CLI or Bridge Preview
+    -> selected worker: codex-cli / copilot-cli / codex-desktop
+    -> isolated local worktree or configured SSH workspace
+    -> validation + shared review/secret/protected-path gates
+    -> reviewed feature branch / GitLab MR / matching-HEAD CI
+    -> human decides whether to continue or merge
 ```
 
-The read-only MCP bridge exposes repository/MR/CI inspection. **It does not submit or execute local coding tasks, or read unpublished local changes.** The user operates the local CLI and carries approved task/result context between interfaces. Persistent TaskSpec and EvidencePack access are planned, not shipped; the handoff template is a writing aid.
+ReasonFirst now has **two distinct MCP surfaces**. The original GitLab MCP remains read-oriented for repository/MR/CI inspection. The optional **Bridge Preview** is a more privileged local orchestration surface: it can prepare managed workspaces, control Codex App Server sessions, expose pending approvals, review unpublished managed diffs/artifacts, and run complete finish previews. SSH mutation/validation is restricted to user-configured targets; arbitrary remote shell execution is not exposed. Experimental remote publication is hidden and disabled by default. See the [architecture reference](docs/ARCHITECTURE.md). Persistent core TaskSpec/attempt/EvidencePack support is still not on `main`.
 
 After confirming the real project with the [access preflight](docs/PROJECT_ACCESS.md), follow the [CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md) or [practice lab](docs/PRACTICE_LAB.md). `start --no-launch` creates a real local workspace and handoff without invoking a coding model; it is not a no-side-effect preview. Do not keep calling `start` to continue the same task: retain its workspace ID and use `resume`.
 
@@ -76,7 +78,7 @@ Inspect actual local changes before `finish --dry-run`, then explicitly approve 
 
 `resume --from-ci` returns matching-HEAD failure evidence, not automatic repair execution. Do not invent changes for successful CI. Low-level `commit`/`push` commands and some existing generated handoffs do not run every finish gate; retain explicit task boundaries and use the reviewed finish flow. See [workflow](docs/WORKFLOW.md).
 
-GitLab is the implemented target SCM/CI integration. Hosting this tool's source on GitHub does not imply a GitHub-target task adapter exists. The coding backends are currently `codex` and `copilot`.
+GitLab is the implemented target SCM/CI integration. Hosting this tool's source on GitHub does not imply a GitHub-target task adapter exists. Canonical explicit coding backends are `codex-cli`, `copilot-cli`, and `codex-desktop`; historical `codex` / `copilot` remain compatibility aliases.
 
 ## Try the source without production credentials
 
@@ -101,18 +103,19 @@ The last documented release is **v0.3.0**; merged source changes need not be in 
 
 | Capability | Current scope |
 | --- | --- |
-| Managed workspaces | Local Git caches/worktrees, feature branches, MR creation/update/recovery |
-| Controlled finish | Base-policy tests, reviewability/protected paths, candidate/bounded-history secret checks, human confirmation |
-| Publication safety | Fresh remote evidence before ordinary cleanup; unpublished abandoned work preserved |
-| Command/CI evidence | Nonzero failures propagate; matching-HEAD CI and bounded/sanitized job logs |
-| Worker policy | User-owned default backend plus model, reasoning effort, sandbox/network and permission controls across Codex CLI, Copilot CLI and Codex Desktop/App Server; Desktop resolves/validates policy at runtime |
+| Managed workspaces | Local Git caches/worktrees plus user-configured SSH workspaces; feature branches, recovery and cross-process mutation locking |
+| Controlled finish | Shared local/remote review gates: validation, reviewability, protected paths, candidate/history secret checks and exact candidate identity |
+| Publication safety | Local reviewed finish is the normal path; SSH publication is exact-tree/destination bound, experimental and default-off |
+| Remote validation | Structured argv execution only inside a user-configured container policy; no arbitrary remote shell and no implicit image pull |
+| Command/CI evidence | Nonzero failures propagate; matching-HEAD CI and bounded/sanitized logs/artifacts |
+| Worker policy | User-owned default backend plus model, effort, sandbox/network and permission controls across Codex CLI, Copilot CLI and Codex Desktop/App Server; Desktop verifies resolved policy and records reroutes |
+| Approval mediation | Codex Desktop approvals are explicit: terminal prompt locally or bounded pending/approve/decline MCP flow; timeout defaults to deny |
 | Project-access preflight | Local allowlist -> GitLab project/ref/files; actionable diagnostics and pinned revision; no automatic grant |
 | Tunnel lifecycle | Existing-profile configure/start/status/stop/restart on macOS/Linux, optional exact Keychain lookup, owned process cleanup; foreground only |
 | HTTPS migration | Offline preview and confirmed local URL updates, private backups and forward recovery |
-| API/MCP transport | Verified roots plus optional Python-only private CA, destination checks and no API redirects |
-| Read-only MCP | Files, projects, MRs, pipelines and jobs; no local task-execution endpoint |
+| MCP surfaces | Read-oriented GitLab MCP plus optional local Bridge Preview orchestration MCP; see architecture for trust boundaries |
 
-**Still planned:** native Git trust/destination integration, uniform project context on every handoff route, general workspace locking/transactional recovery, persistent TaskSpec/attempt records and EvidencePack access. Migration and tunnel-owner locks do not provide general workspace concurrency protection. [Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) and [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) track task-loop/HTTPS work.
+**Still planned / not on `main`:** persistent core TaskSpec/attempt records and bounded EvidencePack access (currently tracked separately), plus further native Git trust/destination-policy work. Workspace mutation locking and shared local/SSH finish gates are already implemented on `main`. See [Architecture](docs/ARCHITECTURE.md) for the current boundary.
 
 API/MCP clients reject disabled TLS verification and every API redirect. Configure the final endpoint. `GITLAB_CA_BUNDLE` adds Python API/MCP trust, not native Git or the migration `--check-tls` probe. Keep those scopes distinct; see [runtime TLS](docs/HTTPS_API_TLS.md).
 

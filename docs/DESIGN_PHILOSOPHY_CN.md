@@ -1,6 +1,6 @@
 # ReasonFirst 设计理念
 
-[English](DESIGN_PHILOSOPHY.md) · [当前工作流程](WORKFLOW_CN.md) · [安全边界](../SECURITY_CN.md)
+[English](DESIGN_PHILOSOPHY.md) · [当前架构](ARCHITECTURE_CN.md) · [当前工作流程](WORKFLOW_CN.md) · [安全边界](../SECURITY_CN.md)
 
 <!-- Translation source: docs/DESIGN_PHILOSOPHY.md @ a3e33c72c55efef6a0dc3808fb9853c62ad15f9d -->
 
@@ -101,10 +101,11 @@ ChatGPT 是当前系统的一等推理界面，但架构不应要求 ReasonFirst
 
 ### 3.2 执行层（Execution Plane）
 
-执行层包括下列编程代理：
+执行层包括可替换的编程执行表面：
 
-- Codex CLI；
-- GitHub Copilot CLI；
+- Codex CLI（`codex-cli`）；
+- GitHub Copilot CLI（`copilot-cli`）；
+- Codex Desktop / App Server（`codex-desktop`）；
 - 未来其他本地或订阅型编程代理。
 
 它们接收有边界的任务上下文，并在独立工作区内工作。
@@ -141,7 +142,11 @@ ReasonFirst 应降低更换执行后端的成本。
 - 提交；
 - 功能分支推送；
 - Merge Request 生命周期；
-- 工作区恢复。
+- 工作区恢复；
+- 跨进程 workspace mutation lock；
+- 显式 worker 审批；
+- 用户配置 SSH target 的结构化远端 validation；
+- 本地/远端共用 review gates。
 
 关键原则是：
 

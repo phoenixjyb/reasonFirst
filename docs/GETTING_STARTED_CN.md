@@ -1,6 +1,18 @@
 # 首次接入：从你的 Mac 到 ChatGPT 中的 GitLab 对话
 
-[English](GETTING_STARTED.md) · [中文文档索引](README_CN.md) · [日常隧道操作](TUNNEL_LIFECYCLE_CN.md)
+[English](GETTING_STARTED.md) · [中文文档索引](README_CN.md) · [架构说明](ARCHITECTURE_CN.md) · [日常隧道操作](TUNNEL_LIFECYCLE_CN.md)
+
+## 先选择你真正需要的路径
+
+并不是每个任务都需要全部 ReasonFirst 接入。
+
+| 目标 | 从哪里开始 | 是否需要 Tunnel |
+| --- | --- | --- |
+| 本地使用 ActualCoder + Codex CLI / Copilot CLI / Codex Desktop | [CLI 快速上手](QUICKSTART_CN.md) | 不需要 |
+| 让普通 ChatGPT 读取获批 GitLab 仓库/MR/CI | 继续阅读本指南 | 这条连接路径需要 |
+| 使用 Bridge Preview 控制 App Server、审批、SSH workspace 或 finish preview | [架构说明](ARCHITECTURE_CN.md) + Bridge Preview README | 本身不强制；取决于如何连接/暴露 |
+
+**只读 GitLab MCP** 与 **Bridge Preview 编排 MCP** 的信任边界不同。仅仅为了读取仓库，不要顺手暴露权限更高的 Bridge Preview。
 
 **按顺序完成本指南，再发送仓库工作提示词。** 验收目标是在普通 ChatGPT 对话中，通过 ReasonFirst MCP 读取你明确批准的 GitLab 项目。安装完 Python 包或本地健康检查通过，都不等于达到这个目标。
 
@@ -26,7 +38,7 @@
 | OpenAI Platform 权限 | 正确 Platform 组织；隧道管理者具有 **Tunnels Read + Manage**，运行身份具有 **Tunnels Read + Use**。 | 有获准使用的真实 Tunnel ID 和 runtime key。 |
 | ChatGPT 权限 | 目标 ChatGPT workspace 允许自定义 MCP 应用/developer mode，且隧道关联到该 workspace。它与 Platform 权限分开管理。 | 第 7 步能选择目标隧道/应用。 |
 | 持久的密钥加载方式 | 对应 runtime key 的准确 Keychain 密码条目，或另一种明确选定、受支持的秘密来源。 | `start` 可加载密钥，不依赖昨天的 shell export。 |
-| 编程代理与 Git 写权限 | **只在后续实现时需要：**已安装并登录的 Codex/Copilot CLI、批准的仓库写权限、真实项目测试及可用 GitLab runner。 | 不是只读接入的前置条件。 |
+| 编程后端与 Git 写权限 | **只在后续实现时需要：**已登录的 `codex-cli`、`copilot-cli` 或可用的 `codex-desktop` App Server、批准的仓库写权限、真实项目测试及可用 GitLab runner。 | 不是只读接入的前置条件。 |
 
 服务资格与界面会变化，核对 [OpenAI 隧道权限/workspace 说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)和[当前 developer mode 政策](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)。本指南不以某个订阅名称保证访问资格。隧道不能绕过 GitLab 权限或 ReasonFirst 本地允许列表。
 
@@ -38,7 +50,7 @@
 | `GITLAB_GIT_TOKEN` | ActualCoder 原生 Git fetch/push | 可选的独立凭证，保存在同一私有配置中；写入另行批准。 |
 | `CONTROL_PLANE_API_KEY` | `tunnel-client` -> OpenAI 隧道服务 | 本指南推荐 Keychain；也可用批准的 env/file 引用。不是 GitLab token 或 admin key。 |
 | `tunnel_...` ID | 标识已有 OpenAI 隧道 | 隧道 profile 和 ChatGPT 的 Tunnel 连接字段；它不是运行凭证。 |
-| Codex/Copilot 登录 | 实现任务的 worker | 客户端自身支持的认证方式。Tunnel key 不会登录编程代理。 |
+| 编程后端登录/会话 | `codex-cli`、`copilot-cli` 或 `codex-desktop` | 后端自身支持的认证/会话。Tunnel key 不会登录编程后端。 |
 
 ReasonFirst 不直接调用模型推理 API，但隧道仍需要 runtime API key。这不意味着隧道服务免费、编程额度无限或订阅可转移。不要通过付费模型 API 请求来测试接入。
 
