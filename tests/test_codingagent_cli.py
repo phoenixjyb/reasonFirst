@@ -47,6 +47,8 @@ class FakeStartManager:
         self.created_base_ref: str | None = None
         self.created_task_slug: str | None = None
         self.last_read_refresh_remote: bool | None = None
+        self.task_spec: dict[str, object] | None = None
+        self.attempts: list[dict[str, object]] = []
 
     def read_remote_text_file(
         self,
@@ -65,6 +67,64 @@ class FakeStartManager:
             "path": relative_path,
             "exists": self.contract_text is not None,
             "content": self.contract_text,
+        }
+
+    def ensure_task_spec(
+        self,
+        workspace_id: str,
+        *,
+        task_slug: str,
+        goal: str,
+        requested_backend: str,
+        project_config_sha: str | None = None,
+        acceptance_criteria=None,
+        non_goals=None,
+    ) -> dict[str, object]:
+        if self.task_spec is None:
+            self.task_spec = {
+                "version": 1,
+                "task_slug": task_slug,
+                "goal": goal,
+                "project": "team/project",
+                "base_ref": self.created_base_ref or "main",
+                "base_sha": "base-sha",
+                "requested_backend": requested_backend,
+                "project_config_sha": project_config_sha,
+                "acceptance_criteria": list(acceptance_criteria or []),
+                "non_goals": list(non_goals or []),
+                "created_at": "test",
+            }
+        return dict(self.task_spec)
+
+    def record_attempt(
+        self,
+        workspace_id: str,
+        *,
+        source: str,
+        goal: str,
+        requested_backend: str,
+        selected_backend: str,
+        ci_context_included: bool,
+        worker_policy: dict[str, object],
+    ) -> dict[str, object]:
+        item = {
+            "attempt_id": f"attempt-{len(self.attempts) + 1}",
+            "created_at": "test",
+            "source": source,
+            "goal": goal,
+            "requested_backend": requested_backend,
+            "selected_backend": selected_backend,
+            "ci_context_included": ci_context_included,
+            "worker_policy": dict(worker_policy),
+        }
+        self.attempts.append(item)
+        return dict(item)
+
+    def task_context(self, workspace_id: str) -> dict[str, object]:
+        return {
+            "task_spec": dict(self.task_spec) if self.task_spec else None,
+            "attempts": [dict(item) for item in self.attempts],
+            "attempt_count": len(self.attempts),
         }
 
     def create_workspace(
@@ -440,6 +500,42 @@ agents:
         )
         self.assertTrue(start.git_only)
 
+    def test_task_spec_and_evidence_parser_flags(self) -> None:
+        parser = _build_parser(prog="actual-coder")
+        start = parser.parse_args(
+            [
+                "start",
+                "team/project",
+                "--goal",
+                "Implement",
+                "--acceptance",
+                "Tests pass",
+                "--acceptance",
+                "No API regression",
+                "--non-goal",
+                "No unrelated refactor",
+                "--no-launch",
+            ]
+        )
+        self.assertEqual(
+            start.acceptance,
+            ["Tests pass", "No API regression"],
+        )
+        self.assertEqual(start.non_goal, ["No unrelated refactor"])
+
+        evidence = parser.parse_args(
+            [
+                "evidence",
+                "abc123def456",
+                "--from-ci",
+                "--ci-tail-bytes",
+                "5000",
+            ]
+        )
+        self.assertEqual(evidence.command, "evidence")
+        self.assertTrue(evidence.from_ci)
+        self.assertEqual(evidence.ci_tail_bytes, 5000)
+
     def test_project_config_parser_accepts_ref_and_validate(self) -> None:
         parser = _build_parser(prog="actual-coder")
         args = parser.parse_args(
@@ -543,6 +639,8 @@ mr:
                     task_slug="contract-test",
                     goal="Implement carefully",
                     requested_agent="auto",
+                    acceptance_criteria=["Tests pass"],
+                    non_goals=["No unrelated refactor"],
                 )
 
         self.assertEqual(manager.created_base_ref, "develop")
@@ -553,6 +651,12 @@ mr:
         self.assertIn("Keep changes focused.", str(result["agent_prompt"]))
         self.assertIn("deploy/", str(result["agent_prompt"]))
         self.assertIn("Expected validation commands", str(result["agent_prompt"]))
+        self.assertIn("Acceptance criteria:", str(result["agent_prompt"]))
+        self.assertIn("Tests pass", str(result["agent_prompt"]))
+        self.assertIn("Explicit non-goals:", str(result["agent_prompt"]))
+        self.assertIn("No unrelated refactor", str(result["agent_prompt"]))
+        self.assertEqual(result["task_spec"]["acceptance_criteria"], ["Tests pass"])
+        self.assertEqual(result["attempt"]["source"], "start")
 
     def test_launch_argv_applies_default_worker_policies(self) -> None:
         self.assertEqual(
@@ -979,6 +1083,78 @@ instructions:
         self.assertIn("Preserve the public API.", str(result["agent_prompt"]))
         self.assertIn("deploy/", str(result["agent_prompt"]))
         self.assertIn("Expected validation commands", str(result["agent_prompt"]))
+        self.assertEqual(result["attempt"]["source"], "resume")
+        self.assertEqual(result["task"]["attempt_count"], 1)
+
+    def test_prepare_resume_reuses_persistent_goal_and_task_criteria(self) -> None:
+        contract = """
+version: 1
+project:
+  base_branch: main
+"""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            settings = AgentSettings(
+                config_file=root / ".env",
+                gitlab_base_url="https://gitlab.example.test",
+                api_token="token",
+                api_verify_ssl=True,
+                api_trust_env=False,
+                git_token="token",
+                git_username="oauth2",
+                git_trust_env=False,
+                allowed_projects={"team/project"},
+                require_write_allowlist=True,
+                workspace_root=root / "workspace-root",
+                branch_prefix="chatgpt/",
+                default_base_ref="main",
+                allowed_executables={"uv"},
+                command_timeout_seconds=300,
+                max_output_bytes=120000,
+                max_file_bytes=1000000,
+                git_author_name=None,
+                git_author_email=None,
+                default_backend="auto",
+            )
+            manager = FakeStartManager(root, contract)
+            manager.created_base_ref = "main"
+            manager.create_workspace("team/project", base_ref="main")
+            manager.task_spec = {
+                "version": 1,
+                "task_slug": "persisted",
+                "goal": "Original durable goal",
+                "project": "team/project",
+                "base_ref": "main",
+                "base_sha": "base-sha",
+                "requested_backend": "auto",
+                "project_config_sha": "abc123",
+                "acceptance_criteria": ["Keep compatibility"],
+                "non_goals": ["No unrelated rewrite"],
+                "created_at": "test",
+            }
+
+            with patch(
+                "gitlab_agent.cli.shutil.which",
+                side_effect=lambda executable: (
+                    f"/tools/{executable}"
+                    if executable in {"codex", "copilot"}
+                    else None
+                ),
+            ):
+                result = _prepare_resume(
+                    manager,  # type: ignore[arg-type]
+                    settings,
+                    object(),  # type: ignore[arg-type]
+                    workspace_id="abc123def456",
+                    goal="",
+                    requested_agent="auto",
+                )
+
+        prompt = str(result["agent_prompt"])
+        self.assertIn("Goal: Original durable goal", prompt)
+        self.assertIn("Keep compatibility", prompt)
+        self.assertIn("No unrelated rewrite", prompt)
+        self.assertEqual(result["attempt"]["goal"], "Original durable goal")
 
     def test_finish_parser_accepts_dry_run_and_safety_overrides(self) -> None:
         parser = _build_parser(prog="actual-coder")

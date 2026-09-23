@@ -13,6 +13,7 @@ from .ci_feedback import collect_ci_feedback
 from .codex_app_server import AppServerClient, managed_app_server_socket
 from .config import AgentSettings
 from .doctor import run_doctor
+from .evidence import build_evidence_pack
 from .finish import build_finish_plan, execute_finish
 from .gitlab_api import GitLabAPI
 from .project_config import (
@@ -101,6 +102,7 @@ def _agent_prompt(
     *,
     agent: str = "codex",
     project_context: dict[str, object] | None = None,
+    task_spec: dict[str, object] | None = None,
     ci_context: str | None = None,
 ) -> str:
     workspace_id = str(status["workspace_id"])
@@ -192,6 +194,32 @@ def _agent_prompt(
                 + "\n"
             )
 
+    task_guidance = ""
+    if task_spec:
+        acceptance = [
+            str(item)
+            for item in task_spec.get("acceptance_criteria", [])
+            if isinstance(item, str)
+        ]
+        non_goals = [
+            str(item)
+            for item in task_spec.get("non_goals", [])
+            if isinstance(item, str)
+        ]
+        task_lines: list[str] = []
+        if acceptance:
+            task_lines.append("Acceptance criteria:")
+            task_lines.extend(f"- {item}" for item in acceptance)
+        if non_goals:
+            task_lines.append("Explicit non-goals:")
+            task_lines.extend(f"- {item}" for item in non_goals)
+        if task_lines:
+            task_guidance = (
+                "\nPersistent task contract (user-owned intent):\n"
+                + "\n".join(task_lines)
+                + "\n"
+            )
+
     ci_guidance = ""
     if ci_context:
         ci_guidance = (
@@ -220,6 +248,7 @@ def _agent_prompt(
         "- Run relevant tests before remote writes.\n"
         f"- Review gitlab-agent diff {workspace_id} before committing/pushing.\n"
         f"- If an MR already exists, use gitlab-agent push-update {workspace_id} after new commits.\n"
+        + task_guidance
         + project_guidance
         + ci_guidance
         + "\n"
@@ -235,6 +264,7 @@ def _handoff(
     agent: str = "codex",
     agent_selection: dict[str, object] | None = None,
     project_context: dict[str, object] | None = None,
+    task_spec: dict[str, object] | None = None,
     ci_context: str | None = None,
     worker_policy: WorkerPolicy | None = None,
 ) -> dict[str, object]:
@@ -305,6 +335,7 @@ def _handoff(
             goal,
             agent=agent,
             project_context=project_context,
+            task_spec=task_spec,
             ci_context=ci_context,
         ),
         "project_context": project_context or {},
@@ -418,6 +449,72 @@ def _load_remote_project_contract(
     return remote, parsed
 
 
+def _ensure_workspace_task_spec(
+    manager: WorkspaceManager,
+    *,
+    workspace_id: str,
+    task_slug: str,
+    goal: str,
+    requested_backend: str,
+    acceptance_criteria: list[str] | tuple[str, ...] | None = None,
+    non_goals: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    status = manager.status(workspace_id)
+    remote = manager.read_remote_text_file(
+        str(status["project"]),
+        PROJECT_CONFIG_FILENAME,
+        ref=str(status["base_sha"]),
+        refresh_remote=False,
+        max_bytes=PROJECT_CONFIG_MAX_BYTES,
+    )
+    return manager.ensure_task_spec(
+        workspace_id,
+        task_slug=task_slug,
+        goal=goal,
+        requested_backend=requested_backend,
+        project_config_sha=str(remote["commit_sha"]),
+        acceptance_criteria=acceptance_criteria,
+        non_goals=non_goals,
+    )
+
+
+def _record_handoff_attempt(
+    manager: WorkspaceManager,
+    handoff: dict[str, object],
+    *,
+    source: str,
+    goal: str,
+) -> dict[str, object]:
+    selection = (
+        handoff.get("agent_selection")
+        if isinstance(handoff.get("agent_selection"), dict)
+        else {}
+    )
+    requested = str(
+        selection.get("requested")
+        or handoff.get("agent_requested")
+        or handoff.get("agent")
+        or ""
+    )
+    selected = str(handoff.get("agent") or "")
+    raw_policy = handoff.get("worker_policy")
+    policy = dict(raw_policy) if isinstance(raw_policy, dict) else {}
+    attempt = manager.record_attempt(
+        str(handoff["workspace"]["workspace_id"]),
+        source=source,
+        goal=goal,
+        requested_backend=requested,
+        selected_backend=selected,
+        ci_context_included=bool(handoff.get("ci_context_included")),
+        worker_policy=policy,
+    )
+    return {
+        **handoff,
+        "task": manager.task_context(str(handoff["workspace"]["workspace_id"])),
+        "attempt": attempt,
+    }
+
+
 def _prepare_start(
     manager: WorkspaceManager,
     settings: AgentSettings,
@@ -427,6 +524,9 @@ def _prepare_start(
     goal: str,
     requested_agent: str = "auto",
     base_ref: str | None = None,
+    acceptance_criteria: list[str] | tuple[str, ...] | None = None,
+    non_goals: list[str] | tuple[str, ...] | None = None,
+    source: str = "start",
 ) -> dict[str, object]:
     config_ref = (base_ref or settings.default_base_ref).strip()
     remote, parsed = _load_remote_project_contract(
@@ -489,19 +589,37 @@ def _prepare_start(
         task_slug=task_slug,
         refresh_remote=False,
     )
+    workspace_id = str(created["workspace_id"])
+    task_spec = _ensure_workspace_task_spec(
+        manager,
+        workspace_id=workspace_id,
+        task_slug=task_slug,
+        goal=goal,
+        requested_backend=requested_agent,
+        acceptance_criteria=acceptance_criteria,
+        non_goals=non_goals,
+    )
     selected_agent = str(selection["selected"])
     handoff = _handoff(
         manager,
-        str(created["workspace_id"]),
+        workspace_id,
         goal,
         agent=selected_agent,
         agent_selection=selection,
         project_context=project_context,
+        task_spec=task_spec,
         worker_policy=_policy_for_agent(settings, selected_agent),
+    )
+    handoff = _record_handoff_attempt(
+        manager,
+        handoff,
+        source=source,
+        goal=goal,
     )
 
     return {
         "effective_base_ref": effective_base,
+        "task_spec": task_spec,
         "project_config": {
             "found": parsed.found,
             "valid": parsed.valid,
@@ -829,6 +947,7 @@ def _prepare_resume(
     from_ci: bool = False,
     ci_tail_bytes: int = 12000,
     ci_max_failed_jobs: int = 3,
+    source: str = "resume",
 ) -> dict[str, object]:
     """Build a bounded, project-aware handoff for an existing workspace."""
 
@@ -855,6 +974,24 @@ def _prepare_resume(
             + "; ".join(parsed.errors)
         )
     project_context = dict(parsed.effective)
+
+    existing_task = manager.task_context(workspace_id)
+    raw_spec = (
+        existing_task.get("task_spec")
+        if isinstance(existing_task.get("task_spec"), dict)
+        else None
+    )
+    original_goal = str(raw_spec.get("goal") or "") if raw_spec else ""
+    effective_goal = goal.strip() or original_goal
+    if not raw_spec:
+        task_slug = str(resume_status.get("branch") or "recovered").split("/")[-1]
+        _ensure_workspace_task_spec(
+            manager,
+            workspace_id=workspace_id,
+            task_slug=task_slug,
+            goal=effective_goal,
+            requested_backend=requested_agent,
+        )
 
     selection = _selection_for_request(
         manager,
@@ -895,15 +1032,28 @@ def _prepare_resume(
         ci_context = str(ci_feedback.get("repair_context") or "")
 
     selected_agent = str(selection["selected"])
+    current_task = manager.task_context(workspace_id)
+    current_spec = (
+        current_task.get("task_spec")
+        if isinstance(current_task.get("task_spec"), dict)
+        else None
+    )
     handoff = _handoff(
         manager,
         workspace_id,
-        goal,
+        effective_goal,
         agent=selected_agent,
         agent_selection=selection,
         project_context=project_context,
+        task_spec=current_spec,
         ci_context=ci_context,
         worker_policy=_policy_for_agent(settings, selected_agent),
+    )
+    handoff = _record_handoff_attempt(
+        manager,
+        handoff,
+        source=source,
+        goal=effective_goal,
     )
     handoff["project_config"] = {
         "found": parsed.found,
@@ -1065,6 +1215,18 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     p.add_argument("--task", default="task")
     p.add_argument("--goal", default="")
     p.add_argument(
+        "--acceptance",
+        action="append",
+        default=[],
+        help="Repeatable acceptance criterion stored in the persistent TaskSpec",
+    )
+    p.add_argument(
+        "--non-goal",
+        action="append",
+        default=[],
+        help="Repeatable explicit non-goal stored in the persistent TaskSpec",
+    )
+    p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
         default="codex",
@@ -1079,6 +1241,18 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     p.add_argument("--base-ref", default=None)
     p.add_argument("--task", default="task")
     p.add_argument("--goal", required=True)
+    p.add_argument(
+        "--acceptance",
+        action="append",
+        default=[],
+        help="Repeatable acceptance criterion stored in the persistent TaskSpec",
+    )
+    p.add_argument(
+        "--non-goal",
+        action="append",
+        default=[],
+        help="Repeatable explicit non-goal stored in the persistent TaskSpec",
+    )
     p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
@@ -1145,6 +1319,19 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         default=3,
         help="Maximum failed job traces to include (1-10)",
     )
+
+    p = sub.add_parser(
+        "evidence",
+        help="Build a bounded, redacted, read-only EvidencePack for a workspace",
+    )
+    p.add_argument("workspace_id")
+    p.add_argument(
+        "--from-ci",
+        action="store_true",
+        help="Attach current GitLab CI metadata/log evidence without requiring it to be fresh",
+    )
+    p.add_argument("--ci-tail-bytes", type=int, default=12000)
+    p.add_argument("--ci-max-failed-jobs", type=int, default=3)
 
     p = sub.add_parser("list", help="List managed workspaces")
 
@@ -1431,6 +1618,9 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 goal=args.goal,
                 requested_agent=args.agent,
                 base_ref=args.base_ref,
+                acceptance_criteria=args.acceptance,
+                non_goals=args.non_goal,
+                source="start",
             )
             result = {
                 "ok": True,
@@ -1458,48 +1648,33 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
             )
             return int(launch_result["returncode"])
         elif args.command == "task":
-            selection = _selection_for_request(
+            result = _prepare_start(
                 manager,
                 settings,
-                requested=args.agent,
                 project=args.project,
-                ref=args.base_ref or settings.default_base_ref,
-            )
-            created = manager.create_workspace(
-                args.project,
-                base_ref=args.base_ref,
                 task_slug=args.task,
-            )
-            selected_agent = str(selection["selected"])
-            result = _handoff(
-                manager,
-                str(created["workspace_id"]),
-                args.goal,
-                agent=selected_agent,
-                agent_selection=selection,
-                worker_policy=_policy_for_agent(settings, selected_agent),
+                goal=args.goal,
+                requested_agent=args.agent,
+                base_ref=args.base_ref,
+                acceptance_criteria=args.acceptance,
+                non_goals=args.non_goal,
+                source="task",
             )
         elif args.command == "checkout-branch":
-            selection = _selection_for_request(
-                manager,
-                settings,
-                requested=args.agent,
-                project=args.project,
-                ref=args.base_ref or settings.default_base_ref,
-            )
             restored = manager.checkout_remote_branch(
                 args.project,
                 args.branch,
                 base_ref=args.base_ref,
             )
-            selected_agent = str(selection["selected"])
-            result = _handoff(
+            workspace_id = str(restored["workspace_id"])
+            result = _prepare_resume(
                 manager,
-                str(restored["workspace_id"]),
-                args.goal,
-                agent=selected_agent,
-                agent_selection=selection,
-                worker_policy=_policy_for_agent(settings, selected_agent),
+                settings,
+                gitlab_api,
+                workspace_id=workspace_id,
+                goal=args.goal,
+                requested_agent=args.agent,
+                source="checkout-branch",
             )
         elif args.command == "checkout-mr":
             mr = gitlab_api.merge_request(args.project, args.iid)
@@ -1518,27 +1693,21 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
             web_url = str(mr.get("web_url") or "").strip() or None
             if not source_branch or not target_branch:
                 raise RuntimeError("GitLab MR response is missing source/target branch")
-            selection = _selection_for_request(
-                manager,
-                settings,
-                requested=args.agent,
-                project=args.project,
-                ref=target_branch,
-            )
             restored = manager.checkout_remote_branch(
                 args.project,
                 source_branch,
                 base_ref=target_branch,
                 merge_request_url=web_url,
             )
-            selected_agent = str(selection["selected"])
-            handoff = _handoff(
+            workspace_id = str(restored["workspace_id"])
+            handoff = _prepare_resume(
                 manager,
-                str(restored["workspace_id"]),
-                args.goal or f"Resume MR !{args.iid}: {mr.get('title', '')}",
-                agent=selected_agent,
-                agent_selection=selection,
-                worker_policy=_policy_for_agent(settings, selected_agent),
+                settings,
+                gitlab_api,
+                workspace_id=workspace_id,
+                goal=args.goal or f"Resume MR !{args.iid}: {mr.get('title', '')}",
+                requested_agent=args.agent,
+                source="checkout-mr",
             )
             result = {
                 "merge_request": {
@@ -1559,6 +1728,24 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 tail_bytes=args.tail_bytes,
                 max_failed_jobs=args.max_failed_jobs,
             )
+        elif args.command == "evidence":
+            ci_feedback = (
+                collect_ci_feedback(
+                    manager=manager,
+                    api=gitlab_api,
+                    workspace_id=args.workspace_id,
+                    tail_bytes=args.ci_tail_bytes,
+                    max_failed_jobs=args.ci_max_failed_jobs,
+                )
+                if args.from_ci
+                else None
+            )
+            result = build_evidence_pack(
+                settings=settings,
+                manager=manager,
+                workspace_id=args.workspace_id,
+                ci_feedback=ci_feedback,
+            )
         elif args.command == "list":
             result = [manager.status(state.workspace_id) for state in manager.list_states()]
         elif args.command == "status":
@@ -1574,6 +1761,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
                 from_ci=args.from_ci,
                 ci_tail_bytes=args.ci_tail_bytes,
                 ci_max_failed_jobs=args.ci_max_failed_jobs,
+                source=args.command,
             )
             launch_requested = (
                 bool(args.launch)

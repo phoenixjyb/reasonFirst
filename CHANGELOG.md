@@ -7,6 +7,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Add persistent bounded TaskSpec + attempt records tied to each workspace's project/base SHA; worker handoffs preserve acceptance criteria/non-goals across retries, and `actual-coder evidence` emits a bounded recursively redacted read-only EvidencePack with optional CI evidence.
 - Add `resume --launch` plus a new `continue` command: resumed handoffs reload the pinned-base project contract, preserve protected paths/validation/instructions, optionally attach matching-head CI evidence, and can launch the selected backend immediately.
 - Add persistent `REASONFIRST_DEFAULT_BACKEND` selection with explicit `codex-cli`, `copilot-cli`, `codex-desktop`, or `auto`; explicit CLI `--agent` remains highest priority.
 - Add real Codex Desktop/App Server approval mediation: TTY approval for local ActualCoder and bounded pending/approve/decline MCP tools for bridge sessions, with timeout/default-deny and turn-scoped permission grants by default.
@@ -37,7 +38,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 ### Still planned
 
 - Native Git trust/destination-policy integration and layered API-versus-Git diagnostics (#10).
-- Persistent TaskSpec/attempt records and a core EvidencePack surface shared across all worker backends (#6).
+- Richer cross-interface TaskSpec/EvidencePack export/import and attempt-result lifecycle beyond the bounded local workspace records added here (#6).
 
 ### Naming (retained)
 
