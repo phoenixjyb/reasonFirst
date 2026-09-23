@@ -6,7 +6,24 @@
 
 ## 快速路径：先诊断，再创建唯一的第一阶段工作区
 
-对于已经创建好的合成练习项目，先运行产品化预检，不要直接启动 worker：
+对于刚创建的**空项目或仅有 README 的合成练习项目**，先只生成规范 seed 计划：
+
+```bash
+export GITLAB_AGENT_ENV_FILE="$HOME/.config/gitlab-agent/.env"
+PROJECT="team/reasonfirst-practice"
+
+actual-coder practice-seed "$PROJECT" --ref main
+```
+
+默认只做 dry-run，不写远端。它会拒绝非空的真实项目和已经 seed 的项目，在任何写入之前先运行打包内置的五个基线测试，并显示将安装的受跟踪练习文件。审查计划后，一次性远端 seed 还需要显式确认这是 synthetic 项目，并经过人工确认：
+
+```bash
+actual-coder practice-seed "$PROJECT" --ref main --apply --confirm-synthetic
+```
+
+apply 会在写入前再次核对远端 revision，使用 ReasonFirst 自己的 Git 认证/代理路径，只做普通的**非 force** push，并验证远端最终 commit。它不会创建 ActualCoder task，也不会启动 coding worker。只有在已经审阅的脚本化演练中才使用 `--yes`。
+
+对于已经 seed 好的合成练习项目，先运行产品化预检，不要直接启动 worker：
 
 ```bash
 export GITLAB_AGENT_ENV_FILE="$HOME/.config/gitlab-agent/.env"

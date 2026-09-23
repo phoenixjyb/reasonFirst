@@ -6,7 +6,24 @@ Use **one dedicated private GitLab practice project, one managed workspace, one 
 
 ## Fast path: diagnose first, then create one bounded Stage-1 workspace
 
-For an already-created synthetic practice project, use the productized preflight before starting any worker:
+For a newly created **empty or README-only synthetic project**, plan the canonical seed first:
+
+```bash
+export GITLAB_AGENT_ENV_FILE="$HOME/.config/gitlab-agent/.env"
+PROJECT="team/reasonfirst-practice"
+
+actual-coder practice-seed "$PROJECT" --ref main
+```
+
+The default is dry-run only. It refuses nontrivial repositories and already-seeded projects, runs the packaged five-test baseline before any write, and shows the exact tracked kit it would install. After reviewing that plan, the one-time remote seed requires explicit synthetic-project confirmation plus human confirmation:
+
+```bash
+actual-coder practice-seed "$PROJECT" --ref main --apply --confirm-synthetic
+```
+
+The apply path revalidates the remote immediately before writing, uses ReasonFirst's managed Git authentication/proxy behavior, performs a normal **non-force** push, and verifies the resulting remote commit. It does not create an ActualCoder task or launch a coding worker. Use `--yes` only for an already-reviewed scripted rehearsal.
+
+For an already-seeded synthetic practice project, use the productized preflight before starting any worker:
 
 ```bash
 export GITLAB_AGENT_ENV_FILE="$HOME/.config/gitlab-agent/.env"

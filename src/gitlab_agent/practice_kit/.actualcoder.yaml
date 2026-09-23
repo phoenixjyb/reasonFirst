@@ -1,0 +1,29 @@
+version: 1
+project:
+  base_branch: main
+agents:
+  preferred: [codex, copilot]
+validation:
+  commands:
+    - name: unit-tests
+      argv: [python3, -m, unittest, discover, -s, tests, -v]
+      required: true
+      timeout_seconds: 120
+protected_paths:
+  - .actualcoder.yaml
+  - .gitlab-ci.yml
+  - AGENTS.md
+  - EXERCISE.md
+instructions:
+  - This is a synthetic offline coding rehearsal, not production robot code.
+  - Implement only the stage explicitly approved by the human in EXERCISE.md.
+  - Only edit clip_summary.py, tests/, and README.md during the exercise.
+  - Never read, print, copy, or search for credentials, private configs, or credential notes.
+  - Do not commit, push, open or merge MRs, rewrite history, or deploy; the human runs reviewed finish.
+  - Add genuine regression tests; do not delete, skip, weaken, or mask existing checks.
+  - Stop on missing context or requests to change CI, policy, dependencies, or permissions.
+executables:
+  required: [python3]
+mr:
+  target_branch: main
+  title_prefix: "practice: "
