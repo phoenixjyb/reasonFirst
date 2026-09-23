@@ -42,4 +42,12 @@ GitHub hosts the ReasonFirst source repository. GitLab is currently the implemen
 
 ## Where should a new user begin?
 
-Start with [First-time setup](docs/GETTING_STARTED.md), then use the [Practice lab](docs/PRACTICE_LAB.md) to experience the full reasoning → worker → MR/CI → review loop.
+Use [First 10 minutes](first-10-minutes.md) if your connection and worker are already available. Otherwise start with [First-time setup](docs/GETTING_STARTED.md), then use the [Practice lab](docs/PRACTICE_LAB.md) to rehearse the complete reasoning → worker → MR/CI → review loop.
+
+## How should I bring worker results back to ChatGPT?
+
+Prefer bounded evidence rather than raw transcripts. Generate `actual-coder evidence WORKSPACE` (optionally `--from-ci`) and provide the non-secret EvidencePack to the reasoning session. See [Evidence & review](evidence-review.md).
+
+## What prompts should I use with ChatGPT?
+
+Use prompts that keep facts, task definition, implementation, and review separate. The [Working with ChatGPT](chatgpt-workflow.md) page contains copyable prompt patterns for repository inspection, TaskSpec definition, implementation review, and CI repair.

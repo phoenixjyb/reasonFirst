@@ -25,3 +25,97 @@
   margin-right: 0.4rem;
   margin-bottom: 0.4rem;
 }
+
+.rf-hero {
+  margin: 0.4rem 0 2rem;
+  padding: 1.4rem 1.6rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 1rem;
+  background: linear-gradient(135deg, var(--rf-surface), transparent);
+}
+
+.rf-eyebrow {
+  margin: 0 0 0.35rem !important;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-primary-fg-color);
+}
+
+.rf-hero h2 {
+  margin: 0.15rem 0 0.7rem;
+  font-size: clamp(1.45rem, 3vw, 2.25rem);
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+}
+
+.rf-hero .rf-lead {
+  max-width: 52rem;
+  font-size: 1.02rem;
+}
+
+.rf-flow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.rf-flow-step {
+  min-height: 8.4rem;
+  padding: 0.9rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.75rem;
+  background: var(--rf-surface);
+}
+
+.rf-flow-step strong,
+.rf-flow-step small {
+  display: block;
+}
+
+.rf-flow-step strong {
+  margin: 0.35rem 0;
+  font-size: 1rem;
+}
+
+.rf-flow-step small {
+  line-height: 1.45;
+  color: var(--md-default-fg-color--light);
+}
+
+.rf-flow-label {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--md-primary-fg-color);
+}
+
+.rf-checklist {
+  padding: 1rem 1.2rem;
+  border-left: 0.2rem solid var(--md-primary-fg-color);
+  background: var(--rf-surface);
+}
+
+@media screen and (max-width: 76rem) {
+  .rf-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media screen and (max-width: 44rem) {
+  .rf-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .rf-flow-step {
+    min-height: 0;
+  }
+
+  .rf-hero {
+    padding: 1rem;
+  }
+}

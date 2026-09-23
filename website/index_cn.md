@@ -1,43 +1,28 @@
 # ReasonFirst
 
-**把强推理放在编程最前端，让 coding agent 负责执行。**
+<div class="rf-hero" markdown>
 
-ReasonFirst 是一个推理优先的编程编排系统。参考主流程把 **ChatGPT（或用户明确选择的其他强推理界面）** 放在架构、诊断、范围、验收标准和最终审查的位置；可替换的 coding agent 负责实现。
+<p class="rf-eyebrow">推理优先的编程编排</p>
 
-[首次接入](docs/GETTING_STARTED_CN.md){ .md-button .md-button--primary }
-[理解工作流程](docs/WORKFLOW_CN.md){ .md-button }
+## 强推理负责判断，coding agent 负责执行，证据回到推理层审查。
+
+<p class="rf-lead">ReasonFirst 把 ChatGPT（或用户明确选择的其他强推理界面）放在架构、诊断、范围、验收标准和最终审查的位置；可替换的 coding agent 在受控 workspace 中完成实现。</p>
+
+[十分钟上手](first-10-minutes_cn.md){ .md-button .md-button--primary }
+[查看日常工作流](docs/WORKFLOW_CN.md){ .md-button }
 [English](index.md){ .md-button }
 
----
+</div>
 
-## 一眼看懂
+## ReasonFirst 如何工作
 
-~~~text
-ChatGPT / 强推理界面
-        │
-        │ 读取仓库 / MR / CI 证据
-        ▼
-架构 · 诊断 · 范围 · 验收标准
-        │
-        ▼
-TaskSpec — 持久的已批准意图
-        │
-        ▼
-ReasonFirst 控制层
-workspace · policy · validation · review gates
-        │
-        ▼
-coding worker
-codex-cli · copilot-cli · codex-desktop
-        │
-        ▼
-实现 + 测试 + MR / CI
-        │
-        ▼
-EvidencePack · diff · CI 证据
-        │
-        └──────────────► ChatGPT + 人工审查
-~~~
+<div class="rf-flow">
+  <div class="rf-flow-step"><span class="rf-flow-label">1 · 推理</span><strong>ChatGPT</strong><small>读取仓库/MR/CI 证据，做诊断、范围控制和验收标准。</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">2 · 契约</span><strong>TaskSpec</strong><small>持久保存已批准目标、非目标、验收标准和固定 workspace identity。</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">3 · 执行</span><strong>Coding worker</strong><small>Codex CLI、Copilot CLI 或 Codex Desktop 在边界内实现任务。</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">4 · 证据</span><strong>EvidencePack + CI</strong><small>返回有界 diff、validation、reviewability 与 CI 新鲜度/完整性证据。</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">5 · 决策</span><strong>ChatGPT + 人</strong><small>审查证据，决定继续、调整或合并。</small></div>
+</div>
 
 !!! info "只有一条主闭环"
     ActualCoder 也可以被终端、CI、IDE 或其他客户端直接调用，适合测试、恢复和自动化；但这是次要运维能力，不是另一种并列产品模式。
@@ -48,7 +33,7 @@ EvidencePack · diff · CI 证据
 
 -   **第一次使用**
 
-    先看[首次完整接入](docs/GETTING_STARTED_CN.md)，然后跑一遍[实战演练](docs/PRACTICE_LAB_CN.md)。
+    先用[十分钟上手](first-10-minutes_cn.md)走最短路径；需要完整演练时再跑[实战演练](docs/PRACTICE_LAB_CN.md)。
 
 -   **ChatGPT 已经能读取 GitLab**
 

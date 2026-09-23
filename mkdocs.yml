@@ -27,6 +27,8 @@ theme:
   features:
     - navigation.instant
     - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.top
     - navigation.footer
@@ -52,34 +54,46 @@ markdown_extensions:
 extra_css:
   - stylesheets/extra.css
 
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/phoenixjyb/reasonFirst
+      name: ReasonFirst on GitHub
+
 nav:
   - Home: index.md
   - Start here:
+      - First 10 minutes: first-10-minutes.md
       - Mental model: concepts.md
       - First-time setup: docs/GETTING_STARTED.md
-      - First task / practice lab: docs/PRACTICE_LAB.md
+      - Practice lab: docs/PRACTICE_LAB.md
       - FAQ: faq.md
   - Use ReasonFirst:
+      - Working with ChatGPT: chatgpt-workflow.md
       - Daily workflow: docs/WORKFLOW.md
+      - Evidence & review: evidence-review.md
       - Worker / CLI setup: docs/ACTUAL_CODER_QUICKSTART.md
+      - Troubleshooting: docs/TROUBLESHOOTING.md
+  - Operate & understand:
       - Tunnel lifecycle: docs/TUNNEL_LIFECYCLE.md
       - Project access: docs/PROJECT_ACCESS.md
-      - Troubleshooting: docs/TROUBLESHOOTING.md
-  - Understand:
       - Architecture: docs/ARCHITECTURE.md
-      - Design philosophy: docs/DESIGN_PHILOSOPHY.md
-      - Task handoff: docs/TASK_HANDOFF_TEMPLATE.md
       - Security: SECURITY.md
+      - Design philosophy: docs/DESIGN_PHILOSOPHY.md
   - 中文:
       - 中文首页: index_cn.md
+      - 十分钟上手: first-10-minutes_cn.md
+      - 与 ChatGPT 协作: chatgpt-workflow_cn.md
+      - 证据与审查: evidence-review_cn.md
       - 核心概念: concepts_cn.md
       - 首次完整接入: docs/GETTING_STARTED_CN.md
       - 工作流程: docs/WORKFLOW_CN.md
       - 快速上手: docs/QUICKSTART_CN.md
-      - 架构说明: docs/ARCHITECTURE_CN.md
       - 故障排查: docs/TROUBLESHOOTING_CN.md
+      - 架构说明: docs/ARCHITECTURE_CN.md
       - 安全边界: SECURITY_CN.md
   - Reference:
       - Documentation index: docs/README.md
+      - Task handoff: docs/TASK_HANDOFF_TEMPLATE.md
       - Changelog: CHANGELOG.md
       - Contributing: CONTRIBUTING.md
