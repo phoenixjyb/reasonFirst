@@ -1,0 +1,85 @@
+site_name: ReasonFirst
+site_description: ChatGPT-first reasoning, worker-execution coding orchestration
+site_url: https://phoenixjyb.github.io/reasonFirst/
+repo_url: https://github.com/phoenixjyb/reasonFirst
+repo_name: phoenixjyb/reasonFirst
+edit_uri: edit/main/
+
+docs_dir: .site-src
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Start here:
+      - Mental model: concepts.md
+      - First-time setup: docs/GETTING_STARTED.md
+      - First task / practice lab: docs/PRACTICE_LAB.md
+      - FAQ: faq.md
+  - Use ReasonFirst:
+      - Daily workflow: docs/WORKFLOW.md
+      - Worker / CLI setup: docs/ACTUAL_CODER_QUICKSTART.md
+      - Tunnel lifecycle: docs/TUNNEL_LIFECYCLE.md
+      - Project access: docs/PROJECT_ACCESS.md
+      - Troubleshooting: docs/TROUBLESHOOTING.md
+  - Understand:
+      - Architecture: docs/ARCHITECTURE.md
+      - Design philosophy: docs/DESIGN_PHILOSOPHY.md
+      - Task handoff: docs/TASK_HANDOFF_TEMPLATE.md
+      - Security: SECURITY.md
+  - 中文:
+      - 中文首页: index_cn.md
+      - 核心概念: concepts_cn.md
+      - 首次完整接入: docs/GETTING_STARTED_CN.md
+      - 工作流程: docs/WORKFLOW_CN.md
+      - 快速上手: docs/QUICKSTART_CN.md
+      - 架构说明: docs/ARCHITECTURE_CN.md
+      - 故障排查: docs/TROUBLESHOOTING_CN.md
+      - 安全边界: SECURITY_CN.md
+  - Reference:
+      - Documentation index: docs/README.md
+      - Changelog: CHANGELOG.md
+      - Contributing: CONTRIBUTING.md
