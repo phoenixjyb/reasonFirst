@@ -330,6 +330,33 @@ def probe(profile: Profile) -> dict[str, Any]:
             "chatgpt_connection_verified": False, "project_access_checked": False}
 
 
+def bind_private_control_socket(path: Path) -> socket.socket:
+    """Create the control socket private from the instant it is bound.
+
+    chmod after bind is still retained as defense in depth, but the restrictive
+    umask closes the observable bind->chmod race seen by concurrent status polls.
+    """
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    previous_umask = os.umask(0o077)
+    try:
+        listener.bind(str(path))
+    except Exception:
+        listener.close()
+        raise
+    finally:
+        os.umask(previous_umask)
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        listener.close()
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
+    return listener
+
+
 def acquire_lock(path: Path):
     import fcntl
     fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
@@ -583,9 +610,7 @@ def start(settings: Settings, *, startup_timeout: float = 30, restarting: bool =
                 if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
                     fail("unsafe_control_socket", "An unexpected state entry exists; refusing to replace it.")
                 path.unlink()  # stale socket, and the exclusive owner lock is held
-            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            listener.bind(str(path))
-            os.chmod(path, 0o600)
+            listener = bind_private_control_socket(path)
             socket_identity = (path.stat().st_dev, path.stat().st_ino)
             listener.listen(8)
             listener.settimeout(0.15)
