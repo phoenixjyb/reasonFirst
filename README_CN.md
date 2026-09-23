@@ -52,7 +52,8 @@ Codex/Copilot 登录、Git 写权限和 CI runner 是**后续实现阶段**的�
 | 分清界面职责 | [工作流程](docs/WORKFLOW_CN.md) · [English](docs/WORKFLOW.md) |
 | 纯本地安装与受控实现 | [CLI 快速上手](docs/QUICKSTART_CN.md) · [English](docs/ACTUAL_CODER_QUICKSTART.md) |
 | 已批准要求与实际结果 | [人工交接模板](docs/TASK_HANDOFF_TEMPLATE_CN.md) · [English](docs/TASK_HANDOFF_TEMPLATE.md) |
-| 架构 | [设计理念](docs/DESIGN_PHILOSOPHY_CN.md) · [English](docs/DESIGN_PHILOSOPHY.md) |
+| 当前架构 | **[架构说明](docs/ARCHITECTURE_CN.md)** · **[English](docs/ARCHITECTURE.md)** |
+| 设计理念 | [设计理念](docs/DESIGN_PHILOSOPHY_CN.md) · [English](docs/DESIGN_PHILOSOPHY.md) |
 | 已有 HTTP 到 HTTPS 迁移 | [迁移指南](docs/HTTPS_MIGRATION_CN.md) · [English](docs/HTTPS_MIGRATION.md) |
 | 证书、API 重定向与原生 Git 边界 | [运行时 TLS](docs/HTTPS_API_TLS_CN.md) · [English](docs/HTTPS_API_TLS.md) |
 | 审阅 PR 或更新长期检出目录 | [本地 PR 审阅](docs/LOCAL_PR_REVIEW_CN.md) · [English](docs/LOCAL_PR_REVIEW.md) |
@@ -63,14 +64,15 @@ Codex/Copilot 登录、Git 写权限和 CI runner 是**后续实现阶段**的�
 
 ```text
 人 + 推理界面：定义目标、约束、验收标准
-    -> ActualCoder：准备 worktree 与有边界的交接
-    -> Codex/Copilot：检查、实现、测试
-    -> 人工审阅 finish：功能分支 / GitLab MR
-    -> CI 证据与 ChatGPT 实时审阅
+    -> ReasonFirst 控制层：ActualCoder CLI 或 Bridge Preview
+    -> 选择 worker：codex-cli / copilot-cli / codex-desktop
+    -> 隔离本地 worktree 或用户配置的 SSH workspace
+    -> validation + 共享 review/secret/protected-path gates
+    -> 经审阅的 feature branch / GitLab MR / matching-HEAD CI
     -> 人决定继续还是合并
 ```
 
-只读 MCP bridge 提供仓库/MR/CI 检查。**不能提交或执行本地编程任务，也不能读取未发布本地修改。** 用户操作本地 CLI，在界面间交接获批任务与结果。持久化 TaskSpec、EvidencePack 访问仍在规划中；人工交接模板只是写作辅助。
+ReasonFirst 现在有**两种职责不同的 MCP 表面**。原有 GitLab MCP 仍以仓库/MR/CI 读取为主；可选的 **Bridge Preview** 是权限更高的本地编排接口，可以准备受管 workspace、控制 Codex App Server、暴露待审批请求、读取未发布的受管 diff/artifact，并执行完整 finish preview。SSH 写入/验证仅限用户预先配置的 target；不暴露任意远端 shell。实验性远端发布默认隐藏且关闭。详见[架构说明](docs/ARCHITECTURE_CN.md)。持久化 core TaskSpec/attempt/EvidencePack 目前仍未进入 `main`。
 
 用[访问预检](docs/PROJECT_ACCESS_CN.md)确认真实项目后，按 [CLI 快速上手](docs/QUICKSTART_CN.md)或[演练](docs/PRACTICE_LAB_CN.md)执行。`start --no-launch` 创建真实本地工作区与交接，但不调用编程模型；不是无副作用预览。继续同一任务时保留 workspace ID，使用 `resume`，不要反复 `start`。
 
@@ -78,7 +80,7 @@ Codex/Copilot 登录、Git 写权限和 CI runner 是**后续实现阶段**的�
 
 `resume --from-ci` 返回匹配 HEAD 的失败证据，不会自动执行修复。不要为成功 CI 编造修改。低层 `commit`/`push` 与部分生成交接不包含全部 finish 门槛；保留明确任务边界，使用审阅后的 finish 主流程。详见[工作流程](docs/WORKFLOW_CN.md)。
 
-GitLab 是已实现的目标源码管理/CI 集成。本项目源码托管于 GitHub，不代表有 GitHub 目标任务适配器。当前编程后端为 `codex`、`copilot`。
+GitLab 是已实现的目标源码管理/CI 集成。本项目源码托管于 GitHub，不代表有 GitHub 目标任务适配器。推荐显式后端名为 `codex-cli`、`copilot-cli`、`codex-desktop`；历史 `codex` / `copilot` 继续作为兼容别名。
 
 ## 无生产凭证试用源码
 
@@ -103,17 +105,19 @@ uv run python scripts/check_repo_secrets.py --history
 
 | 能力 | 当前范围 |
 | --- | --- |
-| 受管工作区 | 本地 Git 缓存/worktree、功能分支、MR 创建/更新/恢复 |
-| 受控 finish | Base 策略测试、可审阅性/保护路径、候选与有界历史秘密检查、人工确认 |
-| 发布安全 | 普通 cleanup 前的新鲜远端证据；保留未发布遗留工作 |
-| 命令/CI 证据 | 传递非零失败；匹配 HEAD 的 CI 与有界、脱敏 job 日志 |
+| 受管工作区 | 本地 Git cache/worktree + 用户配置的 SSH workspace；功能分支、恢复与跨进程 mutation lock |
+| 受控 finish | 本地/远端共用 review gates：validation、reviewability、protected path、candidate/history secret scan 与准确 candidate identity |
+| 发布安全 | 本地 reviewed finish 为正式默认路径；SSH 发布绑定准确 tree/destination，实验性且默认关闭 |
+| 远端验证 | 仅结构化 argv + 用户配置容器策略；不暴露任意远端 shell，不隐式拉取镜像 |
+| 命令/CI 证据 | 传递非零失败；matching-HEAD CI 与有界、脱敏日志/artifact |
+| Worker 策略 | 用户默认后端 + model/effort/sandbox/network/permission；Codex Desktop 校验解析后的策略并记录 reroute |
+| 审批 | Codex Desktop 通过本地终端或 MCP pending/approve/decline 显式审批；超时默认拒绝 |
 | 项目访问预检 | 本地 allowlist -> GitLab 项目/ref/文件；明确诊断和固定修订；不自动授权 |
 | 隧道生命周期 | macOS/Linux 已有 profile 的 configure/start/status/stop/restart、可选准确 Keychain 读取、所属进程清理；仅前台 |
 | HTTPS 迁移 | 离线预览、确认后本地 URL 更新、私有备份、向前恢复 |
-| API/MCP 传输 | 验证根证书，可选仅 Python 的私有 CA；目的地检查，拒绝 API 重定向 |
-| 只读 MCP | 文件、项目、MR、pipeline、job；没有本地任务执行接口 |
+| MCP 表面 | 只读 GitLab MCP + 可选本地 Bridge Preview 编排 MCP；信任边界见架构文档 |
 
-**仍在规划：**原生 Git 信任/目的地策略、各交接入口一致上下文、通用工作区锁/事务恢复、持久 TaskSpec/尝试记录、EvidencePack。迁移锁和 tunnel-owner 锁不是通用工作区并发保护。[Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6)与 [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10)跟踪任务循环/HTTPS 工作。
+**尚未进入 `main`：**持久 core TaskSpec/attempt 与 bounded EvidencePack，以及进一步的原生 Git trust/destination policy。工作区 mutation lock 与本地/SSH 共用 finish gates 已经在 `main` 实现。当前边界见[架构说明](docs/ARCHITECTURE_CN.md)。
 
 API/MCP 客户端拒绝关闭 TLS 验证和所有 API 重定向，请配置最终端点。`GITLAB_CA_BUNDLE` 增加 Python API/MCP 信任，不配置原生 Git 或迁移 `--check-tls` 探针。范围不要混淆，详见[运行时 TLS](docs/HTTPS_API_TLS_CN.md)。
 
