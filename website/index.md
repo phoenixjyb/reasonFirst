@@ -1,46 +1,31 @@
 # ReasonFirst
 
-**Put strong reasoning at the front of coding. Let coding agents execute.**
+<div class="rf-hero" markdown>
 
-ReasonFirst is a reasoning-first coding orchestration system. The reference workflow keeps **ChatGPT (or another deliberately chosen strong reasoning interface)** responsible for architecture, diagnosis, scope, acceptance criteria, and review, while replaceable coding agents handle implementation.
+<p class="rf-eyebrow">Reasoning-first coding orchestration</p>
 
-[Get started](docs/GETTING_STARTED.md){ .md-button .md-button--primary }
-[Understand the workflow](docs/WORKFLOW.md){ .md-button }
+## Strong reasoning plans. Coding agents execute. Evidence comes back for review.
+
+<p class="rf-lead">ReasonFirst keeps ChatGPT (or another deliberately chosen strong reasoning interface) responsible for architecture, diagnosis, scope, acceptance criteria, and review. Replaceable coding agents handle implementation inside a controlled workspace.</p>
+
+[Start in 10 minutes](first-10-minutes.md){ .md-button .md-button--primary }
+[See the daily workflow](docs/WORKFLOW.md){ .md-button }
 [中文](index_cn.md){ .md-button }
 
----
+</div>
 
-## The mental model
+## How ReasonFirst works
 
-~~~text
-ChatGPT / strong reasoning interface
-        │
-        │ read repository / MR / CI evidence
-        ▼
-architecture · diagnosis · scope · acceptance
-        │
-        ▼
-TaskSpec — durable approved intent
-        │
-        ▼
-ReasonFirst control
-workspace · policy · validation · review gates
-        │
-        ▼
-coding worker
-codex-cli · copilot-cli · codex-desktop
-        │
-        ▼
-implementation + tests + MR / CI
-        │
-        ▼
-EvidencePack · diff · CI evidence
-        │
-        └──────────────► ChatGPT + human review
-~~~
+<div class="rf-flow">
+  <div class="rf-flow-step"><span class="rf-flow-label">1 · Reason</span><strong>ChatGPT</strong><small>Read repository/MR/CI evidence. Diagnose, choose scope, write acceptance criteria.</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">2 · Contract</span><strong>TaskSpec</strong><small>Persist the approved goal, non-goals, acceptance criteria, and pinned workspace identity.</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">3 · Execute</span><strong>Coding worker</strong><small>Codex CLI, Copilot CLI, or Codex Desktop implements the bounded task.</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">4 · Prove</span><strong>EvidencePack + CI</strong><small>Return bounded diff, validation, reviewability, and CI freshness/completeness evidence.</small></div>
+  <div class="rf-flow-step"><span class="rf-flow-label">5 · Decide</span><strong>ChatGPT + human</strong><small>Review evidence, continue or revise the task, and make the merge decision.</small></div>
+</div>
 
 !!! info "One primary loop"
-    ActualCoder can also be invoked directly from a terminal, CI job, IDE, or another client. That is useful for testing, recovery, and automation, but it is a secondary operational capability—not a separate product mode.
+    ActualCoder can also run directly from a terminal, CI job, IDE, or another client. That is useful for testing, recovery, and automation, but it is a secondary operational capability—not a separate product mode.
 
 ## Where should I start?
 
@@ -48,7 +33,7 @@ EvidencePack · diff · CI evidence
 
 -   **I am new to ReasonFirst**
 
-    Start with the [first-time setup](docs/GETTING_STARTED.md), then run the [practice lab](docs/PRACTICE_LAB.md).
+    Use [First 10 minutes](first-10-minutes.md) for the shortest guided path, then run the [practice lab](docs/PRACTICE_LAB.md) when you want a complete rehearsal.
 
 -   **I already connected ChatGPT to GitLab**
 
