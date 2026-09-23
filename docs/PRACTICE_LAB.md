@@ -4,6 +4,33 @@
 
 Use **one dedicated private GitLab practice project, one managed workspace, one feature branch and one MR with three reviewed revisions**. Never switch this rehearsal to an allowed production application or reuse an old smoke workspace to get past an access failure. The clip-summary exercise has no robot controls, dependencies, network IO or deployment. Normal ChatGPT is the reasoning interface; the localhost Assistant is not used.
 
+## Fast path: diagnose first, then create one bounded Stage-1 workspace
+
+For an already-created synthetic practice project, use the productized preflight before starting any worker:
+
+```bash
+export GITLAB_AGENT_ENV_FILE="$HOME/.config/gitlab-agent/.env"
+PROJECT="team/reasonfirst-practice"
+
+actual-coder practice-doctor "$PROJECT" --ref main --agent copilot-cli
+```
+
+`practice-doctor` is read-only. It checks the effective allowlist, the seven practice-kit files, the pinned `.actualcoder.yaml` contract and required `unit-tests`, the requested worker executable, proxy variables that can affect raw `git`/`curl`/`gitlab-runner`, local GitLab Runner executor configuration, and project-visible runner eligibility when the GitLab API exposes it. It deliberately reports known runner failures such as a `custom` executor without `RunExec` before a coding task starts.
+
+Only when it reports `ready_for_stage1: true`, create the canonical Stage-1 workspace:
+
+```bash
+actual-coder practice-start "$PROJECT" --ref main --agent copilot-cli
+```
+
+This command persists the canonical Stage-1 goal, acceptance criteria and non-goals, creates exactly one managed workspace/handoff, and **never auto-launches the worker**. Inspect `status` and `evidence` first, then explicitly launch on the same workspace with `resume --agent copilot-cli --launch`. Do not call `practice-start` again to continue the task.
+
+If GitLab CI later fails, run `actual-coder ci "$WS"` before asking a worker to repair anything. CI output now includes a conservative `diagnosis`. Recognized runner-only failures (for example `custom executor is missing RunExec`) explicitly set `worker_repair_recommended: false`; fix/retry infrastructure on the same candidate commit instead of changing application or protected CI code.
+
+A shell GitLab Runner is acceptable for this synthetic lab when host `python3` satisfies the exercise, but shell executors ignore `.gitlab-ci.yml` `image:` declarations. Use Docker/another container executor when reproducibility against the declared `python:3.12-slim` image matters.
+
+The longer sections below remain the auditable/manual fallback and explain every gate.
+
 ## 0. Confirm the destination; do not assume it exists
 
 `team/reasonfirst-practice` and `gitlab.example.com` below are placeholders, not provisioned resources. A local folder or this GitHub starter kit does not create a GitLab project. Before setup, **tell the user that the proposed project's existence, seed and access are unverified**, and ask them to confirm the exact GitLab instance and namespace/project or numeric ID.

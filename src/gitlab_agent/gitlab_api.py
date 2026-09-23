@@ -97,6 +97,35 @@ class GitLabAPI:
             raise RuntimeError("Unexpected GitLab MR response")
         return data
 
+    def runner(self, runner_id: int) -> dict[str, Any]:
+        data = self.get_json(f"/runners/{runner_id}")
+        if not isinstance(data, dict):
+            raise RuntimeError("Unexpected GitLab runner response")
+        return data
+
+    def project_runners(
+        self,
+        project: str,
+        *,
+        per_page: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return runners visible to one GitLab project.
+
+        This is read-only metadata used by practice diagnostics. Tokens and
+        registration credentials are never returned by this helper.
+        """
+        encoded = quote(project.strip(), safe="")
+        data = self.get_json(
+            f"/projects/{encoded}/runners",
+            params={
+                "per_page": max(1, min(per_page, 100)),
+                "page": 1,
+            },
+        )
+        if not isinstance(data, list):
+            raise RuntimeError("Unexpected GitLab project runners response")
+        return [item for item in data if isinstance(item, dict)]
+
     def pipelines(
         self,
         project: str,

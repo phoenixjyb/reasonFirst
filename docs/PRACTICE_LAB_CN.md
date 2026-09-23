@@ -4,6 +4,33 @@
 
 使用**一个专门的私有 GitLab 练习项目、一个受管工作区、一个功能分支、同一个 MR 的三轮修订**。不能为了绕过访问失败而换成已获准的生产应用，也不复用旧 smoke 工作区。片段时长统计练习不涉及机器人控制、依赖安装、网络读写或部署。普通 ChatGPT 负责推理，不使用 localhost Assistant。
 
+## 快速路径：先诊断，再创建唯一的第一阶段工作区
+
+对于已经创建好的合成练习项目，先运行产品化预检，不要直接启动 worker：
+
+```bash
+export GITLAB_AGENT_ENV_FILE="$HOME/.config/gitlab-agent/.env"
+PROJECT="team/reasonfirst-practice"
+
+actual-coder practice-doctor "$PROJECT" --ref main --agent copilot-cli
+```
+
+`practice-doctor` 只读检查：当前 allowlist、七个练习文件、固定 revision 上的 `.actualcoder.yaml` 与必需 `unit-tests`、所选 worker 可执行文件、可能影响原生 `git`/`curl`/`gitlab-runner` 的代理变量、本机 GitLab Runner executor 配置，以及 GitLab API 可见时的项目 runner 资格。像“`custom` executor 缺少 `RunExec`”这类我们实际遇到的 runner 问题，会在 coding task 开始前直接指出。
+
+只有返回 `ready_for_stage1: true` 时，才创建规范的第一阶段工作区：
+
+```bash
+actual-coder practice-start "$PROJECT" --ref main --agent copilot-cli
+```
+
+该命令会持久化规范的第一阶段 goal、acceptance criteria 和 non-goals，创建**一个**受管 workspace/handoff，并且**绝不会自动启动 worker**。先检查 `status` 和 `evidence`，再在同一个 workspace 上显式运行 `resume --agent copilot-cli --launch`。继续任务时不得再次 `practice-start`。
+
+如果 GitLab CI 之后失败，先运行 `actual-coder ci "$WS"`，再决定是否需要 coding worker。CI 结果现在包含保守的 `diagnosis`；已识别的 runner-only 故障（例如 `custom executor is missing RunExec`）会明确给出 `worker_repair_recommended: false`，应在不改变候选 commit 的前提下修复/重试基础设施，而不是修改应用代码或受保护 CI 文件。
+
+这个合成练习可以使用 shell GitLab Runner，只要宿主机 `python3` 满足练习要求；但 shell executor 会忽略 `.gitlab-ci.yml` 中的 `image:`。如果需要严格复现声明的 `python:3.12-slim` 环境，应使用 Docker 或其他容器 executor。
+
+下面的长流程保留为可审计的手工后备路径，并解释每一道 gate。
+
 ## 0. 先确认目标，不假定项目已经存在
 
 下面的 `team/reasonfirst-practice` 和 `gitlab.example.com` 是示例，不是已创建的资源。本地目录和 GitHub 上的模板不会创建 GitLab 项目。开始之前，**向用户说明所提项目的存在性、初始文件和访问权限尚未验证**，请用户确认准确 GitLab 实例及 namespace/project 或数字 ID。

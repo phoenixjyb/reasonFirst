@@ -21,6 +21,13 @@ from .project_config import (
     PROJECT_CONFIG_MAX_BYTES,
     parse_project_config,
 )
+from .practice import (
+    PRACTICE_STAGE1_ACCEPTANCE,
+    PRACTICE_STAGE1_GOAL,
+    PRACTICE_STAGE1_NON_GOALS,
+    PRACTICE_STAGE1_TASK,
+    run_practice_doctor,
+)
 from .runner import CommandRunner
 from .worker_policy import (
     WorkerPolicy,
@@ -1175,6 +1182,32 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         help="Allow Git HTTPS credentials without GITLAB_TOKEN; REST API/MCP/CI metadata features stay disabled",
     )
 
+    p = sub.add_parser(
+        "practice-doctor",
+        help="Run non-destructive practice-lab, worker, proxy, contract, and runner diagnostics",
+    )
+    p.add_argument("project", help="Synthetic GitLab practice project path_with_namespace")
+    p.add_argument("--ref", default=None, help="Practice base ref (default: configured base ref)")
+    p.add_argument(
+        "--agent",
+        choices=["auto", "codex", "codex-cli", "copilot", "copilot-cli"],
+        default="auto",
+        help="Worker expected for the rehearsal (default: auto)",
+    )
+
+    p = sub.add_parser(
+        "practice-start",
+        help="Create the canonical Stage-1 practice workspace/handoff after practice-doctor passes; never auto-launches",
+    )
+    p.add_argument("project", help="Synthetic GitLab practice project path_with_namespace")
+    p.add_argument("--ref", default=None, help="Practice base ref (default: configured base ref)")
+    p.add_argument(
+        "--agent",
+        choices=["auto", "codex", "codex-cli", "copilot", "copilot-cli"],
+        default="auto",
+        help="Worker to persist in the Stage-1 TaskSpec (default: auto)",
+    )
+
     sub.add_parser(
         "agents",
         help="Show supported coding backends and whether their CLI executable is installed",
@@ -1531,10 +1564,61 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
             _print(result)
             return 0 if bool(result.get("ok")) else 1
 
+        if args.command == "practice-doctor":
+            result = run_practice_doctor(
+                project=args.project,
+                ref=args.ref,
+                agent=args.agent,
+            )
+            _print(result)
+            return 0 if bool(result.get("ready_for_stage1")) else 1
+
         settings = AgentSettings.load()
         manager = WorkspaceManager(settings)
         runner = CommandRunner(settings, manager)
         gitlab_api = GitLabAPI(settings)
+
+        if args.command == "practice-start":
+            practice = run_practice_doctor(
+                project=args.project,
+                ref=args.ref,
+                agent=args.agent,
+            )
+            if not bool(practice.get("ready_for_stage1")):
+                _print({
+                    "ok": False,
+                    "stage": "practice-doctor",
+                    "practice": practice,
+                })
+                return 1
+
+            prepared = _prepare_start(
+                manager,
+                settings,
+                project=args.project,
+                task_slug=PRACTICE_STAGE1_TASK,
+                goal=PRACTICE_STAGE1_GOAL,
+                requested_agent=args.agent,
+                base_ref=args.ref,
+                acceptance_criteria=list(PRACTICE_STAGE1_ACCEPTANCE),
+                non_goals=list(PRACTICE_STAGE1_NON_GOALS),
+                source="practice-start",
+            )
+            _print({
+                "ok": True,
+                "practice": {
+                    "overall": practice.get("overall"),
+                    "summary": practice.get("summary"),
+                    "resolved_commit_sha": practice.get("resolved_commit_sha"),
+                },
+                "launch_requested": False,
+                "message": (
+                    "Practice workspace prepared. Inspect TaskSpec/evidence, then "
+                    "explicitly resume --launch on this same workspace."
+                ),
+                **prepared,
+            })
+            return 0
 
         if args.command == "config":
             result = _safe_config(settings)

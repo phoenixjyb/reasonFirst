@@ -7,6 +7,8 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Add `actual-coder practice-doctor` for non-destructive synthetic-lab readiness checks covering allowlist/seed/contract, worker availability, external-client proxy risk, local GitLab Runner executor configuration, and project runner eligibility; add `practice-start` to create the canonical Stage-1 TaskSpec/workspace without auto-launching a worker.
+- Add conservative structured CI diagnosis so known runner/infrastructure failures such as a custom executor missing `RunExec` explicitly block coding-worker repair and recommend retrying the same candidate after infrastructure repair.
 - Add persistent bounded TaskSpec + attempt records tied to each workspace's project/base SHA; worker handoffs preserve acceptance criteria/non-goals across retries, and `actual-coder evidence` emits a bounded recursively redacted read-only EvidencePack with optional CI evidence.
 - Add `resume --launch` plus a new `continue` command: resumed handoffs reload the pinned-base project contract, preserve protected paths/validation/instructions, optionally attach matching-head CI evidence, and can launch the selected backend immediately.
 - Add persistent `REASONFIRST_DEFAULT_BACKEND` selection with explicit `codex-cli`, `copilot-cli`, `codex-desktop`, or `auto`; explicit CLI `--agent` remains highest priority.
