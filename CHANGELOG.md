@@ -7,6 +7,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Add `resume --launch` plus a new `continue` command: resumed handoffs reload the pinned-base project contract, preserve protected paths/validation/instructions, optionally attach matching-head CI evidence, and can launch the selected backend immediately.
 - Add persistent `REASONFIRST_DEFAULT_BACKEND` selection with explicit `codex-cli`, `copilot-cli`, `codex-desktop`, or `auto`; explicit CLI `--agent` remains highest priority.
 - Add real Codex Desktop/App Server approval mediation: TTY approval for local ActualCoder and bounded pending/approve/decline MCP tools for bridge sessions, with timeout/default-deny and turn-scoped permission grants by default.
 - Add worker-policy satisfaction evidence: Codex CLI preflights the signed-in App Server model catalog/admin constraints without model inference; Codex Desktop validates catalog + resolved thread model/effort/sandbox/approval and records runtime reroutes as policy violations. CLI-only surfaces clearly report when runtime/provider resolution is not independently attested.
@@ -32,7 +33,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 ### Still planned
 
 - Native Git trust/destination-policy integration and layered API-versus-Git diagnostics (#10).
-- Consistent task handoffs, general workspace locking/recovery, persistent TaskSpec and EvidencePack (#6).
+- Persistent TaskSpec/attempt records and a core EvidencePack surface shared across all worker backends (#6).
 
 ### Naming (retained)
 

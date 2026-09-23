@@ -178,13 +178,25 @@ uv run actual-coder ci "$WS"
 
 Finish asks for human confirmation. First controlled publication creates an MR; later finishes update its recorded branch/MR. `--yes` is explicit scripted confirmation, not a way around validation. `--allow-secret-match` is only for reviewed false positives and cannot override incomplete history coverage. A real secret must be revoked and removed from unpublished history, not merely deleted in a new commit.
 
-If CI truly fails, prepare the next handoff:
+If CI truly fails, either inspect the resumed handoff first:
 
 ```bash
 uv run actual-coder resume "$WS" --agent auto --from-ci --goal "Repair the matching-head CI failure without unrelated changes"
 ```
 
-`resume` returns a prompt and launch command; it does not run the coding agent or repair code. Inspect the handoff: all routes do not yet propagate identical project context. Keep the original goal and acceptance criteria yourself until persistent TaskSpec support lands. Do not use a stale or docs-only pipeline as proof of a full application build. Review and merge the MR in GitLab outside ReasonFirst; the controller has no merge operation.
+or launch the selected worker immediately after the handoff is emitted:
+
+```bash
+uv run actual-coder resume "$WS" --agent auto --from-ci --launch --goal "Repair the matching-head CI failure without unrelated changes"
+```
+
+The convenience alias `continue` uses `--agent auto` and launches by default:
+
+```bash
+uv run actual-coder continue "$WS" --from-ci --goal "Repair the matching-head CI failure without unrelated changes"
+```
+
+Use `continue ... --no-launch` to inspect without starting a worker. Resume/continue reload the repository contract from the workspace's pinned base SHA, so instructions, protected paths, validation commands, and worker selection remain tied to the reviewed base policy rather than whatever is currently on the remote branch. Matching-head CI freshness checks still apply. Review and merge the MR in GitLab outside ReasonFirst; the controller has no merge operation.
 
 ## 5. Recovery and low-level commands
 

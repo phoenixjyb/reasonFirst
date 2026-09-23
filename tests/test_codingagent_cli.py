@@ -17,6 +17,7 @@ from gitlab_agent.cli import (
     _agent_launch_argv,
     _handoff,
     _launch_handoff,
+    _prepare_resume,
     _prepare_start,
     _select_agent,
     _selection_for_request,
@@ -84,6 +85,8 @@ class FakeStartManager:
             "project": project,
             "worktree_path": str(worktree),
             "base_ref": base_ref or "main",
+            "base_sha": "base-sha",
+            "head": "head-sha",
             "branch": "chatgpt/test-abc123de",
             "merge_request_url": None,
             "pushed": False,
@@ -98,6 +101,8 @@ class FakeStartManager:
             "project": "team/project",
             "worktree_path": str(worktree),
             "base_ref": self.created_base_ref or "main",
+            "base_sha": "base-sha",
+            "head": "head-sha",
             "branch": "chatgpt/test-abc123de",
             "merge_request_url": None,
             "pushed": False,
@@ -908,6 +913,73 @@ mr:
         self.assertTrue(copilot.disable_builtin_mcps)
         self.assertEqual(copilot.allow_tools, ("write",))
 
+    def test_prepare_resume_restores_pinned_project_context(self) -> None:
+        contract = """
+version: 1
+project:
+  base_branch: main
+agents:
+  preferred: [copilot, codex]
+validation:
+  commands:
+    - name: tests
+      argv: [uv, run, pytest]
+protected_paths:
+  - deploy/
+instructions:
+  - Preserve the public API.
+"""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            settings = AgentSettings(
+                config_file=root / ".env",
+                gitlab_base_url="https://gitlab.example.test",
+                api_token="token",
+                api_verify_ssl=True,
+                api_trust_env=False,
+                git_token="token",
+                git_username="oauth2",
+                git_trust_env=False,
+                allowed_projects={"team/project"},
+                require_write_allowlist=True,
+                workspace_root=root / "workspace-root",
+                branch_prefix="chatgpt/",
+                default_base_ref="main",
+                allowed_executables={"uv", "pytest"},
+                command_timeout_seconds=300,
+                max_output_bytes=120000,
+                max_file_bytes=1000000,
+                git_author_name=None,
+                git_author_email=None,
+                default_backend="auto",
+            )
+            manager = FakeStartManager(root, contract)
+            manager.created_base_ref = "main"
+            manager.create_workspace("team/project", base_ref="main")
+
+            def fake_which(executable: str) -> str | None:
+                return (
+                    f"/tools/{executable}"
+                    if executable in {"codex", "copilot"}
+                    else None
+                )
+
+            with patch("gitlab_agent.cli.shutil.which", side_effect=fake_which):
+                result = _prepare_resume(
+                    manager,  # type: ignore[arg-type]
+                    settings,
+                    object(),  # type: ignore[arg-type]
+                    workspace_id="abc123def456",
+                    goal="Continue carefully",
+                    requested_agent="auto",
+                )
+
+        self.assertEqual(result["agent"], "copilot")
+        self.assertEqual(result["project_config"]["source"]["ref"], "base-sha")
+        self.assertIn("Preserve the public API.", str(result["agent_prompt"]))
+        self.assertIn("deploy/", str(result["agent_prompt"]))
+        self.assertIn("Expected validation commands", str(result["agent_prompt"]))
+
     def test_finish_parser_accepts_dry_run_and_safety_overrides(self) -> None:
         parser = _build_parser(prog="actual-coder")
         args = parser.parse_args(
@@ -949,10 +1021,29 @@ mr:
                 "--agent",
                 "auto",
                 "--from-ci",
+                "--launch",
             ]
         )
         self.assertTrue(resume_args.from_ci)
+        self.assertTrue(resume_args.launch)
         self.assertEqual(resume_args.agent, "auto")
+
+        continue_args = parser.parse_args(
+            [
+                "continue",
+                "abc123def456",
+                "--goal",
+                "Repair CI",
+            ]
+        )
+        self.assertEqual(continue_args.command, "continue")
+        self.assertEqual(continue_args.agent, "auto")
+        self.assertFalse(continue_args.no_launch)
+
+        inspect_only = parser.parse_args(
+            ["continue", "abc123def456", "--no-launch"]
+        )
+        self.assertTrue(inspect_only.no_launch)
 
     def test_agent_prompt_marks_ci_context_as_untrusted(self) -> None:
         status = FakeManager().status("abc123")
