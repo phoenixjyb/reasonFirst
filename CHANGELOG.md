@@ -7,6 +7,9 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Add persistent `REASONFIRST_DEFAULT_BACKEND` selection with explicit `codex-cli`, `copilot-cli`, `codex-desktop`, or `auto`; explicit CLI `--agent` remains highest priority.
+- Add real Codex Desktop/App Server approval mediation: TTY approval for local ActualCoder and bounded pending/approve/decline MCP tools for bridge sessions, with timeout/default-deny and turn-scoped permission grants by default.
+- Add worker-policy satisfaction evidence: Codex CLI preflights the signed-in App Server model catalog/admin constraints without model inference; Codex Desktop validates catalog + resolved thread model/effort/sandbox/approval and records runtime reroutes as policy violations. CLI-only surfaces clearly report when runtime/provider resolution is not independently attested.
 - Add user-owned coding-worker policy controls: Codex defaults to GPT-5.6 Sol / High and receives explicit sandbox/approval/network settings; Copilot can receive explicit model/effort plus allow/deny tool rules, with git push denied by default. Interactive behavior remains the default unless a non-interactive execution mode is explicitly configured.
 - Preserve unpublished commits during normal workspace cleanup and abandoned-branch recovery using fresh publication evidence and compare-and-delete refs (#5).
 - Propagate failed child commands/timeouts to shell exit status while retaining structured results (#7).

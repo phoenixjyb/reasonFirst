@@ -112,6 +112,7 @@ class AgentSettings:
     git_author_name: str | None
     git_author_email: str | None
     api_ca_bundle: Path | None = None
+    default_backend: str = "auto"
     codex_model: str = "gpt-5.6-sol"
     codex_reasoning_effort: str = "high"
     codex_execution_mode: str = "interactive"
@@ -139,7 +140,14 @@ class AgentSettings:
         base_url = validate_base_url(base_url)
 
         api_token = os.getenv("GITLAB_TOKEN", "").strip()
-        git_token = os.getenv("GITLAB_GIT_TOKEN", "").strip() or api_token
+        git_https_token = os.getenv("GITLAB_GIT_TOKEN", "").strip()
+        git_https_password = os.getenv("GITLAB_GIT_PASSWORD", "").strip()
+        if git_https_token and git_https_password:
+            raise RuntimeError(
+                "Set only one of GITLAB_GIT_TOKEN or GITLAB_GIT_PASSWORD; "
+                "ambiguous Git credential sources are not allowed"
+            )
+        git_token = git_https_token or git_https_password or api_token
 
         root = Path(
             os.getenv(
@@ -178,6 +186,18 @@ class AgentSettings:
             max_file_bytes=int(os.getenv("GITLAB_MAX_WRITE_FILE_BYTES", "1000000")),
             git_author_name=os.getenv("GITLAB_GIT_AUTHOR_NAME") or None,
             git_author_email=os.getenv("GITLAB_GIT_AUTHOR_EMAIL") or None,
+            default_backend=env_choice(
+                "REASONFIRST_DEFAULT_BACKEND",
+                "auto",
+                {
+                    "auto",
+                    "codex",
+                    "codex-cli",
+                    "copilot",
+                    "copilot-cli",
+                    "codex-desktop",
+                },
+            ),
             codex_model=os.getenv("REASONFIRST_CODEX_MODEL", "gpt-5.6-sol").strip()
             or "gpt-5.6-sol",
             codex_reasoning_effort=env_choice(
