@@ -2,6 +2,8 @@
 
 This is the current source-checkout guide. [中文上手](QUICKSTART_CN.md) · [Documentation index](README.md) · [Security boundaries](../SECURITY.md).
 
+**Role in ReasonFirst:** this is the execution-engine/operator guide, not a separate primary product mode. The normal workflow begins in ChatGPT (or another strong reasoning interface), where architecture, diagnosis, scope and acceptance criteria are decided. Use this guide to configure and run the worker side of that approved task. Direct CLI-only use remains useful for testing, recovery and automation.
+
 Use a trusted personal development machine and repositories you are authorized to access. Worktrees and executable allowlists are not a sandbox. Stop on errors; do not turn off TLS verification or broaden permissions to make a check pass.
 
 ## 1. Try the code before adding credentials

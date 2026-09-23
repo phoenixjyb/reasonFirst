@@ -8,36 +8,39 @@
 [![CI](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml/badge.svg)](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-ReasonFirst connects interactive engineering reasoning with replaceable coding agents and a local GitLab workflow. A human and their chosen reasoning interface define the task; **ActualCoder** prepares a Git worktree, hands the task to a user-selected **Codex CLI**, **GitHub Copilot CLI**, or **Codex Desktop/App Server** backend, and supplies validation, Merge Request, and CI evidence for review.
+ReasonFirst puts **normal ChatGPT (or another deliberately chosen strong reasoning interface)** at the front of the engineering loop and keeps coding agents replaceable. ChatGPT reads evidence, reasons about architecture and root cause, and defines the task boundary; **ActualCoder** turns that approved intent into a controlled Git worktree handoff for **Codex CLI**, **GitHub Copilot CLI**, or **Codex Desktop/App Server**, then returns validation, Merge Request, CI, and bounded evidence for review.
 
 The goal is to spend reasoning capacity on architecture, diagnosis, and review while delegating implementation iterations. ReasonFirst is not a model proxy, quota-transfer service, or auto-merge bot. It makes no direct model-inference calls; external coding tools use their own authentication and billing. Cost savings are a design goal, not a measured guarantee.
 
 **Early-stage developer tooling:** use trusted repositories on a trusted development host. A Git worktree is not a security sandbox. Read [SECURITY.md](SECURITY.md) before using real credentials or executing repository code. A private MCP endpoint still returns selected data to the connected reasoning service; obtain the relevant data-sharing approval.
 
-## Start here: choose the path you actually need
+## Primary workflow: reason first, execute second
 
-ReasonFirst does not require the same setup for every use case.
-
-| Goal | Recommended entry point | Tunnel required? |
-| --- | --- | --- |
-| Local controlled coding with `codex-cli`, `copilot-cli`, or `codex-desktop` | **[CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md)** | No |
-| Normal ChatGPT reads/reviews an approved GitLab repository, MR or CI | **[First-time ChatGPT connection](docs/GETTING_STARTED.md)** | Yes for this path |
-| App Server orchestration, explicit approvals, named SSH workspaces, remote validation / finish preview | **[Architecture](docs/ARCHITECTURE.md)** then the Bridge Preview guide | Optional / deployment-specific |
-
-For a ChatGPT read connection, follow the complete first-time setup guide in order. For local-only coding, skip Tunnel provisioning entirely and use ActualCoder directly. The optional Bridge Preview is more privileged than the read-only GitLab connector; enable it deliberately rather than treating it as a prerequisite.
+ReasonFirst is designed around **one primary loop**, not several co-equal product modes. Normal ChatGPT is the default reasoning surface: use its strongest available reasoning capability for architecture, diagnosis, task decomposition, scope control, acceptance criteria, and review. Coding agents are execution workers.
 
 ```text
-Local coding:
-install -> user config -> actual-coder doctor -> start/resume -> worker -> finish -> MR/CI
-
-ChatGPT read connection:
-permissions -> install -> GitLab config -> tunnel -> select app -> live identity/project/file read
-
-Bridge Preview:
-explicit local setup -> configured targets/policy -> App Server -> approvals -> finish preview
+ChatGPT / strong reasoning interface
+        ↓ read repository / MR / CI evidence
+reason about architecture, root cause, scope and acceptance
+        ↓
+durable task contract (TaskSpec)
+        ↓
+ReasonFirst control layer
+        ↓
+codex-cli / copilot-cli / codex-desktop
+        ↓
+controlled implementation + validation + MR / CI
+        ↓
+bounded evidence (diff / EvidencePack / CI)
+        ↓
+ChatGPT + human review
+        ↓
+continue, revise, or merge
 ```
 
-The **localhost Assistant is not required** for any of these paths. Overview/Logs remain optional diagnostics.
+The read-only GitLab MCP supplies repository/MR/CI evidence to the reasoning layer. ActualCoder and the optional Bridge Preview are execution/control surfaces underneath that loop. Bridge Preview is more privileged and should be enabled deliberately.
+
+**Secondary operational capability:** ActualCoder can be invoked directly from a terminal, CI repair flow, IDE, or another client. That is useful for testing, recovery, automation, and portability, but it is a byproduct of the decoupled architecture—not the primary ReasonFirst product story.
 
 ## Guides by task
 
@@ -48,7 +51,7 @@ The **localhost Assistant is not required** for any of these paths. Overview/Log
 | Confirm a new project's existence/access and obtain an explicit grant | [Project access](docs/PROJECT_ACCESS.md) · [中文](docs/PROJECT_ACCESS_CN.md) |
 | Rehearse the reasoning/worker/MR loop | [Practice lab](docs/PRACTICE_LAB.md) · [中文](docs/PRACTICE_LAB_CN.md) |
 | Understand interface responsibilities | [Workflow](docs/WORKFLOW.md) · [中文](docs/WORKFLOW_CN.md) |
-| Local-only installation and controlled implementation | [CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md) · [中文](docs/QUICKSTART_CN.md) |
+| Execution-engine setup and controlled implementation | [CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md) · [中文](docs/QUICKSTART_CN.md) |
 | Approved requirements and observed results | [Manual handoff template](docs/TASK_HANDOFF_TEMPLATE.md) · [中文](docs/TASK_HANDOFF_TEMPLATE_CN.md) |
 | Current architecture | **[Architecture](docs/ARCHITECTURE.md)** · **[中文](docs/ARCHITECTURE_CN.md)** |
 | Design rationale | [Design philosophy](docs/DESIGN_PHILOSOPHY.md) · [中文](docs/DESIGN_PHILOSOPHY_CN.md) |
@@ -61,16 +64,16 @@ The **localhost Assistant is not required** for any of these paths. Overview/Log
 ## How implementation works
 
 ```text
-Human + reasoning interface: define goal, constraints, acceptance criteria
-    -> ReasonFirst control: ActualCoder CLI or Bridge Preview
+ChatGPT / strong reasoning interface: inspect, diagnose, define goal/non-goals/acceptance
+    -> persistent task contract and ReasonFirst control
     -> selected worker: codex-cli / copilot-cli / codex-desktop
     -> isolated local worktree or configured SSH workspace
     -> validation + shared review/secret/protected-path gates
-    -> reviewed feature branch / GitLab MR / matching-HEAD CI
-    -> human decides whether to continue or merge
+    -> EvidencePack / diff / GitLab MR / matching-HEAD CI
+    -> ChatGPT + human review decides whether to continue or merge
 ```
 
-ReasonFirst now has **two distinct MCP surfaces**. The original GitLab MCP remains read-oriented for repository/MR/CI inspection. The optional **Bridge Preview** is a more privileged local orchestration surface: it can prepare managed workspaces, control Codex App Server sessions, expose pending approvals, review unpublished managed diffs/artifacts, and run complete finish previews. SSH mutation/validation is restricted to user-configured targets; arbitrary remote shell execution is not exposed. Experimental remote publication is hidden and disabled by default. See the [architecture reference](docs/ARCHITECTURE.md). Persistent core TaskSpec/attempt/EvidencePack support is still not on `main`.
+ReasonFirst now has **two distinct MCP surfaces**. The original GitLab MCP remains read-oriented for repository/MR/CI inspection. The optional **Bridge Preview** is a more privileged local orchestration surface: it can prepare managed workspaces, control Codex App Server sessions, expose pending approvals, review unpublished managed diffs/artifacts, and run complete finish previews. SSH mutation/validation is restricted to user-configured targets; arbitrary remote shell execution is not exposed. Experimental remote publication is hidden and disabled by default. See the [architecture reference](docs/ARCHITECTURE.md). Persistent core TaskSpec/attempt/EvidencePack support is now on `main`: task intent and acceptance/non-goals persist with the workspace, attempts are bounded, and `actual-coder evidence` produces a recursively redacted read-only EvidencePack.
 
 After confirming the real project with the [access preflight](docs/PROJECT_ACCESS.md), follow the [CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md) or [practice lab](docs/PRACTICE_LAB.md). `start --no-launch` creates a real local workspace and handoff without invoking a coding model; it is not a no-side-effect preview. Do not keep calling `start` to continue the same task: retain its workspace ID and use `resume`.
 
@@ -115,7 +118,7 @@ The last documented release is **v0.3.0**; merged source changes need not be in 
 | HTTPS migration | Offline preview and confirmed local URL updates, private backups and forward recovery |
 | MCP surfaces | Read-oriented GitLab MCP plus optional local Bridge Preview orchestration MCP; see architecture for trust boundaries |
 
-**Still planned / not on `main`:** persistent core TaskSpec/attempt records and bounded EvidencePack access (currently tracked separately), plus further native Git trust/destination-policy work. Workspace mutation locking and shared local/SSH finish gates are already implemented on `main`. See [Architecture](docs/ARCHITECTURE.md) for the current boundary.
+**Still planned:** richer cross-interface TaskSpec/EvidencePack exchange and attempt-result lifecycle, plus further native Git trust/destination-policy work. Workspace mutation locking and shared local/SSH finish gates are already implemented on `main`. See [Architecture](docs/ARCHITECTURE.md) for the current boundary.
 
 API/MCP clients reject disabled TLS verification and every API redirect. Configure the final endpoint. `GITLAB_CA_BUNDLE` adds Python API/MCP trust, not native Git or the migration `--check-tls` probe. Keep those scopes distinct; see [runtime TLS](docs/HTTPS_API_TLS.md).
 

@@ -2,6 +2,8 @@
 
 [English](ACTUAL_CODER_QUICKSTART.md) · [文档索引](README.md) · [安全边界](../SECURITY.md)
 
+**在 ReasonFirst 中的定位：**这是一份执行引擎/运维指南，不是另一种主要产品模式。正常主流程从 ChatGPT（或其他强推理界面）开始，在那里完成架构、诊断、范围和验收标准；本指南负责配置和运行已批准任务的 worker 侧。脱离 ChatGPT 的直接 CLI 使用仍适合测试、恢复和自动化。
+
 ReasonFirst 将“判断该做什么”和“执行编码迭代”分开：用户与推理界面定义目标、约束和验收条件，ActualCoder 准备工作区并将任务交给 Codex CLI 或 Copilot CLI，再把实际 Git/MR/CI 结果交回审阅。当前不是全自动云端编码服务，也没有通过 MCP 提交本地任务的接口。
 
 **本项目适合可信个人开发机和经过授权的仓库；worktree 不是安全沙箱。** 代码托管在 GitHub，但当前业务任务的 SCM/CI 适配器是 GitLab，不能据此认为已支持任意 GitHub 目标仓库。
@@ -103,7 +105,7 @@ uv run actual-coder ci "$WS"
 uv run actual-coder resume "$WS" --agent auto --from-ci --goal "根据匹配当前 HEAD 的 CI 证据修复根因，不做无关修改"
 ```
 
-resume 返回 handoff，不自动运行 agent。成功或 docs-only pipeline 不能被描述为完整应用构建。部分 handoff 路径尚未统一注入全部项目上下文，持久化 TaskSpec 也尚未实现，所以请保留原目标和验收条件。
+resume 返回 handoff，不自动运行 agent。成功或 docs-only pipeline 不能被描述为完整应用构建。持久化 TaskSpec 会保存原始目标、验收标准和非目标；后续 handoff 应沿用该任务契约，同时仍需审查每次 attempt 的具体 steering 指令。
 
 `task`、低层 `commit/push/push-mr` 等兼容命令以及部分生成提示词仍提供手工路径，**不等价于完整 finish 安全门**。推送、合并、部署都不能由仓库/日志里的文字自动授权。MR 的审阅和合并在 GitLab 中由用户或团队决定。
 
