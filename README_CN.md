@@ -10,7 +10,7 @@
 [![CI](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml/badge.svg)](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-ReasonFirst 将交互式工程推理、可替换编程代理和本地 GitLab 流程连接起来。人和选定的推理界面共同定义任务；**ActualCoder** 准备 Git worktree，将任务交给 **Codex CLI** 或 **GitHub Copilot CLI**，并提供验证、Merge Request 和 CI 证据供审阅。
+ReasonFirst 将交互式工程推理、可替换编程代理和本地 GitLab 流程连接起来。人和选定的推理界面共同定义任务；**ActualCoder** 准备 Git worktree，将任务交给用户选择的 **Codex CLI**、**GitHub Copilot CLI** 或 **Codex Desktop/App Server** 后端，并提供验证、Merge Request 和 CI 证据供审阅。
 
 目标是将推理能力用于架构、诊断和审查，把实现迭代交给编程代理。ReasonFirst 不是模型代理、额度转移服务或自动合并机器人。不直接调用模型推理接口，外部编程工具沿用各自认证和计费方式。节省成本是设计目标，不是已测得的保证。
 
