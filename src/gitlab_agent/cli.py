@@ -818,6 +818,111 @@ def _selection_for_request(
     return _select_agent(requested)
 
 
+def _prepare_resume(
+    manager: WorkspaceManager,
+    settings: AgentSettings,
+    gitlab_api: GitLabAPI,
+    *,
+    workspace_id: str,
+    goal: str,
+    requested_agent: str,
+    from_ci: bool = False,
+    ci_tail_bytes: int = 12000,
+    ci_max_failed_jobs: int = 3,
+) -> dict[str, object]:
+    """Build a bounded, project-aware handoff for an existing workspace."""
+
+    resume_status = manager.status(workspace_id)
+    project = str(resume_status["project"])
+    base_sha = str(resume_status["base_sha"])
+
+    remote = manager.read_remote_text_file(
+        project,
+        PROJECT_CONFIG_FILENAME,
+        ref=base_sha,
+        refresh_remote=False,
+        max_bytes=PROJECT_CONFIG_MAX_BYTES,
+    )
+    parsed = parse_project_config(
+        remote["content"] if remote["exists"] else None,
+        settings=settings,
+        source_ref=str(remote["ref"]),
+        source_path=PROJECT_CONFIG_FILENAME,
+    )
+    if not parsed.valid:
+        raise RuntimeError(
+            "Cannot resume because the pinned base .actualcoder.yaml is invalid: "
+            + "; ".join(parsed.errors)
+        )
+    project_context = dict(parsed.effective)
+
+    selection = _selection_for_request(
+        manager,
+        settings,
+        requested=requested_agent,
+        project=project,
+        ref=base_sha,
+        refresh_remote=False,
+    )
+
+    ci_feedback: dict[str, object] | None = None
+    ci_context: str | None = None
+    if from_ci:
+        ci_feedback = collect_ci_feedback(
+            manager=manager,
+            api=gitlab_api,
+            workspace_id=workspace_id,
+            tail_bytes=ci_tail_bytes,
+            max_failed_jobs=ci_max_failed_jobs,
+        )
+        if not bool(ci_feedback.get("found")):
+            raise RuntimeError(
+                "No GitLab CI pipeline was found for this workspace branch. "
+                "Push the branch/MR and wait for a pipeline before using --from-ci."
+            )
+        if bool(ci_feedback.get("stale_for_workspace")):
+            pipeline = ci_feedback.get("pipeline")
+            pipeline_sha = (
+                pipeline.get("sha")
+                if isinstance(pipeline, dict)
+                else None
+            )
+            raise RuntimeError(
+                "Latest CI feedback is stale for the current workspace HEAD "
+                f"(pipeline SHA={pipeline_sha}, workspace HEAD={resume_status['head']}). "
+                "Push/update the current branch and use the matching pipeline."
+            )
+        ci_context = str(ci_feedback.get("repair_context") or "")
+
+    selected_agent = str(selection["selected"])
+    handoff = _handoff(
+        manager,
+        workspace_id,
+        goal,
+        agent=selected_agent,
+        agent_selection=selection,
+        project_context=project_context,
+        ci_context=ci_context,
+        worker_policy=_policy_for_agent(settings, selected_agent),
+    )
+    handoff["project_config"] = {
+        "found": parsed.found,
+        "valid": parsed.valid,
+        "source": {
+            "ref": parsed.source_ref,
+            "path": parsed.source_path,
+        },
+        "commit_sha": remote["commit_sha"],
+        "effective": project_context,
+        "warnings": parsed.warnings,
+    }
+    return (
+        {"ci": ci_feedback, **handoff}
+        if ci_feedback is not None
+        else handoff
+    )
+
+
 def _available_agents() -> dict[str, object]:
     agents: list[dict[str, object]] = []
     for name in ("codex", "copilot", "codex-desktop"):
@@ -1073,6 +1178,36 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
         type=int,
         default=3,
         help="Maximum failed job logs attached when --from-ci is used",
+    )
+    p.add_argument(
+        "--launch",
+        action="store_true",
+        help="Launch the selected coding backend after printing the resumed handoff",
+    )
+
+    p = sub.add_parser(
+        "continue",
+        help="Resume an existing workspace and launch the selected coding backend",
+    )
+    p.add_argument("workspace_id")
+    p.add_argument("--goal", default="")
+    p.add_argument(
+        "--agent",
+        choices=AGENT_CHOICES,
+        default="auto",
+        help="Coding backend (default: auto, honoring the user default)",
+    )
+    p.add_argument(
+        "--from-ci",
+        action="store_true",
+        help="Attach current-head GitLab CI context before launching",
+    )
+    p.add_argument("--ci-tail-bytes", type=int, default=12000)
+    p.add_argument("--ci-max-failed-jobs", type=int, default=3)
+    p.add_argument(
+        "--no-launch",
+        action="store_true",
+        help="Return the resumed handoff without launching the worker",
     )
 
     p = sub.add_parser("path", help="Show the worktree path for a workspace")
@@ -1428,61 +1563,42 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
             result = [manager.status(state.workspace_id) for state in manager.list_states()]
         elif args.command == "status":
             result = manager.status(args.workspace_id)
-        elif args.command == "resume":
-            resume_status = manager.status(args.workspace_id)
-            selection = _selection_for_request(
+        elif args.command in {"resume", "continue"}:
+            result = _prepare_resume(
                 manager,
                 settings,
-                requested=args.agent,
-                project=str(resume_status["project"]),
-                ref=str(resume_status["base_sha"]),
-                refresh_remote=False,
+                gitlab_api,
+                workspace_id=args.workspace_id,
+                goal=args.goal,
+                requested_agent=args.agent,
+                from_ci=args.from_ci,
+                ci_tail_bytes=args.ci_tail_bytes,
+                ci_max_failed_jobs=args.ci_max_failed_jobs,
             )
-
-            ci_feedback: dict[str, object] | None = None
-            ci_context: str | None = None
-            if args.from_ci:
-                ci_feedback = collect_ci_feedback(
-                    manager=manager,
-                    api=gitlab_api,
-                    workspace_id=args.workspace_id,
-                    tail_bytes=args.ci_tail_bytes,
-                    max_failed_jobs=args.ci_max_failed_jobs,
+            launch_requested = (
+                bool(args.launch)
+                if args.command == "resume"
+                else not bool(args.no_launch)
+            )
+            if launch_requested:
+                _print({
+                    "ok": True,
+                    "command": args.command,
+                    "launch_requested": True,
+                    **result,
+                })
+                print(
+                    f"[actual-coder] launching {result['agent']} in "
+                    f"{result['worktree_path']} ...",
+                    file=sys.stderr,
+                    flush=True,
                 )
-                if not bool(ci_feedback.get("found")):
-                    raise RuntimeError(
-                        "No GitLab CI pipeline was found for this workspace branch. "
-                        "Push the branch/MR and wait for a pipeline before using --from-ci."
-                    )
-                if bool(ci_feedback.get("stale_for_workspace")):
-                    pipeline = ci_feedback.get("pipeline")
-                    pipeline_sha = (
-                        pipeline.get("sha")
-                        if isinstance(pipeline, dict)
-                        else None
-                    )
-                    raise RuntimeError(
-                        "Latest CI feedback is stale for the current workspace HEAD "
-                        f"(pipeline SHA={pipeline_sha}, workspace HEAD={resume_status['head']}). "
-                        "Push/update the current branch and use the matching pipeline."
-                    )
-                ci_context = str(ci_feedback.get("repair_context") or "")
-
-            selected_agent = str(selection["selected"])
-            handoff = _handoff(
-                manager,
-                args.workspace_id,
-                args.goal,
-                agent=selected_agent,
-                agent_selection=selection,
-                ci_context=ci_context,
-                worker_policy=_policy_for_agent(settings, selected_agent),
-            )
-            result = (
-                {"ci": ci_feedback, **handoff}
-                if ci_feedback is not None
-                else handoff
-            )
+                launch_result = _launch_handoff(result)
+                _print({
+                    "workspace_id": args.workspace_id,
+                    "launch": launch_result,
+                })
+                return int(launch_result["returncode"])
         elif args.command == "path":
             path = str(manager.status(args.workspace_id)["worktree_path"])
             if args.plain:
