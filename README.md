@@ -1,6 +1,6 @@
 # ReasonFirst
 
-**English** · [简体中文](README_CN.md) · **[First-time setup](docs/GETTING_STARTED.md)** · [Documentation index](docs/README.md)
+**English** · [简体中文](README_CN.md) · **[Documentation site](https://phoenixjyb.github.io/reasonFirst/)** · [First-time setup](docs/GETTING_STARTED.md) · [Documentation index](docs/README.md)
 
 > **Reasoning-first coding orchestration.**
 > Use your strongest reasoning model for reasoning. Let coding agents do the coding.
