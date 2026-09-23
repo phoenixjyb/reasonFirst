@@ -1,18 +1,20 @@
 # 一个推理界面，一套受控实现流程
 
-[English](WORKFLOW.md) · [项目说明](../README_CN.md) · [中文接入](OPENAI_TUNNEL_TEAM_SETUP_CN.md) · [CLI 快速上手](QUICKSTART_CN.md) · [任务交接模板](TASK_HANDOFF_TEMPLATE_CN.md)
+[English](WORKFLOW.md) · [项目说明](../README_CN.md) · [架构说明](ARCHITECTURE_CN.md) · [CLI 快速上手](QUICKSTART_CN.md) · [任务交接模板](TASK_HANDOFF_TEMPLATE_CN.md)
 
 <!-- Translation source: docs/WORKFLOW.md @ a3e33c72c55efef6a0dc3808fb9853c62ad15f9d -->
 
-**使用普通 ChatGPT 对话进行推理与审查，使用 ActualCoder 配合选定的编程 CLI 完成实现。本地 localhost Assistant 不属于这条必需流程。** 也可以明确选择其他兼容的推理客户端，但开发机上不需要额外增加一个对话界面。
+**用一个推理界面负责规划/审查，用一条受控执行路径负责实现。** 普通 ChatGPT 是默认推理表面；ActualCoder 或可选 Bridge Preview 编排 `codex-cli`、`copilot-cli`、`codex-desktop`。localhost Assistant 不是必需组件。
 
 ## 各项操作应该在哪里进行
 
 | 界面或组件 | 职责 | 是否必需 |
 | --- | --- | --- |
-| 普通 ChatGPT 对话 | 通过选定连接读取代码、诊断问题、明确范围、审查结果 | 本指南选用的推理界面 |
-| `tunnel-client` 与 ReasonFirst `server.py` | 转发并提供只读 GitLab MCP 调用 | Tunnel 接入需要；纯 CLI 使用不需要 |
-| 终端中的 ActualCoder 与 Codex/Copilot CLI | 准备工作树、实现已批准任务、验证，并通过经审阅的 finish 流程发布 | 本地实现流程需要 |
+| 普通 ChatGPT 对话 | 通过选定连接读取代码、诊断、明确范围、审查结果 | 默认推理界面 |
+| 只读 GitLab MCP + Tunnel | 只负责仓库/MR/CI 检查 | 仅 ChatGPT read-connection 路径需要 |
+| 终端 ActualCoder | 准备/管理本地 worktree、选择/启动 worker、验证、reviewed finish | 正常本地实现路径 |
+| Bridge Preview MCP | 可选本地编排：App Server、审批、受管 SSH workspace、finish preview | 可选，权限高于 read connector |
+| 编程 worker | `codex-cli`、`copilot-cli` 或 `codex-desktop` 执行获批实现 | 真正实现任务时需要 |
 | GitLab MR/CI 界面 | 检查仓库证据，由人工作出合并决定 | 审查或发布变更时使用 |
 | 本地仪表盘 Overview/Logs | 诊断 Tunnel | 可选 |
 | 本地仪表盘 Assistant（`/ui#codex`） | 上游提供的独立 Codex 界面 | **不是必需组件，也不是验收门槛** |
@@ -20,25 +22,38 @@
 
 不使用 localhost Assistant 不等于卸载 Codex：Codex CLI 仍可作为实现任务的执行者。关闭仪表盘不会停止 Tunnel，也不一定会禁用上游客户端附带的后台辅助进程。本指南没有修改该进程，也不声称将其禁用。
 
-## 两条路径，通过人工明确交接
+## 三种支持的工作路径
 
 ```text
-读取与审查：
-普通 ChatGPT <-> OpenAI Tunnel 服务 <-> tunnel-client
-            <-> ReasonFirst 只读 MCP <-> GitLab HTTPS API
+A. 只读/审查
+普通 ChatGPT
+  <-> OpenAI Tunnel
+  <-> ReasonFirst 只读 GitLab MCP
+  <-> GitLab API
 
-实现：
-ChatGPT 对话中批准的任务
-  -> 经人工审查的本地交接
-  -> ActualCoder + 选定的编程 CLI
-  -> 验证 / 经审阅的 finish
-  -> 功能分支 / MR / CI
-  -> ChatGPT 与人工审查证据
+B. 本地实现
+推理界面
+  -> 获批任务
+  -> ActualCoder
+  -> codex-cli / copilot-cli / codex-desktop
+  -> 本地受管 worktree
+  -> reviewed finish
+  -> GitLab MR / CI
+
+C. Bridge Preview 编排
+推理界面 / 已连接 MCP 客户端
+  -> Bridge Preview
+  -> 本地或命名 SSH workspace
+  -> Codex App Server + 显式审批
+  -> finish preview / bounded evidence
+  -> 只有显式启用才允许实验性远端 publish
 ```
 
-传输层负责转发请求，不需要本地语言模型解释请求。当前 MCP bridge 提供 GitLab 读取能力，**不提供**本地任务提交或执行能力。ChatGPT 不能通过该 bridge 读取尚未发布的本地 diff。可以人工分享经过审阅和脱敏的本地证据；或者，在明确批准发布之后，通过 MCP 读取已发布的 MR/CI。
+A 是读取路径；B 是默认正式实现路径；C 是可选、权限更高的本地编排路径，不应为了普通仓库读取而默认启用。
 
-当前尚无自动 TaskSpec 导入、持久化任务修订或统一 EvidencePack 接口。[人工模板](TASK_HANDOFF_TEMPLATE_CN.md)只是写作辅助，不是运行时数据格式或新增 CLI 功能。不同交接入口目前仍可能携带不同的项目上下文；需要检查返回的提示词，并自行保留已批准的要求。
+Bridge SSH target 必须由用户预先命名配置，调用方不能临时指定任意 host。远端 build/test 只有配置结构化容器 validation policy 后才可用；不暴露任意远端 shell。
+
+持久 core TaskSpec/attempt/EvidencePack 仍未进入当前 `main`。人工 handoff 模板仍适合明确任务边界。
 
 ## 日常任务循环
 
@@ -83,7 +98,7 @@ Finish 会请求确认。仍需审查执行者提出的操作：低层 commit/pu
 
 记录 base 与 HEAD、尚未提交的变更、实际验证命令及结果、MR 链接、CI SHA 和覆盖范围。成功的 docs-only 流水线不是完整构建；历史上成功且 SHA 匹配的流水线，不是发生了新推送的证据。HEAD 对应的 CI 不覆盖未提交变更。
 
-对于确实失败且与当前 HEAD 匹配的 CI，`resume --from-ci` 会准备修复交接；它不会自动启动或完成修复。CI 已成功时，不要为了附带的 CI 上下文凭空修改代码。人工审查和合并仍是独立操作。
+对于确实失败且与当前 HEAD 匹配的 CI，`resume --from-ci` 会准备修复交接；只有明确希望继续执行该 workspace 时，才使用 `resume --launch` 或 `actual-coder continue` 启动所选 backend。CI 已成功时，不要为了附带的 CI 上下文凭空修改代码。人工审查和合并仍是独立操作。
 
 ## 分层验收
 
@@ -100,4 +115,4 @@ Finish 会请求确认。仍需审查执行者提出的操作：低层 commit/pu
 
 ## 下一步产品工作
 
-后续演进应保留这种职责划分：先统一交接，再协调工作区写入与恢复，随后实现持久化任务修订、执行尝试和有界证据访问。不要用增加另一个聊天界面来补偿任务与证据交接不连续的问题。这些改进由 [Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) 跟踪，属于规划，而不是本指南已经交付的功能。
+后续演进应继续保持 reasoning/control/execution/evidence 分层。工作区锁、resume launch、远端容器 validation 与本地/SSH 共用 review gates 已经实现；持久 core task revision/attempt 与 bounded EvidencePack 仍待单独合并。
