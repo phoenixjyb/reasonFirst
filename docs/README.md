@@ -8,7 +8,7 @@ These guides describe the source revision containing them, not necessarily the l
 
 **New user:** follow **[First-time setup: prerequisites to a real ChatGPT GitLab read](GETTING_STARTED.md)**. This is the complete macOS/Keychain path, with installation, GitLab configuration, OpenAI tunnel/permissions/runtime key, local profile, startup, ChatGPT app selection and acceptance checkpoints. Its [Chinese version](GETTING_STARTED_CN.md) follows the same executable steps.
 
-**Already connected:** use [daily start/status/stop/restart](TUNNEL_LIFECYCLE.md), not initial provisioning. **Local-only coding:** use [the CLI quickstart](ACTUAL_CODER_QUICKSTART.md); the tunnel is not needed for that separate route. **Advanced/manual/Windows:** use [the manual guide](SETUP_TUTORIAL.md) and [Windows procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell).
+**Choose the route first.** For **local coding only**, use the [CLI quickstart](ACTUAL_CODER_QUICKSTART.md); no tunnel is required. For a **normal ChatGPT read connection to GitLab**, use the first-time setup below. For the optional **Bridge Preview** local orchestration MCP (Codex App Server, approvals, SSH workspaces and finish preview), read [Architecture](ARCHITECTURE.md) first because it has a different trust boundary from the read-only GitLab MCP. **Already connected:** use [daily start/status/stop/restart](TUNNEL_LIFECYCLE.md). **Advanced/manual/Windows:** use [the manual guide](SETUP_TUTORIAL.md) and [Windows procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell).
 
 ## Current entry points
 
@@ -23,7 +23,8 @@ These guides describe the source revision containing them, not necessarily the l
 | Local source setup and controlled implementation | [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) | [快速上手](QUICKSTART_CN.md) |
 | Manual/advanced startup, credential alternatives | [Operator guide](SETUP_TUTORIAL.md) | [手工接入/Windows](OPENAI_TUNNEL_TEAM_SETUP_CN.md) |
 | Manual approved-task handoff and result evidence | [Writing template, not a runtime API](TASK_HANDOFF_TEMPLATE.md) | [人工交接与证据模板](TASK_HANDOFF_TEMPLATE_CN.md) |
-| Architectural intent | [Design philosophy](DESIGN_PHILOSOPHY.md) | [设计理念](DESIGN_PHILOSOPHY_CN.md) |
+| Current architecture and trust boundaries | **[Architecture](ARCHITECTURE.md)** | **[架构说明](ARCHITECTURE_CN.md)** |
+| Architectural intent / rationale | [Design philosophy](DESIGN_PHILOSOPHY.md) | [设计理念](DESIGN_PHILOSOPHY_CN.md) |
 | HTTP-to-HTTPS migration | [Migration](HTTPS_MIGRATION.md) | [迁移指南](HTTPS_MIGRATION_CN.md) |
 | API/MCP private CA, redirects and native Git boundaries | [Runtime TLS](HTTPS_API_TLS.md) | [运行时 TLS](HTTPS_API_TLS_CN.md) |
 | PR checkout, tests and source updates | [Local PR review](LOCAL_PR_REVIEW.md) | [本地 PR 审阅](LOCAL_PR_REVIEW_CN.md) |
@@ -46,9 +47,9 @@ Per-project authorization is `GITLAB_ALLOWED_PROJECTS` in the local MCP configur
 
 ## One reasoning interface, not another required chatbot
 
-Normal ChatGPT is the reasoning/review interface. Tunnel/MCP supplies reads; ActualCoder plus a selected coding CLI implements an approved manual handoff. The localhost Assistant, Codex tunnel plugin and Inspector are not prerequisites or acceptance gates. Overview/Logs are optional diagnostics. Not using the Assistant does not disable an upstream bundled helper or uninstall Codex.
+Normal ChatGPT is the reasoning/review interface. The read-only GitLab Tunnel/MCP supplies repository/MR/CI reads; ActualCoder implements approved local work with `codex-cli`, `copilot-cli`, or `codex-desktop`. The optional Bridge Preview is a separate, more privileged local orchestration surface and should not be confused with the read-only connector. The localhost Assistant, Codex tunnel plugin and Inspector are not prerequisites or acceptance gates. Overview/Logs are optional diagnostics. Not using the Assistant does not disable an upstream bundled helper or uninstall Codex.
 
-No local task-submission MCP endpoint, automatic TaskSpec ingestion or EvidencePack persistence is enabled by these guides. A successful read does not prove Git push, model login or full application CI works; test those during an approved implementation.
+The standard GitLab read connector still has no local task-execution role. The optional Bridge Preview does expose local orchestration tools, approvals, finish preview and configured SSH operations; persistent core TaskSpec/EvidencePack is still not on `main`. A successful read does not prove Git push, model login or full application CI works; test those during an approved implementation.
 
 ## Translation scope and maintenance
 
