@@ -378,6 +378,26 @@ class TunnelFixture(unittest.TestCase):
             self.assertEqual(self.events(), [])
             self.assertEqual(listener.getsockname()[1], self.port)
 
+    def test_control_socket_is_private_at_bind_before_chmod(self):
+        path = self.root / "birth-private.sock"
+        observed = {}
+        real_chmod = os.chmod
+
+        def inspect_before_chmod(target, mode):
+            if Path(target) == path:
+                observed["mode"] = path.lstat().st_mode & 0o777
+            return real_chmod(target, mode)
+
+        with patch.object(tunnel.os, "chmod", side_effect=inspect_before_chmod):
+            listener = tunnel.bind_private_control_socket(path)
+        try:
+            self.assertIn("mode", observed)
+            self.assertEqual(observed["mode"] & 0o077, 0)
+            self.assertEqual(path.lstat().st_mode & 0o777, 0o600)
+        finally:
+            listener.close()
+            path.unlink(missing_ok=True)
+
     def test_stale_socket_recovery_never_uses_pid_files(self):
         state = Path(self.settings.state_dir)
         state.mkdir(mode=0o700)
