@@ -24,6 +24,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Public documentation and contribution workflow
 
+- Recenter README, onboarding, architecture, workflow, documentation indexes and quickstarts on the primary ChatGPT-first reasoning loop; retain direct ActualCoder use as a secondary execution/operations capability rather than a co-equal product mode.
 - Add a bilingual current-architecture reference covering the two MCP surfaces, three worker backends, WorkerPolicy verification, approval mediation, workspace locking, structured SSH container validation, shared finish gates and experimental remote publication.
 - Rework README and Getting Started around three explicit entry paths: local ActualCoder, ChatGPT read connection, and the optional Bridge Preview orchestration surface.
 - Refresh English/Chinese workflow and documentation indexes so current `main` capabilities are separated from the still-unmerged TaskSpec/EvidencePack work.

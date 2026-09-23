@@ -2,43 +2,42 @@
 
 [English](ARCHITECTURE.md) · [项目说明](../README_CN.md) · [工作流程](WORKFLOW_CN.md) · [CLI 快速上手](QUICKSTART_CN.md)
 
-ReasonFirst 是一个**推理优先的编程编排系统**：架构、诊断、任务边界和最终审查保留在推理层；具体实现交给用户选择的编程后端，并由明确的工作区、策略、验证和发布控制约束。
+ReasonFirst 是一个**ChatGPT 强推理在前、worker 执行在后的编程编排系统**。普通 ChatGPT 是默认推理界面：架构、诊断、任务边界、验收标准和最终审查留在推理层；具体实现交给用户选择的编程后端，并由明确的工作区、策略、验证和发布控制约束。
 
 本文描述当前 `main` 的实际架构，而不是未来愿景。
 
 ## 1. 总体结构
 
 ```text
-                      ┌────────────────────────┐
-                      │ 人 + 推理界面           │
-                      │ ChatGPT / 兼容客户端    │
-                      └───────────┬────────────┘
-                                  │ 方案 / 审查 / 证据
-                                  ▼
-                   ┌────────────────────────────┐
-                   │ ReasonFirst 控制层         │
-                   │ ActualCoder CLI / Bridge MCP│
-                   └───────────┬────────────────┘
-                               │
-             ┌─────────────────┼──────────────────┐
-             ▼                 ▼                  ▼
-        WorkerPolicy       工作区控制          审查 / finish
-      模型/努力/权限       本地 Git / SSH       共享 review gates
-             │                 │                  │
-             └────────────┬────┴─────────────┬────┘
-                          ▼                  ▼
-                 编程后端                  证据
-          codex-cli / copilot-cli      diff / CI / artifacts
-              / codex-desktop          approvals / policy
-                          │
-                          ▼
-                    隔离功能分支
-                          │
-                          ▼
-                     GitLab MR / CI
+                  ┌──────────────────────────┐
+                  │ ChatGPT / 强推理层       │
+                  │ 架构 · 诊断 · 范围       │
+                  │ 验收标准 · 最终审查      │
+                  └────────────┬─────────────┘
+                               │ TaskSpec / 意图
+                               ▼
+                    ┌──────────────────────┐
+                    │ ReasonFirst 控制层   │
+                    │ 策略 · workspace    │
+                    │ validation · evidence│
+                    └───────────┬──────────┘
+                                │ 有界 handoff
+                                ▼
+                    ┌──────────────────────┐
+                    │ 编程 worker          │
+                    │ codex/copilot/desktop│
+                    └───────────┬──────────┘
+                                │ 实现
+                                ▼
+                    受管 worktree / SSH workspace
+                                │
+                                ▼
+                    diff · EvidencePack · MR · CI
+                                │
+                                └──────────► ChatGPT + 人工审查
 ```
 
-核心原则是：**worker 可以替换，控制契约不能随 worker 改变。**
+核心原则是：**推理层主导，worker 执行，而且 worker 可以替换。** 后端选择不能改变用户拥有的任务范围、workspace identity、review gates 或发布策略。ActualCoder 的直接独立调用仍可用于测试、恢复和自动化，但它属于执行引擎能力，不是另一套并列产品架构。
 
 ## 2. 两种 MCP 表面
 
@@ -202,14 +201,16 @@ ReasonFirst 是控制软件，不是通用 sandbox。需要明确区分：
 | local finish | `src/gitlab_agent/finish.py` |
 | CI / log evidence | `src/gitlab_agent/ci_feedback.py`、`log_evidence.py` |
 | project contract | `src/gitlab_agent/project_config.py` |
+| 持久 TaskSpec / attempts | `src/gitlab_agent/task_state.py` + workspace state integration |
+| bounded EvidencePack | `src/gitlab_agent/evidence.py` |
 | Bridge controller | `tools/reasonfirst_v4_0_3/reasonfirst_codex_bridge/controller.py` |
 | SSH workspace / remote validation / reviewed push | `tools/reasonfirst_v4_0_3/reasonfirst_codex_bridge/remote_workspace.py` |
 | Bridge target config | `tools/reasonfirst_v4_0_3/reasonfirst_codex_bridge/bridge_config.py` |
 | Bridge MCP | `tools/reasonfirst_v4_0_3/reasonfirst_mcp_server.py` |
 
-## 13. 尚未进入 main 的能力
+## 13. 当前边界与后续工作
 
-当前开放的 TaskSpec / EvidencePack PR 尚未进入 `main`，因此本文不把持久 task revision/attempt 与 core EvidencePack 说成已发布能力。
+持久 TaskSpec/attempt 记录和 core bounded EvidencePack 已进入 `main`。任务契约绑定 workspace 的 project/base identity，attempt 历史有界，证据生成只读并递归脱敏。
 
 GitLab 仍是已实现的 SCM/CI adapter；源码托管在 GitHub 不代表已经有 GitHub target workflow。
 

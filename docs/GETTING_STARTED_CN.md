@@ -2,17 +2,21 @@
 
 [English](GETTING_STARTED.md) · [中文文档索引](README_CN.md) · [架构说明](ARCHITECTURE_CN.md) · [日常隧道操作](TUNNEL_LIFECYCLE_CN.md)
 
-## 先选择你真正需要的路径
+## ReasonFirst 的目标主流程
 
-并不是每个任务都需要全部 ReasonFirst 接入。
+本指南配置的是 **ReasonFirst 的主路径**：普通 ChatGPT 位于推理最前端，ReasonFirst 提供仓库证据，并把已经明确范围和验收标准的实现任务交给编程代理执行。
 
-| 目标 | 从哪里开始 | 是否需要 Tunnel |
-| --- | --- | --- |
-| 本地使用 ActualCoder + Codex CLI / Copilot CLI / Codex Desktop | [CLI 快速上手](QUICKSTART_CN.md) | 不需要 |
-| 让普通 ChatGPT 读取获批 GitLab 仓库/MR/CI | 继续阅读本指南 | 这条连接路径需要 |
-| 使用 Bridge Preview 控制 App Server、审批、SSH workspace 或 finish preview | [架构说明](ARCHITECTURE_CN.md) + Bridge Preview README | 本身不强制；取决于如何连接/暴露 |
+```text
+ChatGPT 读取与推理
+  -> 定义目标、非目标、验收标准
+  -> ReasonFirst 持久化并控制任务
+  -> 编程 worker 执行
+  -> diff / EvidencePack / MR / CI 回到 ChatGPT + 人工审查
+```
 
-**只读 GitLab MCP** 与 **Bridge Preview 编排 MCP** 的信任边界不同。仅仅为了读取仓库，不要顺手暴露权限更高的 Bridge Preview。
+只读 GitLab MCP 与权限更高的 Bridge Preview 信任边界不同。普通仓库/MR/CI 证据使用 read connector；只有明确需要 App Server 编排、审批、SSH workspace 或 finish preview 时才启用 Bridge Preview。
+
+ActualCoder 也可以脱离 ChatGPT 被终端直接调用，用于测试、恢复、CI 修复、IDE 集成或其他自动化。这是受支持的运维副产品，不是本指南描述的主要工作方式。
 
 **按顺序完成本指南，再发送仓库工作提示词。** 验收目标是在普通 ChatGPT 对话中，通过 ReasonFirst MCP 读取你明确批准的 GitLab 项目。安装完 Python 包或本地健康检查通过，都不等于达到这个目标。
 

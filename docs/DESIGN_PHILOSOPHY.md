@@ -38,6 +38,8 @@ A strong conversational reasoning model should spend its capacity on the decisio
 
 That is the meaning of **reasoning-first**.
 
+In the reference ReasonFirst workflow, **normal ChatGPT is the default Reasoning Plane**. The point is not merely to launch a coding agent safely; it is to keep the strongest conversational reasoning capability at the front of the engineering loop and make the coding agent a replaceable executor. Direct standalone ActualCoder use is intentionally possible for testing, recovery and automation, but it is not the design center.
+
 ## 2. The economic idea
 
 ReasonFirst is also about using existing subscriptions efficiently.

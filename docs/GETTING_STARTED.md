@@ -2,17 +2,21 @@
 
 [简体中文](GETTING_STARTED_CN.md) · [Documentation index](README.md) · [Architecture](ARCHITECTURE.md) · [Daily tunnel operations](TUNNEL_LIFECYCLE.md)
 
-## Choose your path first
+## The intended ReasonFirst workflow
 
-You do **not** need every ReasonFirst integration for every task.
+This guide sets up the **primary ReasonFirst path**: normal ChatGPT at the reasoning forefront, with ReasonFirst supplying repository evidence and handing approved implementation work to a coding agent.
 
-| Goal | Start here | Tunnel required? |
-| --- | --- | --- |
-| Use ActualCoder locally with Codex CLI, Copilot CLI, or Codex Desktop | [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) | No |
-| Let normal ChatGPT read an approved GitLab repository/MR/CI | Continue with this guide | Yes, for this connection path |
-| Use the local Bridge Preview for App Server control, approvals, SSH workspaces or finish preview | [Architecture](ARCHITECTURE.md) and the Bridge Preview README | Not inherently; depends on how you expose/connect it |
+```text
+ChatGPT reads/reasons
+  -> define goal, non-goals, acceptance criteria
+  -> ReasonFirst persists/controls the task
+  -> coding worker executes
+  -> diff / EvidencePack / MR / CI return for ChatGPT + human review
+```
 
-The **read-only GitLab MCP** and the **Bridge Preview orchestration MCP** have different trust boundaries. Do not expose the more privileged Bridge Preview merely because you need repository reads.
+The read-only GitLab MCP and the more privileged Bridge Preview have different trust boundaries. Use the read connector for repository/MR/CI evidence; enable Bridge Preview only when you deliberately want App Server orchestration, approvals, SSH workspaces, or finish preview.
+
+ActualCoder can also be invoked directly without ChatGPT for testing, recovery, CI repair, IDE integration, or other automation. That standalone use is supported as an operational byproduct, not the primary workflow described by this guide.
 
 **Finish this guide in order before sending a repository-work prompt.** The result is a normal ChatGPT conversation that can read your explicitly approved GitLab project through ReasonFirst MCP. Installing Python packages or seeing a local health check pass is not that result.
 

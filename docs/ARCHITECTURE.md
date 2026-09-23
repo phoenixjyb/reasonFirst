@@ -2,52 +2,42 @@
 
 [简体中文](ARCHITECTURE_CN.md) · [Project README](../README.md) · [Workflow](WORKFLOW.md) · [CLI quickstart](ACTUAL_CODER_QUICKSTART.md)
 
-ReasonFirst is a **reasoning-first coding orchestration system**. It keeps architecture, diagnosis, scope decisions and final review in the reasoning layer, while implementation is delegated to a user-selected coding backend under explicit workspace, policy, validation and publication controls.
+ReasonFirst is a **ChatGPT-first reasoning, worker-execution coding orchestration system**. Normal ChatGPT is the default reasoning surface: architecture, diagnosis, scope, acceptance criteria and final review stay there. Implementation is delegated to a user-selected coding backend under explicit workspace, policy, validation and publication controls.
 
 This document describes the current `main` architecture. It is intentionally more concrete than the design-philosophy document: every major box below maps to code that exists today.
 
 ## 1. System overview
 
 ```text
-                        ┌─────────────────────────────┐
-                        │ Human + reasoning interface │
-                        │ ChatGPT / compatible client │
-                        └──────────────┬──────────────┘
-                                       │
-                         plan / review │ evidence
-                                       ▼
-                    ┌───────────────────────────────┐
-                    │      ReasonFirst control      │
-                    │ ActualCoder CLI / Bridge MCP  │
-                    └──────────────┬────────────────┘
-                                   │
-             ┌─────────────────────┼───────────────────────┐
-             │                     │                       │
-             ▼                     ▼                       ▼
-       WorkerPolicy          Workspace control       Review / finish
-    backend/model/effort     local Git / SSH         shared review gates
-    sandbox/approval/net     locks / target trust    validation/secrets
-             │                     │                       │
-             └──────────────┬──────┴──────────────┬────────┘
-                            │                     │
-                            ▼                     ▼
-                 ┌───────────────────┐   ┌────────────────────┐
-                 │ Coding backends   │   │ Evidence surfaces  │
-                 │ codex-cli         │   │ diff / CI / logs   │
-                 │ copilot-cli       │   │ artifacts / policy │
-                 │ codex-desktop     │   │ approvals / status │
-                 └─────────┬─────────┘   └────────────────────┘
-                           │
-                           ▼
-                 isolated feature work
-                           │
-                           ▼
-                 reviewed publication
-                           │
-                   GitLab branch / MR / CI
+                  ┌──────────────────────────────┐
+                  │ ChatGPT / strong reasoning  │
+                  │ architecture · diagnosis    │
+                  │ scope · acceptance · review │
+                  └──────────────┬───────────────┘
+                                 │ TaskSpec / intent
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ ReasonFirst control      │
+                    │ policy · workspace       │
+                    │ validation · evidence    │
+                    └────────────┬─────────────┘
+                                 │ bounded handoff
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ Coding worker            │
+                    │ codex / copilot / desktop│
+                    └────────────┬─────────────┘
+                                 │ implementation
+                                 ▼
+                    managed worktree / SSH workspace
+                                 │
+                                 ▼
+                    diff · EvidencePack · MR · CI
+                                 │
+                                 └──────────────► ChatGPT + human review
 ```
 
-The important property is that **the worker is replaceable; the control contract is not**. Backend choice must not change the user-owned task scope, workspace identity, review gates or publication policy.
+The important property is that **the reasoning layer leads, the worker executes, and the worker is replaceable**. Backend choice must not change the user-owned task scope, workspace identity, review gates or publication policy. Direct standalone use of ActualCoder remains useful for testing, recovery and automation, but it is an execution-engine capability rather than a separate product architecture.
 
 ## 2. The two MCP surfaces
 
@@ -319,15 +309,17 @@ Secrets should never be passed as model prompts/tool arguments. The repository i
 | Local finish | `src/gitlab_agent/finish.py` |
 | CI evidence | `src/gitlab_agent/ci_feedback.py`, `log_evidence.py` |
 | Project contract | `src/gitlab_agent/project_config.py` |
+| Durable TaskSpec / attempts | `src/gitlab_agent/task_state.py` + workspace state integration |
+| Bounded EvidencePack | `src/gitlab_agent/evidence.py` |
 | GitLab API | `src/gitlab_agent/gitlab_api.py` |
 | Bridge Preview controller | `tools/reasonfirst_v4_0_3/reasonfirst_codex_bridge/controller.py` |
 | SSH workspace / remote validation / reviewed push | `tools/reasonfirst_v4_0_3/reasonfirst_codex_bridge/remote_workspace.py` |
 | Bridge target config | `tools/reasonfirst_v4_0_3/reasonfirst_codex_bridge/bridge_config.py` |
 | Bridge MCP tools | `tools/reasonfirst_v4_0_3/reasonfirst_mcp_server.py` |
 
-## 13. What is not on main yet
+## 13. Current boundary and next work
 
-The open TaskSpec/EvidencePack work is intentionally not described as shipped here. Persistent task revisions/attempt records and a core bounded EvidencePack surface remain separate until that feature is merged.
+Persistent TaskSpec/attempt records and the core bounded EvidencePack are now on `main`. The task contract is bound to workspace project/base identity, attempt history is bounded, and evidence generation is read-only and recursively redacted.
 
 Similarly, GitLab is the implemented SCM/CI adapter today. Hosting ReasonFirst on GitHub does not imply a GitHub-target implementation workflow.
 

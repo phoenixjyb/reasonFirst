@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Architecture](ARCHITECTURE.md) · [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) · [Task handoff template](TASK_HANDOFF_TEMPLATE.md)
 
-**Use one reasoning interface for planning/review and one controlled execution path for implementation.** Normal ChatGPT is the default reasoning surface; ActualCoder or the optional Bridge Preview orchestrates a selected backend (`codex-cli`, `copilot-cli`, or `codex-desktop`). The localhost Assistant is not required.
+**Use ChatGPT as the reasoning forefront and keep coding agents in the execution role.** Normal ChatGPT is the default surface for reading, architecture, diagnosis, scope, acceptance criteria and review. ActualCoder or the optional Bridge Preview turns that approved intent into a controlled handoff for `codex-cli`, `copilot-cli`, or `codex-desktop`. The localhost Assistant is not required.
 
 ## Where each action belongs
 
@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Normal ChatGPT conversation | Read code through the selected connection, diagnose, define scope, review results | Default reasoning interface |
 | Read-only GitLab MCP + tunnel | Repository/MR/CI inspection only | Needed only for the ChatGPT read-connection path |
-| Terminal: ActualCoder | Prepare/manage local worktrees, select/launch workers, validate and publish through reviewed finish | Normal local implementation path |
+| Terminal: ActualCoder | Prepare/manage worktrees, select/launch workers, validate and publish through reviewed finish | Execution engine for approved implementation |
 | Bridge Preview MCP | Optional local orchestration: App Server control, approvals, managed SSH workspaces, finish preview | Optional and more privileged than the read connector |
 | Coding worker | `codex-cli`, `copilot-cli`, or `codex-desktop` executes the approved implementation | Required when a task is actually implemented |
 | GitLab MR/CI UI | Inspect repository evidence and make the human merge decision | Used when reviewing/publishing changes |
@@ -20,38 +20,27 @@
 
 Not using the localhost Assistant does not mean uninstalling Codex: its CLI can still be the implementation worker. Closing the dashboard does not stop the tunnel. It also does not necessarily disable the upstream client's bundled background helper. This documentation does not change or claim to disable that helper.
 
-## Three supported operating paths
+## One primary loop, several supporting surfaces
 
 ```text
-A. Read/review only
 Normal ChatGPT
-  <-> OpenAI tunnel
-  <-> ReasonFirst read-only GitLab MCP
-  <-> GitLab API
-
-B. Local implementation
-Reasoning interface
-  -> approved task
-  -> ActualCoder
+  -> inspect repository / MR / CI
+  -> reason about architecture and root cause
+  -> define goal, non-goals and acceptance criteria
+  -> TaskSpec
+  -> ReasonFirst control
   -> codex-cli / copilot-cli / codex-desktop
-  -> local managed worktree
-  -> reviewed finish
-  -> GitLab MR / CI
-
-C. Bridge Preview orchestration
-Reasoning interface / connected MCP client
-  -> Bridge Preview
-  -> managed local or named SSH workspace
-  -> Codex App Server + explicit approvals
-  -> finish preview / bounded evidence
-  -> experimental remote publish only when explicitly enabled
+  -> controlled implementation and validation
+  -> diff / EvidencePack / MR / matching-HEAD CI
+  -> Normal ChatGPT + human review
+  -> continue, revise, or merge
 ```
 
-Path A is read-oriented. Path B is the normal supported implementation path. Path C is optional and has a broader local trust boundary; it should be enabled deliberately, not as a prerequisite for ordinary repository reads.
+The interfaces below support different parts of that same loop; they are **not three peer product modes**. The read-only GitLab MCP supplies evidence to ChatGPT. ActualCoder is the normal execution engine for approved work. Bridge Preview is an optional, more privileged orchestration surface for App Server control, explicit approvals, named SSH workspaces and finish preview.
+
+ActualCoder can also be driven directly from a terminal, CI repair job, IDE or another client. Keep that capability for testing, recovery and automation, but treat it as a secondary operational surface rather than the defining ReasonFirst workflow.
 
 Bridge SSH targets are user-configured names, not caller-supplied arbitrary hosts. Remote build/test execution is available only through a configured structured container-validation policy; arbitrary remote shell execution is not exposed.
-
-Persistent core TaskSpec/attempt/EvidencePack support is still separate from current `main`. The manual handoff template remains useful for explicit human-readable task boundaries.
 
 ## Daily task loop
 
@@ -113,4 +102,4 @@ The final read test is in [ChatGPT MCP setup](SETUP_TUTORIAL.md#accept-the-read-
 
 ## Next product work
 
-Preserve the reasoning/control/execution/evidence separation as the project evolves. Workspace locking, resume launch, remote container validation and shared local/SSH review gates are already implemented. Persistent core task revisions/attempts and bounded EvidencePack remain separate until that work is merged.
+Preserve the reasoning/control/execution/evidence separation as the project evolves. Workspace locking, resume launch, remote container validation and shared local/SSH review gates are already implemented. Persistent TaskSpec/attempt records and bounded EvidencePack are now implemented; next work should deepen cross-interface exchange and result lifecycle without weakening the reasoning/control/execution/evidence separation.

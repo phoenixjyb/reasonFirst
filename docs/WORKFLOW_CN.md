@@ -4,7 +4,7 @@
 
 <!-- Translation source: docs/WORKFLOW.md @ a3e33c72c55efef6a0dc3808fb9853c62ad15f9d -->
 
-**用一个推理界面负责规划/审查，用一条受控执行路径负责实现。** 普通 ChatGPT 是默认推理表面；ActualCoder 或可选 Bridge Preview 编排 `codex-cli`、`copilot-cli`、`codex-desktop`。localhost Assistant 不是必需组件。
+**让 ChatGPT 位于推理最前端，让编程代理保持执行角色。** 普通 ChatGPT 是默认的读取、架构、诊断、范围、验收标准和审查界面；ActualCoder 或可选 Bridge Preview 将已批准意图转成对 `codex-cli`、`copilot-cli`、`codex-desktop` 的受控 handoff。localhost Assistant 不是必需组件。
 
 ## 各项操作应该在哪里进行
 
@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | 普通 ChatGPT 对话 | 通过选定连接读取代码、诊断、明确范围、审查结果 | 默认推理界面 |
 | 只读 GitLab MCP + Tunnel | 只负责仓库/MR/CI 检查 | 仅 ChatGPT read-connection 路径需要 |
-| 终端 ActualCoder | 准备/管理本地 worktree、选择/启动 worker、验证、reviewed finish | 正常本地实现路径 |
+| 终端 ActualCoder | 准备/管理 worktree、选择/启动 worker、验证、reviewed finish | 获批实现的执行引擎 |
 | Bridge Preview MCP | 可选本地编排：App Server、审批、受管 SSH workspace、finish preview | 可选，权限高于 read connector |
 | 编程 worker | `codex-cli`、`copilot-cli` 或 `codex-desktop` 执行获批实现 | 真正实现任务时需要 |
 | GitLab MR/CI 界面 | 检查仓库证据，由人工作出合并决定 | 审查或发布变更时使用 |
@@ -22,38 +22,27 @@
 
 不使用 localhost Assistant 不等于卸载 Codex：Codex CLI 仍可作为实现任务的执行者。关闭仪表盘不会停止 Tunnel，也不一定会禁用上游客户端附带的后台辅助进程。本指南没有修改该进程，也不声称将其禁用。
 
-## 三种支持的工作路径
+## 一条主闭环，多个支撑表面
 
 ```text
-A. 只读/审查
 普通 ChatGPT
-  <-> OpenAI Tunnel
-  <-> ReasonFirst 只读 GitLab MCP
-  <-> GitLab API
-
-B. 本地实现
-推理界面
-  -> 获批任务
-  -> ActualCoder
+  -> 读取仓库 / MR / CI
+  -> 做架构判断与根因分析
+  -> 定义目标、非目标、验收标准
+  -> TaskSpec
+  -> ReasonFirst 控制层
   -> codex-cli / copilot-cli / codex-desktop
-  -> 本地受管 worktree
-  -> reviewed finish
-  -> GitLab MR / CI
-
-C. Bridge Preview 编排
-推理界面 / 已连接 MCP 客户端
-  -> Bridge Preview
-  -> 本地或命名 SSH workspace
-  -> Codex App Server + 显式审批
-  -> finish preview / bounded evidence
-  -> 只有显式启用才允许实验性远端 publish
+  -> 受控实现与 validation
+  -> diff / EvidencePack / MR / matching-HEAD CI
+  -> 普通 ChatGPT + 人工审查
+  -> 继续、调整或合并
 ```
 
-A 是读取路径；B 是默认正式实现路径；C 是可选、权限更高的本地编排路径，不应为了普通仓库读取而默认启用。
+下面这些界面服务于同一条主闭环的不同环节，**不是三种并列产品模式**。只读 GitLab MCP 向 ChatGPT 提供证据；ActualCoder 是获批任务的正常执行引擎；Bridge Preview 是权限更高的可选编排表面，用于 App Server 控制、显式审批、命名 SSH workspace 和 finish preview。
+
+ActualCoder 也可以由终端、CI 修复任务、IDE 或其他客户端直接驱动。这个能力应保留给测试、恢复和自动化，但它是次要运维表面，不是 ReasonFirst 的定义性工作流。
 
 Bridge SSH target 必须由用户预先命名配置，调用方不能临时指定任意 host。远端 build/test 只有配置结构化容器 validation policy 后才可用；不暴露任意远端 shell。
-
-持久 core TaskSpec/attempt/EvidencePack 仍未进入当前 `main`。人工 handoff 模板仍适合明确任务边界。
 
 ## 日常任务循环
 
@@ -115,4 +104,4 @@ Finish 会请求确认。仍需审查执行者提出的操作：低层 commit/pu
 
 ## 下一步产品工作
 
-后续演进应继续保持 reasoning/control/execution/evidence 分层。工作区锁、resume launch、远端容器 validation 与本地/SSH 共用 review gates 已经实现；持久 core task revision/attempt 与 bounded EvidencePack 仍待单独合并。
+后续演进应继续保持 reasoning/control/execution/evidence 分层。工作区锁、resume launch、远端容器 validation 与本地/SSH 共用 review gates 已经实现；持久 TaskSpec/attempt 记录与 bounded EvidencePack 已实现；下一步应完善跨界面交换和结果生命周期，同时保持 reasoning/control/execution/evidence 分层。
