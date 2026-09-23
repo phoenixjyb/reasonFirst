@@ -19,3 +19,7 @@ id_ed25519
 # OS / logs
 .DS_Store
 *.log
+
+# Documentation site build outputs
+.site-src/
+site/

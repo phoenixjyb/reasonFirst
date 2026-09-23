@@ -1,6 +1,6 @@
 # ReasonFirst
 
-[English](README.md) · **简体中文** · **[首次完整接入](docs/GETTING_STARTED_CN.md)** · [文档索引](docs/README_CN.md)
+[English](README.md) · **简体中文** · **[文档站点](https://phoenixjyb.github.io/reasonFirst/)** · [首次完整接入](docs/GETTING_STARTED_CN.md) · [文档索引](docs/README_CN.md)
 
 <!-- Paired with README.md in this change; base 61f464ebbb8906817e32802be22df4012881ece5. -->
 
