@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from gitlab_agent.cli import (
     _prepare_start,
     _select_agent,
     _selection_for_request,
+    _tty_codex_approval_handler,
 )
 
 
@@ -104,6 +106,11 @@ class FakeStartManager:
         }
 
 
+class TTYStringIO(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
 class ActualCoderCLITests(unittest.TestCase):
     def test_copilot_handoff_is_agent_neutral(self) -> None:
         result = _handoff(
@@ -156,6 +163,62 @@ class ActualCoderCLITests(unittest.TestCase):
         self.assertEqual(selection["selected"], "copilot")
         self.assertEqual(selection["preference_source"], "project")
         self.assertIn("project preference", str(selection["reason"]))
+
+    def test_user_default_backend_overrides_project_auto_preference(self) -> None:
+        contract = """
+version: 1
+agents:
+  preferred: [copilot-cli, codex-cli]
+"""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            settings = AgentSettings(
+                config_file=root / ".env",
+                gitlab_base_url="https://gitlab.example.test",
+                api_token="token",
+                api_verify_ssl=True,
+                api_trust_env=False,
+                git_token="token",
+                git_username="oauth2",
+                git_trust_env=False,
+                allowed_projects={"team/project"},
+                require_write_allowlist=True,
+                workspace_root=root / "workspace-root",
+                branch_prefix="chatgpt/",
+                default_base_ref="main",
+                allowed_executables={"uv"},
+                command_timeout_seconds=300,
+                max_output_bytes=120000,
+                max_file_bytes=1000000,
+                git_author_name=None,
+                git_author_email=None,
+                default_backend="codex-cli",
+            )
+            manager = FakeStartManager(root, contract)
+
+            def fake_which(executable: str) -> str | None:
+                return f"/tools/{executable}" if executable in {"codex", "copilot"} else None
+
+            with patch("gitlab_agent.cli.shutil.which", side_effect=fake_which):
+                result = _prepare_start(
+                    manager,  # type: ignore[arg-type]
+                    settings,
+                    project="team/project",
+                    task_slug="default-backend",
+                    goal="Inspect",
+                    requested_agent="auto",
+                )
+
+        self.assertEqual(result["agent"], "codex-cli")
+        self.assertEqual(result["agent_requested"], "auto")
+        self.assertEqual(
+            result["agent_selection"]["preference_source"],
+            "user",
+        )
+        self.assertEqual(
+            result["agent_selection"]["user_default_backend"],
+            "codex-cli",
+        )
 
     def test_auto_selection_falls_back_to_installed_default(self) -> None:
         def fake_which(executable: str) -> str | None:
@@ -257,6 +320,61 @@ agents:
         )
         self.assertEqual(auto_args.agent, "auto")
 
+        codex_cli = parser.parse_args(
+            [
+                "task",
+                "team/project",
+                "--agent",
+                "codex-cli",
+                "--goal",
+                "Inspect",
+            ]
+        )
+        self.assertEqual(codex_cli.agent, "codex-cli")
+
+        copilot_cli = parser.parse_args(
+            [
+                "task",
+                "team/project",
+                "--agent",
+                "copilot-cli",
+                "--goal",
+                "Inspect",
+            ]
+        )
+        self.assertEqual(copilot_cli.agent, "copilot-cli")
+
+    def test_actual_coder_parser_accepts_codex_desktop_backend(self) -> None:
+        parser = _build_parser(prog="actual-coder")
+        args = parser.parse_args(
+            [
+                "start",
+                "team/project",
+                "--agent",
+                "codex-desktop",
+                "--goal",
+                "Implement the reviewed plan",
+                "--no-launch",
+            ]
+        )
+        self.assertEqual(args.agent, "codex-desktop")
+
+    def test_codex_desktop_handoff_uses_codex_worker_policy(self) -> None:
+        result = _handoff(
+            FakeManager(),  # type: ignore[arg-type]
+            "abc123",
+            "Implement the reviewed plan",
+            agent="codex-desktop",
+        )
+        self.assertEqual(result["agent"], "codex-desktop")
+        self.assertEqual(result["worker_policy"]["backend"], "codex")
+        self.assertEqual(result["worker_policy"]["model"], "gpt-5.6-sol")
+        self.assertEqual(
+            result["agent_argv_shape"],
+            ["codex-desktop", "<managed-app-server>", "<agent_prompt>"],
+        )
+        self.assertTrue(str(result["agent_command"]).startswith("codex-desktop://"))
+
     def test_codingagent_compatibility_alias_still_accepts_backend_selection(self) -> None:
         parser = _build_parser(prog="codingagent")
         args = parser.parse_args(
@@ -299,9 +417,23 @@ agents:
 
     def test_doctor_parser_accepts_offline(self) -> None:
         parser = _build_parser(prog="actual-coder")
-        args = parser.parse_args(["doctor", "--offline"])
+        args = parser.parse_args(["doctor", "--offline", "--git-only"])
         self.assertEqual(args.command, "doctor")
         self.assertTrue(args.offline)
+        self.assertTrue(args.git_only)
+
+        start = parser.parse_args(
+            [
+                "start",
+                "team/project",
+                "--goal",
+                "Inspect",
+                "--no-launch",
+                "--offline-doctor",
+                "--git-only",
+            ]
+        )
+        self.assertTrue(start.git_only)
 
     def test_project_config_parser_accepts_ref_and_validate(self) -> None:
         parser = _build_parser(prog="actual-coder")
@@ -446,6 +578,25 @@ mr:
             ],
         )
 
+    def test_explicit_cli_aliases_map_to_same_provider_policy(self) -> None:
+        self.assertEqual(
+            _agent_launch_argv("codex-cli", "hello"),
+            _agent_launch_argv("codex", "hello"),
+        )
+        self.assertEqual(
+            _agent_launch_argv("copilot-cli", "hello"),
+            _agent_launch_argv("copilot", "hello"),
+        )
+
+        handoff = _handoff(
+            FakeManager(),  # type: ignore[arg-type]
+            "abc123",
+            "Inspect",
+            agent="codex-cli",
+        )
+        self.assertEqual(handoff["worker_policy"]["backend"], "codex")
+        self.assertEqual(handoff["codex_prompt"], handoff["agent_prompt"])
+
     def test_launch_argv_supports_noninteractive_provider_controls(self) -> None:
         codex = WorkerPolicy(
             backend="codex",
@@ -533,6 +684,180 @@ mr:
             ("shell(git push)",),
         )
         self.assertFalse(calls[0][2])
+
+    def test_tty_desktop_approval_handler_approves_once(self) -> None:
+        inp = TTYStringIO("y\n")
+        out = TTYStringIO()
+        result = _tty_codex_approval_handler(
+            {
+                "method": "item/commandExecution/requestApproval",
+                "params": {
+                    "command": "pytest -q",
+                    "cwd": "/tmp/worktree",
+                    "reason": "run tests",
+                },
+            },
+            input_stream=inp,
+            output_stream=out,
+        )
+        self.assertEqual(result, {"decision": "accept"})
+        self.assertIn("pytest -q", out.getvalue())
+
+        perms = _tty_codex_approval_handler(
+            {
+                "method": "item/permissions/requestApproval",
+                "params": {
+                    "permissions": {
+                        "fileSystem": {"write": ["/tmp/generated"]}
+                    }
+                },
+            },
+            input_stream=TTYStringIO("y\n"),
+            output_stream=TTYStringIO(),
+        )
+        self.assertEqual(perms["scope"], "turn")
+        self.assertEqual(
+            perms["permissions"],
+            {"fileSystem": {"write": ["/tmp/generated"]}},
+        )
+
+    def test_non_tty_desktop_approval_handler_denies(self) -> None:
+        result = _tty_codex_approval_handler(
+            {
+                "method": "item/fileChange/requestApproval",
+                "params": {"reason": "edit"},
+            },
+            input_stream=io.StringIO("y\n"),
+            output_stream=io.StringIO(),
+        )
+        self.assertEqual(result, {"decision": "decline"})
+
+    def test_codex_desktop_launch_uses_managed_app_server_not_subprocess(self) -> None:
+        seen: dict[str, object] = {}
+
+        class FakeDesktopClient:
+            backend_name = "desktop-managed-test"
+
+            def __init__(self, *, event_handler, approval_request_handler=None):
+                self.event_handler = event_handler
+                self.approval_request_handler = approval_request_handler
+                seen["approval_handler"] = approval_request_handler
+
+            def start_thread(self, *, cwd, policy):
+                seen["thread_cwd"] = cwd
+                seen["thread_policy"] = policy
+                return "thr_desktop"
+
+            def start_turn(
+                self,
+                *,
+                thread_id,
+                cwd,
+                prompt,
+                policy,
+                network_access,
+                sandbox_mode,
+            ):
+                seen["turn_prompt"] = prompt
+                seen["turn_policy"] = policy
+                self.event_handler(
+                    {
+                        "method": "turn/completed",
+                        "params": {
+                            "turn": {
+                                "id": "turn_desktop",
+                                "status": "completed",
+                            }
+                        },
+                    }
+                )
+                return "turn_desktop"
+
+            def interrupt(self, *, thread_id, turn_id):
+                seen["interrupted"] = (thread_id, turn_id)
+
+            def close(self):
+                seen["closed"] = True
+
+        def factory(**kwargs):
+            return FakeDesktopClient(**kwargs)
+
+        policy = WorkerPolicy(
+            backend="codex",
+            model="gpt-5.6-sol",
+            reasoning_effort="high",
+            execution_mode="interactive",
+            sandbox_mode="workspace-write",
+            approval_policy="on-request",
+            network_access=False,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            result = _launch_handoff(
+                {
+                    "agent": "codex-desktop",
+                    "agent_prompt": "Implement only the reviewed plan",
+                    "worktree_path": td,
+                    "worker_policy": policy.to_dict(),
+                },
+                desktop_client_factory=factory,
+            )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["backend"], "desktop-managed-test")
+        self.assertEqual(result["thread_id"], "thr_desktop")
+        self.assertEqual(result["turn_id"], "turn_desktop")
+        self.assertEqual(seen["turn_prompt"], "Implement only the reviewed plan")
+        self.assertEqual(seen["turn_policy"].model, "gpt-5.6-sol")
+        self.assertIsNotNone(seen["approval_handler"])
+        self.assertTrue(seen["closed"])
+
+    def test_codex_cli_launch_preflights_policy_catalog(self) -> None:
+        calls: list[list[str]] = []
+        closed = {"value": False}
+
+        class FakeVerifier:
+            def assert_worker_policy_supported(self, policy):
+                self_policy = policy
+                return {
+                    "verification_scope": "fake-catalog",
+                    "requested": self_policy.to_dict(),
+                    "catalog_model_id": self_policy.model,
+                    "catalog_model": self_policy.model,
+                    "supported_reasoning_efforts": ["high"],
+                    "sandbox_mode": self_policy.sandbox_mode,
+                    "approval_policy": "unlessTrusted",
+                }
+
+            def close(self):
+                closed["value"] = True
+
+        def fake_runner(argv, *, cwd, check):
+            calls.append(list(argv))
+            return SimpleNamespace(returncode=0)
+
+        with tempfile.TemporaryDirectory() as td:
+            result = _launch_handoff(
+                {
+                    "agent": "codex-cli",
+                    "agent_prompt": "Inspect",
+                    "worktree_path": td,
+                },
+                runner=fake_runner,
+                codex_policy_client_factory=lambda: FakeVerifier(),
+            )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertTrue(closed["value"])
+        self.assertEqual(
+            result["worker_policy_evidence"]["status"],
+            "catalog_verified_launch_arguments_encoded",
+        )
+        self.assertEqual(
+            result["worker_policy_evidence"]["catalog_model"],
+            "gpt-5.6-sol",
+        )
+        self.assertEqual(calls[0][0], "codex")
 
     def test_resolve_worker_policy_uses_reasonfirst_settings(self) -> None:
         with tempfile.TemporaryDirectory() as td:

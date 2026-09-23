@@ -11,6 +11,7 @@ import sys
 import tempfile
 import uuid
 from contextlib import contextmanager
+from functools import wraps
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Callable, Iterator
 from urllib.parse import quote
 
 from .config import AgentSettings
+from .locking import file_lock
 
 
 _MR_URL_RE = re.compile(r"https?://[^\s]+/-/merge_requests/\d+")
@@ -41,6 +43,17 @@ def _slug(text: str) -> str:
     value = text.strip().lower().replace(" ", "-")
     value = _SAFE_SLUG_RE.sub("-", value).strip("-._")
     return value[:48] or "task"
+
+
+def _locked_workspace_mutation(method):
+    """Serialize one workspace mutation across threads and ReasonFirst processes."""
+
+    @wraps(method)
+    def wrapped(self, workspace_id: str, *args, **kwargs):
+        with self.mutation_lock(workspace_id):
+            return method(self, workspace_id, *args, **kwargs)
+
+    return wrapped
 
 
 @dataclass
@@ -82,11 +95,13 @@ class WorkspaceManager:
         self.repos_dir = self.root / "repos"
         self.worktrees_dir = self.root / "worktrees"
         self.state_dir = self.root / "state"
+        self.locks_dir = self.root / "locks"
         self.home_dir = self.root / "runner-home"
         for path in (
             self.repos_dir,
             self.worktrees_dir,
             self.state_dir,
+            self.locks_dir,
             self.home_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
@@ -107,6 +122,14 @@ class WorkspaceManager:
         if not re.fullmatch(r"[a-f0-9]{12}", workspace_id):
             raise ValueError("Invalid workspace_id")
         return self.state_dir / f"{workspace_id}.json"
+
+    def mutation_lock(self, workspace_id: str):
+        # Reuse state-path validation so arbitrary caller text cannot choose a lock path.
+        self._state_path(workspace_id)
+        return file_lock(
+            self.locks_dir / f"{workspace_id}.lock",
+            timeout_seconds=min(30.0, float(self.settings.command_timeout_seconds)),
+        )
 
     def _save_state(self, state: WorkspaceState) -> None:
         path = self._state_path(state.workspace_id)
@@ -778,6 +801,7 @@ class WorkspaceManager:
             "content": text,
         }
 
+    @_locked_workspace_mutation
     def write_file(self, workspace_id: str, path: str, content: str) -> dict[str, object]:
         raw = content.encode("utf-8")
         if len(raw) > self.settings.max_file_bytes:
@@ -793,6 +817,7 @@ class WorkspaceManager:
             "bytes_written": len(raw),
         }
 
+    @_locked_workspace_mutation
     def apply_patch(self, workspace_id: str, patch: str) -> dict[str, object]:
         if len(patch.encode("utf-8")) > self.settings.max_file_bytes * 2:
             raise RuntimeError("Patch exceeds configured size limit")
@@ -1089,6 +1114,7 @@ class WorkspaceManager:
             "diff": clipped,
         }
 
+    @_locked_workspace_mutation
     def commit(self, workspace_id: str, message: str) -> dict[str, object]:
         if not message.strip():
             raise ValueError("Commit message must not be empty")
@@ -1119,6 +1145,7 @@ class WorkspaceManager:
             raise RuntimeError("Workspace has no commits ahead of its base")
         return worktree, ahead
 
+    @_locked_workspace_mutation
     def push(self, workspace_id: str) -> dict[str, object]:
         state = self.get_state(workspace_id)
         was_already_pushed = state.pushed
@@ -1150,6 +1177,7 @@ class WorkspaceManager:
             "stderr": proc.stderr,
         }
 
+    @_locked_workspace_mutation
     def push_and_create_mr(
         self,
         workspace_id: str,
@@ -1216,6 +1244,7 @@ class WorkspaceManager:
             "stderr": proc.stderr,
         }
 
+    @_locked_workspace_mutation
     def cleanup(self, workspace_id: str, *, force: bool = False) -> dict[str, object]:
         state = self.get_state(workspace_id)
         repo_path, worktree = self._cleanup_paths(state)

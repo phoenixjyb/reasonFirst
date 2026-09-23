@@ -105,6 +105,31 @@ def resolve_worker_policy(settings: AgentSettings, backend: str) -> WorkerPolicy
     raise ValueError(f"Unsupported coding backend {backend!r}")
 
 
+def launch_policy_evidence(
+    policy: WorkerPolicy,
+    *,
+    surface: str,
+) -> dict[str, object]:
+    """Describe what ReasonFirst can prove before the worker starts.
+
+    CLI surfaces encode requested policy into explicit launch arguments but do
+    not expose a provider-resolved model response before execution. Codex
+    Desktop upgrades this evidence at runtime through App Server.
+    """
+
+    return {
+        "status": "launch_arguments_encoded",
+        "verification_scope": "launch-arguments",
+        "runtime_verified": False,
+        "surface": surface,
+        "requested": policy.to_dict(),
+        "note": (
+            "ReasonFirst encoded the requested policy explicitly. "
+            "Runtime/provider resolution has not yet been independently verified."
+        ),
+    }
+
+
 def _codex_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
     if policy.execution_mode not in {"interactive", "exec"}:
         raise ValueError(

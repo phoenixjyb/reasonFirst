@@ -28,6 +28,7 @@ class WorkerPolicyConfigTests(unittest.TestCase):
     def test_codex_defaults_are_explicit_and_safe(self) -> None:
         settings = self._load()
 
+        self.assertEqual(settings.default_backend, "auto")
         self.assertEqual(settings.codex_model, "gpt-5.6-sol")
         self.assertEqual(settings.codex_reasoning_effort, "high")
         self.assertEqual(settings.codex_execution_mode, "interactive")
@@ -47,6 +48,7 @@ class WorkerPolicyConfigTests(unittest.TestCase):
 
     def test_explicit_provider_settings_are_loaded(self) -> None:
         settings = self._load(
+            REASONFIRST_DEFAULT_BACKEND="codex-desktop",
             REASONFIRST_CODEX_MODEL="gpt-5.6-sol",
             REASONFIRST_CODEX_REASONING_EFFORT="xhigh",
             REASONFIRST_CODEX_EXECUTION_MODE="exec",
@@ -61,6 +63,7 @@ class WorkerPolicyConfigTests(unittest.TestCase):
             REASONFIRST_COPILOT_DENY_TOOLS="shell(git push),shell(rm)",
         )
 
+        self.assertEqual(settings.default_backend, "codex-desktop")
         self.assertEqual(settings.codex_reasoning_effort, "xhigh")
         self.assertEqual(settings.codex_execution_mode, "exec")
         self.assertEqual(settings.codex_sandbox_mode, "read-only")
@@ -75,6 +78,26 @@ class WorkerPolicyConfigTests(unittest.TestCase):
             settings.copilot_deny_tools,
             ("shell(git push)", "shell(rm)"),
         )
+
+    def test_git_password_is_supported_without_api_token(self) -> None:
+        settings = self._load(
+            GITLAB_TOKEN="",
+            GITLAB_GIT_TOKEN="",
+            GITLAB_GIT_PASSWORD="password-value",
+        )
+        self.assertEqual(settings.api_token, "")
+        self.assertEqual(settings.git_token, "password-value")
+
+    def test_git_token_and_password_ambiguity_fails_closed(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Set only one"):
+            self._load(
+                GITLAB_GIT_TOKEN="scoped-token",
+                GITLAB_GIT_PASSWORD="password-value",
+            )
+
+    def test_invalid_default_backend_fails_closed(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "REASONFIRST_DEFAULT_BACKEND"):
+            self._load(REASONFIRST_DEFAULT_BACKEND="mystery-agent")
 
     def test_invalid_policy_choice_fails_closed(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "REASONFIRST_CODEX_SANDBOX"):
