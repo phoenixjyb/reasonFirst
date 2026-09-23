@@ -12,7 +12,7 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from functools import wraps
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterator
@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 from .config import AgentSettings
 from .locking import file_lock
+from .task_state import AttemptRecord, TaskSpec, bounded_attempts
 
 
 _MR_URL_RE = re.compile(r"https?://[^\s]+/-/merge_requests/\d+")
@@ -70,10 +71,27 @@ class WorkspaceState:
     last_commit: str | None = None
     remote_branch: str | None = None
     merge_request_url: str | None = None
+    task_spec: dict[str, object] | None = None
+    attempts: list[dict[str, object]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "WorkspaceState":
-        return cls(**data)  # type: ignore[arg-type]
+        payload = dict(data)
+        raw_spec = payload.get("task_spec")
+        if isinstance(raw_spec, dict):
+            payload["task_spec"] = TaskSpec.from_dict(raw_spec).to_dict()
+        elif raw_spec is not None:
+            raise ValueError("workspace task_spec must be an object or null")
+
+        raw_attempts = payload.get("attempts", [])
+        if not isinstance(raw_attempts, list) or any(
+            not isinstance(item, dict) for item in raw_attempts
+        ):
+            raise ValueError("workspace attempts must be a list of objects")
+        payload["attempts"] = bounded_attempts(
+            [dict(item) for item in raw_attempts if isinstance(item, dict)]
+        )
+        return cls(**payload)  # type: ignore[arg-type]
 
 
 class WorkspaceManager:
@@ -133,12 +151,40 @@ class WorkspaceManager:
 
     def _save_state(self, state: WorkspaceState) -> None:
         path = self._state_path(state.workspace_id)
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(
-            json.dumps(asdict(state), indent=2, sort_keys=True),
-            encoding="utf-8",
+        if os.name != "nt":
+            try:
+                self.state_dir.chmod(0o700)
+            except OSError:
+                pass
+
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f"{state.workspace_id}.",
+            suffix=".json.tmp",
+            dir=self.state_dir,
+            text=True,
         )
-        temp.replace(path)
+        try:
+            if os.name != "nt":
+                os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(asdict(state), handle, indent=2, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, path)
+            if os.name != "nt":
+                try:
+                    path.chmod(0o600)
+                except OSError:
+                    pass
+        finally:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def get_state(self, workspace_id: str) -> WorkspaceState:
         path = self._state_path(workspace_id)
@@ -156,6 +202,79 @@ class WorkspaceManager:
             except Exception:
                 continue
         return states
+
+    @_locked_workspace_mutation
+    def ensure_task_spec(
+        self,
+        workspace_id: str,
+        *,
+        task_slug: str,
+        goal: str,
+        requested_backend: str,
+        project_config_sha: str | None = None,
+        acceptance_criteria: list[str] | tuple[str, ...] | None = None,
+        non_goals: list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, object]:
+        state = self.get_state(workspace_id)
+        if isinstance(state.task_spec, dict):
+            spec = TaskSpec.from_dict(state.task_spec)
+            if spec.project != state.project or spec.base_sha != state.base_sha:
+                raise RuntimeError(
+                    "Stored TaskSpec identity does not match workspace project/base SHA"
+                )
+            return spec.to_dict()
+
+        spec = TaskSpec.create(
+            task_slug=task_slug,
+            goal=goal,
+            project=state.project,
+            base_ref=state.base_ref,
+            base_sha=state.base_sha,
+            requested_backend=requested_backend,
+            project_config_sha=project_config_sha,
+            acceptance_criteria=acceptance_criteria,
+            non_goals=non_goals,
+        )
+        state.task_spec = spec.to_dict()
+        self._save_state(state)
+        return dict(state.task_spec)
+
+    @_locked_workspace_mutation
+    def record_attempt(
+        self,
+        workspace_id: str,
+        *,
+        source: str,
+        goal: str,
+        requested_backend: str,
+        selected_backend: str,
+        ci_context_included: bool,
+        worker_policy: dict[str, object],
+    ) -> dict[str, object]:
+        state = self.get_state(workspace_id)
+        record = AttemptRecord.create(
+            source=source,
+            goal=goal,
+            requested_backend=requested_backend,
+            selected_backend=selected_backend,
+            ci_context_included=ci_context_included,
+            worker_policy=dict(worker_policy),
+        ).to_dict()
+        state.attempts = bounded_attempts([*state.attempts, record])
+        self._save_state(state)
+        return dict(record)
+
+    def task_context(self, workspace_id: str) -> dict[str, object]:
+        state = self.get_state(workspace_id)
+        return {
+            "task_spec": (
+                dict(state.task_spec)
+                if isinstance(state.task_spec, dict)
+                else None
+            ),
+            "attempts": [dict(item) for item in state.attempts],
+            "attempt_count": len(state.attempts),
+        }
 
     def _worktree(self, state: WorkspaceState) -> Path:
         path = Path(state.worktree_path).resolve()
