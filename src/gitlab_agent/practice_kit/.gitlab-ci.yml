@@ -1,0 +1,16 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+
+stages: [test]
+
+unit-tests:
+  image: python:3.12-slim
+  stage: test
+  script:
+    - python3 --version
+    - python3 -m unittest discover -s tests -v
+    - python3 -m compileall -q clip_summary.py tests

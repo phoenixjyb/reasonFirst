@@ -28,6 +28,7 @@ from .practice import (
     PRACTICE_STAGE1_TASK,
     run_practice_doctor,
 )
+from .practice_seed import build_practice_seed_plan, execute_practice_seed
 from .runner import CommandRunner
 from .worker_policy import (
     WorkerPolicy,
@@ -1196,6 +1197,28 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     )
 
     p = sub.add_parser(
+        "practice-seed",
+        help="Plan or safely seed the canonical kit into an empty/README-only synthetic practice project",
+    )
+    p.add_argument("project", help="Synthetic GitLab practice project path_with_namespace")
+    p.add_argument("--ref", default=None, help="Practice target ref (default: configured base ref)")
+    p.add_argument(
+        "--apply",
+        action="store_true",
+        help="Perform the one-time remote seed after all safety checks pass",
+    )
+    p.add_argument(
+        "--confirm-synthetic",
+        action="store_true",
+        help="Explicitly confirm that the target is a disposable/synthetic practice project",
+    )
+    p.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation after the safe seed plan is emitted",
+    )
+
+    p = sub.add_parser(
         "practice-start",
         help="Create the canonical Stage-1 practice workspace/handoff after practice-doctor passes; never auto-launches",
     )
@@ -1577,6 +1600,68 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
         manager = WorkspaceManager(settings)
         runner = CommandRunner(settings, manager)
         gitlab_api = GitLabAPI(settings)
+
+        if args.command == "practice-seed":
+            plan = build_practice_seed_plan(
+                settings=settings,
+                manager=manager,
+                project=args.project,
+                ref=args.ref,
+            )
+            if not args.apply:
+                _print(plan)
+                return 0 if bool(plan.get("ok")) else 1
+
+            if not args.confirm_synthetic:
+                _print({
+                    "ok": False,
+                    "stage": "synthetic-confirmation",
+                    "message": (
+                        "--apply requires --confirm-synthetic. This command is only "
+                        "for a disposable/synthetic ReasonFirst practice project."
+                    ),
+                    "plan": plan,
+                })
+                return 1
+
+            _print({
+                "apply_requested": True,
+                "synthetic_project_confirmed": True,
+                **plan,
+            })
+            if not bool(plan.get("ok")):
+                return 1
+
+            if not args.yes:
+                if not sys.stdin.isatty():
+                    raise RuntimeError(
+                        "practice-seed --apply requires interactive confirmation on a TTY; "
+                        "use --yes only after reviewing the emitted seed plan"
+                    )
+                print(
+                    "[actual-coder] Seed the canonical kit into this synthetic project "
+                    "with a normal non-force push? [y/N] ",
+                    file=sys.stderr,
+                    end="",
+                    flush=True,
+                )
+                answer = sys.stdin.readline().strip().lower()
+                if answer not in {"y", "yes"}:
+                    _print({
+                        "project": args.project,
+                        "cancelled": True,
+                        "message": "No remote write was performed.",
+                    })
+                    return 1
+
+            result = execute_practice_seed(
+                settings=settings,
+                manager=manager,
+                project=args.project,
+                ref=args.ref,
+            )
+            _print(result)
+            return 0
 
         if args.command == "practice-start":
             practice = run_practice_doctor(

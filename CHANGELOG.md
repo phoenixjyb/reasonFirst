@@ -7,6 +7,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Add safety-gated `actual-coder practice-seed`: dry-run by default, refuses nontrivial/already-seeded targets, validates the packaged five-test baseline, requires explicit synthetic-project + human confirmation for apply, uses managed Git auth/proxy behavior, and performs only a normal non-force verified push.
 - Add `actual-coder practice-doctor` for non-destructive synthetic-lab readiness checks covering allowlist/seed/contract, worker availability, external-client proxy risk, local GitLab Runner executor configuration, and project runner eligibility; add `practice-start` to create the canonical Stage-1 TaskSpec/workspace without auto-launching a worker.
 - Add conservative structured CI diagnosis so known runner/infrastructure failures such as a custom executor missing `RunExec` explicitly block coding-worker repair and recommend retrying the same candidate after infrastructure repair.
 - Add persistent bounded TaskSpec + attempt records tied to each workspace's project/base SHA; worker handoffs preserve acceptance criteria/non-goals across retries, and `actual-coder evidence` emits a bounded recursively redacted read-only EvidencePack with optional CI evidence.
