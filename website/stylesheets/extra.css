@@ -1,0 +1,27 @@
+:root {
+  --rf-surface: rgba(127, 127, 127, 0.06);
+}
+
+.md-grid {
+  max-width: 78rem;
+}
+
+.md-typeset h1 {
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > ol > li {
+  border-radius: 0.8rem;
+  background: var(--rf-surface);
+}
+
+.md-typeset code {
+  border-radius: 0.25rem;
+}
+
+.md-typeset .md-button {
+  margin-right: 0.4rem;
+  margin-bottom: 0.4rem;
+}
