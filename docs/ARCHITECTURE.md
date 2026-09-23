@@ -67,6 +67,8 @@ It can:
 - surface pending App Server approvals;
 - explicitly approve or decline individual requests;
 - run complete finish-preview review gates;
+- publish a **local** workspace only against the exact reviewed finish-preview snapshot digest;
+- read local GitLab CI and bounded EvidencePack state back into the reasoning conversation;
 - use structured remote validation when a user-owned container policy is configured.
 
 Remote publication is intentionally more conservative: it is hidden and disabled by default and requires explicit `RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH=true`.
@@ -237,10 +239,11 @@ The default supported path remains:
 ```text
 workspace
   → finish preview / review
-  → human confirmation
+  → human confirmation of exact snapshot digest
+  → snapshot-bound local finish
   → feature branch
   → GitLab MR
-  → matching-HEAD CI
+  → matching-HEAD CI / EvidencePack read-back
   → human merge decision
 ```
 

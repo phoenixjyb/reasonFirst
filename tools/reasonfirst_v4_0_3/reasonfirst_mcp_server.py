@@ -36,9 +36,12 @@ def build_server():
         "ReasonFirst",
         instructions=(
             "ReasonFirst v4 is the local code-work orchestration server. ChatGPT is the planner/reviewer; "
-            "Codex is only the implementation/build/test/push executor. Prefer dispatch -> files/read -> ChatGPT analysis -> "
-            "codex_start -> review_bundle/diff -> authorize_push only after review. Never send passwords/tokens/keys as tool arguments. "
-            "Execution targets are task-scoped; SSH workspaces are isolated and preserve the user's original checkout."
+            "Codex is only the implementation/build/test executor. For local workspaces prefer dispatch -> files/read -> "
+            "ChatGPT analysis -> codex_start -> review_bundle/diff -> finish_preview. Do not call reasonfirst_finish until the "
+            "human explicitly approves publication of that exact reviewed snapshot digest. After publication, use reasonfirst_ci "
+            "and reasonfirst_evidence for matching-head status/evidence. For SSH workspaces use authorize_push only after review. "
+            "Never send passwords/tokens/keys as tool arguments. Execution targets are task-scoped; SSH workspaces are isolated "
+            "and preserve the user's original checkout."
         ),
     )
     token_path = ctrl.state_dir / "control-token"
@@ -88,8 +91,10 @@ def build_server():
         intent: str = "analyze-optimize",
         base_ref: str = "main",
         execution: str | None = None,
+        acceptance_criteria: list[str] | None = None,
+        non_goals: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Prepare an isolated real-code workspace for ChatGPT analysis. Does not start Codex."""
+        """Prepare one isolated workspace and persist the ChatGPT-approved task boundary. Does not start Codex."""
         return ctrl.dispatch_request(
             gitlab_url=gitlab_url,
             module=module,
@@ -97,6 +102,8 @@ def build_server():
             intent=intent,
             base_ref=base_ref,
             execution=execution,
+            acceptance_criteria=acceptance_criteria,
+            non_goals=non_goals,
         )
 
     @server.tool(name="reasonfirst_workspace_status", annotations=read)
@@ -218,6 +225,33 @@ def build_server():
             allow_protected=allow_protected,
             allow_secret_match=allow_secret_match,
         )
+
+    @server.tool(name="reasonfirst_finish", annotations=write)
+    def reasonfirst_finish(
+        thread_id: str,
+        commit_message: str,
+        snapshot_digest: str,
+        allow_protected: bool = False,
+        allow_secret_match: bool = False,
+    ) -> dict[str, Any]:
+        """Publish a reviewed local workspace snapshot. Requires the exact digest from finish_preview."""
+        return ctrl.finish(
+            thread_id=thread_id,
+            message=commit_message,
+            snapshot_digest=snapshot_digest,
+            allow_protected=allow_protected,
+            allow_secret_match=allow_secret_match,
+        )
+
+    @server.tool(name="reasonfirst_ci", annotations=read)
+    def reasonfirst_ci(thread_id: str) -> dict[str, Any]:
+        """Read matching-HEAD GitLab CI status and bounded failed-job evidence for this local workspace."""
+        return ctrl.ci(thread_id=thread_id)
+
+    @server.tool(name="reasonfirst_evidence", annotations=read)
+    def reasonfirst_evidence(thread_id: str, from_ci: bool = False) -> dict[str, Any]:
+        """Build the bounded redacted EvidencePack for this local workspace, optionally with CI."""
+        return ctrl.evidence(thread_id=thread_id, from_ci=from_ci)
 
     @server.tool(name="reasonfirst_review_bundle", annotations=read)
     def reasonfirst_review_bundle(thread_id: str, artifact_path: str = ".") -> dict[str, Any]:

@@ -64,3 +64,7 @@ Historical notes/CHANGELOG are records, and LICENSE is unchanged. Documentation 
 [V0.2 design](V0.2_WRITE_ACCESS_DESIGN.md), [V0.2 Codex guide](V0.2_CODEX_QUICKSTART.md), [CodingAgent compatibility guide](CODINGAGENT_QUICKSTART.md), [V0.3 roadmap](V0.3_ROADMAP_CN.md) and [V0.3 audit](V0.3_RELEASE_AUDIT_CN.md) provide historical context.
 
 Focused implementation notes cover [publication safety](V0.3.1_PUBLICATION_SAFETY_CN.md), [exit status](V0.3.1_COMMAND_EXIT_CN.md), [history scanning](V0.3.1_SECRET_HISTORY_CN.md) and [log evidence](V0.3.1_SHARED_LOG_EVIDENCE_CN.md). Their filenames do not announce a v0.3.1 release. [Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) now tracks richer TaskSpec/EvidencePack lifecycle and cross-interface work beyond the merged core; [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) tracks remaining native-Git trust/destination-policy work.
+
+## Chat-only rehearsal
+
+- [Fully chat-based E2E practice](CHAT_ONLY_PRACTICE.md): one normal ChatGPT conversation from live repo read → Bridge-managed edit → reviewed snapshot → MR → matching-head CI/EvidencePack, with no manual Codex CLI interaction.

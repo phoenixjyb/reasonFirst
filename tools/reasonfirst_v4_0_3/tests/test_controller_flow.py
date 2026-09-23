@@ -125,6 +125,10 @@ def main():
             if "project-config" in args:
                 return {"project": "group/project", "found": False, "valid": True}
             if "start" in args:
+                assert "--acceptance" in args
+                assert "README only" in args
+                assert "--non-goal" in args
+                assert "No CI changes" in args
                 return {
                     "workspace": {"workspace_id": "abc123def456", "project": "group/project"},
                     "worktree_path": str(worktree),
@@ -158,6 +162,8 @@ def main():
                 gitlab_url="https://gitlab.example.com/group/project",
                 module="src/perception",
                 request="Analyze and optimize latency",
+                acceptance_criteria=["README only"],
+                non_goals=["No CI changes"],
             )
             assert routed["auto_routed"] is True
             assert routed["project"] == "group/project"
