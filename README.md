@@ -50,6 +50,7 @@ The read-only GitLab MCP supplies repository/MR/CI evidence to the reasoning lay
 | Already configured: start/status/stop/restart | [Tunnel lifecycle](docs/TUNNEL_LIFECYCLE.md) · [中文](docs/TUNNEL_LIFECYCLE_CN.md) |
 | Confirm a new project's existence/access and obtain an explicit grant | [Project access](docs/PROJECT_ACCESS.md) · [中文](docs/PROJECT_ACCESS_CN.md) |
 | Rehearse the reasoning/worker/MR loop | [Practice lab](docs/PRACTICE_LAB.md) · [中文](docs/PRACTICE_LAB_CN.md) |
+| Run the whole read → edit → MR → CI loop from one ChatGPT conversation | **[Fully chat-based E2E practice](docs/CHAT_ONLY_PRACTICE.md)** · **[中文](docs/CHAT_ONLY_PRACTICE_CN.md)** |
 | Understand interface responsibilities | [Workflow](docs/WORKFLOW.md) · [中文](docs/WORKFLOW_CN.md) |
 | Execution-engine setup and controlled implementation | [CLI quickstart](docs/ACTUAL_CODER_QUICKSTART.md) · [中文](docs/QUICKSTART_CN.md) |
 | Approved requirements and observed results | [Manual handoff template](docs/TASK_HANDOFF_TEMPLATE.md) · [中文](docs/TASK_HANDOFF_TEMPLATE_CN.md) |

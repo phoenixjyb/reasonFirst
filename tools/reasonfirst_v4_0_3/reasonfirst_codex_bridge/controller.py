@@ -31,8 +31,11 @@ from .bridge_config import (
 )
 from gitlab_agent import __version__ as REASONFIRST_VERSION
 from gitlab_agent.config import AgentSettings
+from gitlab_agent.finish import build_finish_plan, execute_finish
 from gitlab_agent.locking import file_lock
 from gitlab_agent.review_gates import evaluate_review_gates
+from gitlab_agent.runner import CommandRunner
+from gitlab_agent.workspace import WorkspaceManager
 from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 from .remote_workspace import RemoteWorkspaceManager
 
@@ -855,13 +858,39 @@ class BridgeController:
                 hinted_path = "/".join(pieces[2:]).strip("/")
         return {"project": project_part, "hinted_path": hinted_path, "gitlab_url": raw}
 
-    def dispatch_request(self, *, gitlab_url: str, module: str = "", request: str = "", intent: str = "analyze-optimize", base_ref: str = "", execution: Any = None) -> dict[str, Any]:
+    def dispatch_request(
+        self,
+        *,
+        gitlab_url: str,
+        module: str = "",
+        request: str = "",
+        intent: str = "analyze-optimize",
+        base_ref: str = "",
+        execution: Any = None,
+        acceptance_criteria: list[str] | None = None,
+        non_goals: list[str] | None = None,
+    ) -> dict[str, Any]:
         parsed = self.parse_gitlab_url(gitlab_url)
         focus = str(module or parsed.get("hinted_path") or ".").strip() or "."
         task = re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{intent}-{focus}").strip("-._")[:48] or "chatgpt-analysis"
         target = self._requested_target(execution)
-        goal = f"Prepare the real repository for ChatGPT analysis. Do not modify files. User request: {request or intent}. Focus: {focus}."
-        prepared = self.prepare(project=parsed["project"], task=task, goal=goal, base_ref=base_ref, execution=target.name)
+        has_approved_boundary = bool(acceptance_criteria or non_goals)
+        if has_approved_boundary and str(request).strip():
+            goal = str(request).strip()
+        else:
+            goal = (
+                "Prepare the real repository for ChatGPT analysis. Do not modify files. "
+                f"User request: {request or intent}. Focus: {focus}."
+            )
+        prepared = self.prepare(
+            project=parsed["project"],
+            task=task,
+            goal=goal,
+            base_ref=base_ref,
+            execution=target.name,
+            acceptance_criteria=acceptance_criteria,
+            non_goals=non_goals,
+        )
         record = self._workspace_record(str(prepared["workspace_id"])); record.update({"focus": focus, "request": request, "intent": intent, "gitlab_url": gitlab_url, "updated_at": int(time.time())}); self._save_state()
         try: listing = self.files(workspace_id=str(prepared["workspace_id"]), path=focus, max_entries=120)
         except Exception as exc: listing = {"ok": False, "error": redact(str(exc),1200), "path": focus}
@@ -900,7 +929,17 @@ class BridgeController:
         if not bool(report.get("ok")): raise BridgeError(f"Project access preflight failed: {report}")
         return report
 
-    def prepare(self, *, project: str, task: str = "chatgpt-analysis", goal: str = "Prepare repository for ChatGPT analysis only; do not modify files.", base_ref: str = "", execution: Any = None) -> dict[str, Any]:
+    def prepare(
+        self,
+        *,
+        project: str,
+        task: str = "chatgpt-analysis",
+        goal: str = "Prepare repository for ChatGPT analysis only; do not modify files.",
+        base_ref: str = "",
+        execution: Any = None,
+        acceptance_criteria: list[str] | None = None,
+        non_goals: list[str] | None = None,
+    ) -> dict[str, Any]:
         target = self._requested_target(execution)
         if target.type == "ssh":
             manager = self._remote_manager(target)
@@ -942,7 +981,26 @@ class BridgeController:
             }
 
         preflight = self.project_preflight(project, ref=base_ref)
-        argv = _module_command("gitlab_agent.actual_coder_cli", "start", project, "--task", task, "--goal", goal, "--agent", "codex", "--no-launch")
+        argv = _module_command(
+            "gitlab_agent.actual_coder_cli",
+            "start",
+            project,
+            "--task",
+            task,
+            "--goal",
+            goal,
+            "--agent",
+            "codex",
+            "--no-launch",
+        )
+        for criterion in acceptance_criteria or []:
+            value=str(criterion).strip()
+            if value:
+                argv += ["--acceptance", value]
+        for item in non_goals or []:
+            value=str(item).strip()
+            if value:
+                argv += ["--non-goal", value]
         if self._git_only_mode(): argv.append("--git-only")
         if base_ref: argv += ["--base-ref", base_ref]
         prepared = _run_json(argv, timeout=180)
@@ -1590,8 +1648,24 @@ class BridgeController:
 
     def ci(self, *, thread_id: str) -> dict[str, Any]:
         rec=self._workspace_record(str(self._session(thread_id)["workspace_id"]))
-        if rec.get("kind")=="ssh" or self._git_only_mode(): raise BridgeError("CI inspection requires GitLab API authentication and a local ActualCoder workspace")
-        return _run_json(_module_command("gitlab_agent.actual_coder_cli","ci",str(rec["workspace_id"])),timeout=120,allow_failure_json=True)
+        if rec.get("kind")=="ssh" or self._git_only_mode():
+            raise BridgeError("CI inspection requires GitLab API authentication and a local ActualCoder workspace")
+        return _run_json(
+            _module_command("gitlab_agent.actual_coder_cli","ci",str(rec["workspace_id"])),
+            timeout=120,
+            allow_failure_json=True,
+        )
+
+    def evidence(self, *, thread_id: str, from_ci: bool = False) -> dict[str, Any]:
+        rec=self._workspace_record(str(self._session(thread_id)["workspace_id"]))
+        if rec.get("kind")=="ssh":
+            raise BridgeError("EvidencePack inspection is currently supported only for local ActualCoder workspaces")
+        argv=_module_command("gitlab_agent.actual_coder_cli","evidence",str(rec["workspace_id"]))
+        if from_ci:
+            if self._git_only_mode():
+                raise BridgeError("CI-backed EvidencePack requires GitLab API authentication")
+            argv.append("--from-ci")
+        return _run_json(argv,timeout=180,allow_failure_json=True)
 
     def finish_preview(
         self,
@@ -1627,13 +1701,122 @@ class BridgeController:
             timeout=600,
             allow_failure_json=True,
         )
-        return {"ok": bool(result.get("ok")), "dry_run": True, "raw": result}
+        snapshot=result.get("snapshot")
+        digest=(
+            str(snapshot.get("digest") or "")
+            if isinstance(snapshot,dict)
+            else ""
+        )
+        with self._lock:
+            session["local_finish_preview"] = {
+                "digest": digest,
+                "message": str(message or "").strip(),
+                "allow_protected": bool(allow_protected),
+                "allow_secret_match": bool(allow_secret_match),
+                "ok": bool(result.get("ok")),
+                "previewed_at": int(time.time()),
+            }
+            session["updated_at"] = int(time.time())
+            self._save_state()
+        return {
+            "ok": bool(result.get("ok")),
+            "dry_run": True,
+            "snapshot_digest": digest or None,
+            "raw": result,
+        }
 
-    def finish(self, *, thread_id: str, message: str, snapshot_digest: str) -> dict[str, Any]:
-        session=self._session(thread_id); rec=self._workspace_record(str(session["workspace_id"]))
-        if rec.get("kind") == "ssh": raise BridgeError("Use v4 authorize_push + Codex reasonfirst_remote.commit_push for remote workspaces; no push was performed")
-        if os.getenv("RF_CODEX_REMOTE_FINISH","false").strip().lower() not in {"1","true","yes","on"}: raise BridgeError("Remote finish is disabled")
-        return _run_json(_module_command("gitlab_agent.actual_coder_cli","finish",str(session["workspace_id"]),"--message",message,"--yes"),timeout=600,allow_failure_json=True)
+    def finish(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        snapshot_digest: str,
+        allow_protected: bool = False,
+        allow_secret_match: bool = False,
+    ) -> dict[str, Any]:
+        """Publish one local workspace only if the fresh finish plan matches the reviewed snapshot."""
+        session=self._session(thread_id)
+        rec=self._workspace_record(str(session["workspace_id"]))
+        if rec.get("kind") == "ssh":
+            raise BridgeError(
+                "Use remote authorize_push + reasonfirst_remote.commit_push for SSH workspaces; "
+                "no local publication was performed"
+            )
+        expected=str(snapshot_digest or "").strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise BridgeError(
+                "A 64-character snapshot_digest from reasonfirst_finish_preview is required"
+            )
+        preview=session.get("local_finish_preview")
+        if not isinstance(preview,dict):
+            raise BridgeError(
+                "No reviewed local finish preview is recorded for this thread. "
+                "Run reasonfirst_finish_preview and obtain explicit human approval first."
+            )
+        if not bool(preview.get("ok")):
+            raise BridgeError(
+                "The recorded finish preview was blocked. No Git write was performed."
+            )
+        if str(preview.get("digest") or "") != expected:
+            raise BridgeError(
+                "snapshot_digest does not match the latest reviewed finish preview"
+            )
+        if str(preview.get("message") or "") != str(message or "").strip():
+            raise BridgeError(
+                "Commit message differs from the reviewed finish preview"
+            )
+        if bool(preview.get("allow_protected")) != bool(allow_protected):
+            raise BridgeError(
+                "Protected-path override differs from the reviewed finish preview"
+            )
+        if bool(preview.get("allow_secret_match")) != bool(allow_secret_match):
+            raise BridgeError(
+                "Secret-scan override differs from the reviewed finish preview"
+            )
+
+        settings=AgentSettings.load()
+        manager=WorkspaceManager(settings)
+        runner=CommandRunner(settings,manager)
+        plan=build_finish_plan(
+            settings=settings,
+            manager=manager,
+            runner=runner,
+            workspace_id=str(session["workspace_id"]),
+            commit_message=message,
+            allow_protected=allow_protected,
+            allow_secret_match=allow_secret_match,
+        )
+        snapshot=plan.get("snapshot")
+        current_digest=(
+            str(snapshot.get("digest") or "")
+            if isinstance(snapshot,dict)
+            else ""
+        )
+        if current_digest != expected:
+            raise BridgeError(
+                "Workspace/validation output changed after ChatGPT reviewed finish_preview. "
+                "No Git write was performed; run reasonfirst_finish_preview again and obtain "
+                "fresh human approval for the new snapshot."
+            )
+        if not bool(plan.get("ok")):
+            return {
+                "ok": False,
+                "published": False,
+                "reason": "finish_plan_blocked",
+                "plan": plan,
+            }
+
+        result=execute_finish(
+            manager=manager,
+            workspace_id=str(session["workspace_id"]),
+            plan=plan,
+        )
+        return {
+            "ok": True,
+            "published": True,
+            "reviewed_snapshot_digest": expected,
+            "result": result,
+        }
 
     def _on_event(self, event: dict[str, Any], app_key: str) -> None:
         method=str(event.get("method") or ""); params=event.get("params") if isinstance(event.get("params"),dict) else {}; thread_id=params.get("threadId") if isinstance(params,dict) else None

@@ -67,6 +67,7 @@ nav:
       - Mental model: concepts.md
       - First-time setup: docs/GETTING_STARTED.md
       - Practice lab: docs/PRACTICE_LAB.md
+      - Fully chat-based E2E: docs/CHAT_ONLY_PRACTICE.md
       - FAQ: faq.md
   - Use ReasonFirst:
       - Working with ChatGPT: chatgpt-workflow.md
@@ -88,6 +89,7 @@ nav:
       - 核心概念: concepts_cn.md
       - 首次完整接入: docs/GETTING_STARTED_CN.md
       - 工作流程: docs/WORKFLOW_CN.md
+      - 全聊天闭环演练: docs/CHAT_ONLY_PRACTICE_CN.md
       - 快速上手: docs/QUICKSTART_CN.md
       - 故障排查: docs/TROUBLESHOOTING_CN.md
       - 架构说明: docs/ARCHITECTURE_CN.md

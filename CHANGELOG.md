@@ -7,6 +7,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Add Bridge Preview `reasonfirst_finish`, `reasonfirst_ci`, and `reasonfirst_evidence` for a fully chat-driven local workspace → reviewed snapshot → MR → matching-head CI loop. Local publication requires the exact current `finish_preview` snapshot digest and fails closed if validation/workspace state changed after review.
 - Add safety-gated `actual-coder practice-seed`: dry-run by default, refuses nontrivial/already-seeded targets, validates the packaged five-test baseline, requires explicit synthetic-project + human confirmation for apply, uses managed Git auth/proxy behavior, and performs only a normal non-force verified push.
 - Add `actual-coder practice-doctor` for non-destructive synthetic-lab readiness checks covering allowlist/seed/contract, worker availability, external-client proxy risk, local GitLab Runner executor configuration, and project runner eligibility; add `practice-start` to create the canonical Stage-1 TaskSpec/workspace without auto-launching a worker.
 - Add conservative structured CI diagnosis so known runner/infrastructure failures such as a custom executor missing `RunExec` explicitly block coding-worker repair and recommend retrying the same candidate after infrastructure repair.
@@ -27,6 +28,7 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Public documentation and contribution workflow
 
+- Add a bilingual fully chat-based E2E rehearsal with copy/paste prompts for read-only grounding, Bridge-managed execution, explicit human snapshot approval, MR publication, and final CI/EvidencePack review.
 - Polish the public documentation site around onboarding: add a first-10-minutes path, ChatGPT prompt patterns, EvidencePack review guidance, bilingual equivalents, compact visual workflow, and tabbed navigation.
 - Recenter README, onboarding, architecture, workflow, documentation indexes and quickstarts on the primary ChatGPT-first reasoning loop; retain direct ActualCoder use as a secondary execution/operations capability rather than a co-equal product mode.
 - Add a bilingual current-architecture reference covering the two MCP surfaces, three worker backends, WorkerPolicy verification, approval mediation, workspace locking, structured SSH container validation, shared finish gates and experimental remote publication.
