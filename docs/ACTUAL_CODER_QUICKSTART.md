@@ -156,8 +156,16 @@ The example uses a Python/pytest command; it is not a universal contract. Reposi
 Define the goal, non-goals, and acceptance criteria with your reasoning interface first. Prepare without launching a coding model:
 
 ```bash
-uv run actual-coder start team/project-a --task fix-timeout --goal "Fix the timeout bug; preserve the API and add regression coverage" --no-launch
+uv run actual-coder start team/project-a \
+  --task fix-timeout \
+  --goal "Fix the timeout bug" \
+  --acceptance "Timeout regression test passes" \
+  --acceptance "Existing API remains compatible" \
+  --non-goal "No unrelated refactor" \
+  --no-launch
 ```
+
+The goal plus repeatable `--acceptance` and `--non-goal` values are persisted as a bounded TaskSpec tied to the workspace's project/base SHA. Subsequent resume/continue handoffs reuse the original goal when `--goal` is omitted and carry the acceptance criteria/non-goals back into the worker prompt. Each handoff records bounded non-secret attempt metadata (backend, CI-context presence and WorkerPolicy), not full model transcripts.
 
 This fetches project context and creates a worktree. Save the returned workspace ID. Inspect the handoff and use its returned backend command/prompt. On a new task, omit `--no-launch` to launch the selected worker; use `--agent codex-cli`, `--agent copilot-cli`, or `--agent codex-desktop` for the clearest explicit surface names. Historical `codex` / `copilot` remain supported aliases. No existing-workspace ID is accepted by `start`.
 
@@ -196,7 +204,18 @@ The convenience alias `continue` uses `--agent auto` and launches by default:
 uv run actual-coder continue "$WS" --from-ci --goal "Repair the matching-head CI failure without unrelated changes"
 ```
 
-Use `continue ... --no-launch` to inspect without starting a worker. Resume/continue reload the repository contract from the workspace's pinned base SHA, so instructions, protected paths, validation commands, and worker selection remain tied to the reviewed base policy rather than whatever is currently on the remote branch. Matching-head CI freshness checks still apply. Review and merge the MR in GitLab outside ReasonFirst; the controller has no merge operation.
+Use `continue ... --no-launch` to inspect without starting a worker. Resume/continue reload the repository contract from the workspace's pinned base SHA, so instructions, protected paths, validation commands, and worker selection remain tied to the reviewed base policy rather than whatever is currently on the remote branch. Matching-head CI freshness checks still apply.
+
+Build a bounded, redacted, read-only evidence bundle at any point:
+
+```bash
+uv run actual-coder evidence "$WS"
+uv run actual-coder evidence "$WS" --from-ci
+```
+
+EvidencePack includes workspace identity/status, persistent TaskSpec/attempt metadata, pinned-base project policy, changed paths, reviewability and a bounded/redacted diff. `--from-ci` attaches sanitized CI evidence and reports stale/incomplete pipelines as warnings instead of treating them as fresh proof. Building evidence does not run repository code, mutate task state, commit, or push.
+
+Review and merge the MR in GitLab outside ReasonFirst; the controller has no merge operation.
 
 ## 5. Recovery and low-level commands
 
