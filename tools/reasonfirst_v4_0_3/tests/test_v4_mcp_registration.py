@@ -10,9 +10,13 @@ class FakeAnnotations:
 
 class FakeMCPServer:
     def __init__(self, name, instructions=None):
-        self.name=name; self.instructions=instructions; self.tools={}
+        self.name=name; self.instructions=instructions; self.tools={}; self.tool_meta={}
     def tool(self, name=None, **kwargs):
-        def deco(fn): self.tools[name or fn.__name__]=fn; return fn
+        def deco(fn):
+            key=name or fn.__name__
+            self.tools[key]=fn
+            self.tool_meta[key]=kwargs
+            return fn
         return deco
     def custom_route(self, *args, **kwargs):
         return lambda fn: fn
@@ -39,10 +43,41 @@ assert expected.issubset(server.tools.keys()), sorted(server.tools)
 assert 'reasonfirst_authorize_push' not in server.tools
 assert 'ChatGPT is the planner/reviewer' in server.instructions
 
+for tool_name, meta in server.tool_meta.items():
+    annotations = meta.get("annotations")
+    assert annotations is not None, tool_name
+    kwargs = annotations.kwargs
+    assert isinstance(kwargs.get("read_only_hint"), bool), (tool_name, kwargs)
+    assert isinstance(kwargs.get("destructive_hint"), bool), (tool_name, kwargs)
+    assert isinstance(kwargs.get("open_world_hint"), bool), (tool_name, kwargs)
+
+for tool_name in {
+    'reasonfirst_doctor','reasonfirst_target_probe','reasonfirst_workspace_status',
+    'reasonfirst_files','reasonfirst_read','reasonfirst_diff','reasonfirst_codex_status',
+    'reasonfirst_codex_events','reasonfirst_pending_approvals','reasonfirst_finish_preview',
+    'reasonfirst_ci','reasonfirst_evidence','reasonfirst_review_bundle','reasonfirst_artifacts',
+}:
+    assert server.tool_meta[tool_name]["annotations"].kwargs["read_only_hint"] is True
+    assert server.tool_meta[tool_name]["annotations"].kwargs["destructive_hint"] is False
+    assert server.tool_meta[tool_name]["annotations"].kwargs["open_world_hint"] is False
+
+for tool_name in {
+    'reasonfirst_dispatch','reasonfirst_codex_start','reasonfirst_codex_continue',
+    'reasonfirst_codex_steer','reasonfirst_codex_interrupt','reasonfirst_approve',
+    'reasonfirst_decline','reasonfirst_finish',
+}:
+    assert server.tool_meta[tool_name]["annotations"].kwargs["read_only_hint"] is False
+    assert server.tool_meta[tool_name]["annotations"].kwargs["destructive_hint"] is False
+    assert server.tool_meta[tool_name]["annotations"].kwargs["open_world_hint"] is False
+
 os.environ['RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH']='true'
 try:
     enabled=mod.build_server()
     assert 'reasonfirst_authorize_push' in enabled.tools
+    annotations=enabled.tool_meta['reasonfirst_authorize_push']['annotations'].kwargs
+    assert annotations['read_only_hint'] is False
+    assert annotations['destructive_hint'] is False
+    assert annotations['open_world_hint'] is False
 finally:
     os.environ.pop('RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH',None)
 
