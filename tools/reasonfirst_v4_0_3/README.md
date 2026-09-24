@@ -145,6 +145,32 @@ The normal local `actual-coder finish` flow remains the default publication path
 
 Installing a local plugin or MCP service does not automatically make ReasonFirst tools appear in every ChatGPT Web/App conversation. Direct ChatGPT access requires a supported registered connection/tool surface. The private GitHub relay remains an optional compatibility transport where appropriate.
 
+## Strict read-only MCP compatibility mode
+
+For connector compatibility testing, especially on ChatGPT surfaces that accept read-only custom MCP tools but reject write-capable tool sets, ReasonFirst can expose a strict read-only MCP surface:
+
+```bash
+RF_MCP_READ_ONLY=true bash tools/reasonfirst_v4_0_3/install_launch_agent.sh
+```
+
+The LaunchAgent persists that selection and restarts the local MCP service. In this mode the server exposes only inspection/status tools such as doctor, target probe, workspace/file/diff reads, worker status/events, CI, review bundle and artifacts. It does **not** register dispatch, worker-control, approvals, finish/publication, evidence generation, experimental remote push, or the `/control` POST route. `reasonfirst_finish_preview` is also intentionally omitted from this strict surface.
+
+Check the active mode with:
+
+```bash
+curl -fsS http://127.0.0.1:8765/healthz
+```
+
+The response includes `"read_only_mode": true` when enabled.
+
+Return to the normal full ReasonFirst MCP surface by reinstalling the LaunchAgent with:
+
+```bash
+RF_MCP_READ_ONLY=false bash tools/reasonfirst_v4_0_3/install_launch_agent.sh
+```
+
+The Secure MCP Tunnel profile and tunnel ID do not change when switching modes; only the local MCP tool surface is restarted.
+
 ## Runtime and rollback
 
 The bridge runtime is staged under:
