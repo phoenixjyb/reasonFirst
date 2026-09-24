@@ -70,8 +70,18 @@ def build_server():
     async def healthz(_request):
         from starlette.responses import JSONResponse
         return JSONResponse({"ok": True, "service": "reasonfirst", "version": REASONFIRST_VERSION, "bridge": "preview", "config_schema": 4})
-    read = ToolAnnotations(read_only_hint=True, idempotent_hint=True)
-    write = ToolAnnotations(read_only_hint=False, idempotent_hint=False)
+    read = ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        open_world_hint=False,
+        idempotent_hint=True,
+    )
+    write = ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        open_world_hint=False,
+        idempotent_hint=False,
+    )
 
     @server.tool(name="reasonfirst_doctor", annotations=read)
     def reasonfirst_doctor() -> dict[str, Any]:
