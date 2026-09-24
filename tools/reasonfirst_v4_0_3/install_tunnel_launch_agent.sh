@@ -4,6 +4,15 @@ HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LABEL="com.reasonfirst.v4-tunnel"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="$HOME/.local/share/reasonfirst/logs"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+TUNNEL_BIN="${TUNNEL_CLIENT_BIN:-$(command -v tunnel-client 2>/dev/null || true)}"
+if [ -z "$TUNNEL_BIN" ] && [ -x "$HOME/.local/bin/tunnel-client" ]; then
+  TUNNEL_BIN="$HOME/.local/bin/tunnel-client"
+fi
+if [ -z "$TUNNEL_BIN" ] || [ ! -x "$TUNNEL_BIN" ]; then
+  echo "tunnel-client not found in configured/standard launchd paths" >&2
+  exit 127
+fi
 mkdir -p "$(dirname "$PLIST")" "$LOG_DIR"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
