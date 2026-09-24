@@ -11,6 +11,10 @@ cat > "$PLIST" <<EOF
 <plist version="1.0"><dict>
 <key>Label</key><string>$LABEL</string>
 <key>ProgramArguments</key><array><string>$HERE/run_v4_tunnel.sh</string></array>
+<key>EnvironmentVariables</key><dict>
+  <key>TUNNEL_CLIENT_BIN</key><string>$TUNNEL_BIN</string>
+  <key>PATH</key><string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+</dict>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><true/>
 <key>StandardOutPath</key><string>$LOG_DIR/v4-tunnel.stdout.log</string>
