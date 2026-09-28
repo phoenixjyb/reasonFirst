@@ -39,8 +39,7 @@ for name in "${vars[@]}"; do
     launchctl setenv "$name" "$value"
     echo "$name=propagated"
   else
-    launchctl unsetenv "$name" >/dev/null 2>&1 || true
-    echo "$name=unset"
+    echo "$name=unchanged"
   fi
 done
 
