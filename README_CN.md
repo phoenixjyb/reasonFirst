@@ -58,6 +58,7 @@ ChatGPT-first 主链路已经在合成 GitLab 演练仓库上完成端到端验�
 | 已配置后的启动/状态/停止/重启 | [隧道生命周期](docs/TUNNEL_LIFECYCLE_CN.md) · [English](docs/TUNNEL_LIFECYCLE.md) |
 | 确认新项目存在/可访问并明确授权 | [项目访问](docs/PROJECT_ACCESS_CN.md) · [English](docs/PROJECT_ACCESS.md) |
 | 演练推理、worker 和 MR 迭代 | [实战演练](docs/PRACTICE_LAB_CN.md) · [English](docs/PRACTICE_LAB.md) |
+| 在一个 ChatGPT 对话中走完整 managed worker → MR → matching-head CI | **[全聊天 E2E](docs/CHAT_ONLY_PRACTICE_CN.md)** · **[English](docs/CHAT_ONLY_PRACTICE.md)** |
 | 分清界面职责 | [工作流程](docs/WORKFLOW_CN.md) · [English](docs/WORKFLOW.md) |
 | 执行引擎安装与受控实现 | [CLI 快速上手](docs/QUICKSTART_CN.md) · [English](docs/ACTUAL_CODER_QUICKSTART.md) |
 | 已批准要求与实际结果 | [人工交接模板](docs/TASK_HANDOFF_TEMPLATE_CN.md) · [English](docs/TASK_HANDOFF_TEMPLATE.md) |
