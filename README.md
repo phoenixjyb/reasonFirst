@@ -42,6 +42,12 @@ The read-only GitLab MCP supplies repository/MR/CI evidence to the reasoning lay
 
 **Secondary operational capability:** ActualCoder can be invoked directly from a terminal, CI repair flow, IDE, or another client. That is useful for testing, recovery, automation, and portability, but it is a byproduct of the decoupled architecture—not the primary ReasonFirst product story.
 
+## Validated chat-only loop
+
+The full ChatGPT-first path has now been exercised end to end against a synthetic GitLab practice repository: live source grounding, pinned TaskSpec, one managed workspace, Bridge-managed Codex App Server execution, reviewed diff, snapshot-bound finish preview, explicit human publication approval, Merge Request creation, matching-HEAD CI, and EvidencePack review. The coding worker did not publish by itself and ReasonFirst did not auto-merge.
+
+For external users, start with the generic [fully chat-based E2E practice](docs/CHAT_ONLY_PRACTICE.md). It uses placeholders for your own GitLab host/project and keeps the human merge decision separate from automated execution. On macOS networks that require an HTTP(S) proxy, use the documented session-scoped launchd proxy sync rather than writing proxy credentials into a plist.
+
 ## Guides by task
 
 | Goal | Guide |

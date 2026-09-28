@@ -18,6 +18,10 @@ ChatGPT 读取与推理
 
 ActualCoder 也可以脱离 ChatGPT 被终端直接调用，用于测试、恢复、CI 修复、IDE 集成或其他自动化。这是受支持的运维副产品，不是本指南描述的主要工作方式。
 
+如果你的目标是**完全由聊天驱动的实现闭环**，先完成本指南中的只读连接，再明确启用 [Bridge Preview](../tools/reasonfirst_v4_0_3/README.md)，然后按[全聊天闭环 E2E 演练](CHAT_ONLY_PRACTICE_CN.md)操作。这条路径已经真实走通过受管 worker 执行、审阅 snapshot、人工批准发布、GitLab MR、matching-HEAD CI 和 EvidencePack 审查；最终 merge 仍由人决定。
+
+如果 macOS 主机访问外部服务依赖 HTTP(S) 代理，要注意 LaunchAgent 默认不会自动继承交互式 shell 的代理变量。Bridge 文档与[故障排查](TROUBLESHOOTING_CN.md)已经提供会话级代理同步 helper；不要为了让 worker 联网而把代理凭证持久化到 plist。
+
 **按顺序完成本指南，再发送仓库工作提示词。** 验收目标是在普通 ChatGPT 对话中，通过 ReasonFirst MCP 读取你明确批准的 GitLab 项目。安装完 Python 包或本地健康检查通过，都不等于达到这个目标。
 
 本文主路径是 **macOS + Keychain + 已选定的 stdio profile**。Linux 可以使用同一生命周期助手，但须明确选择环境变量/文件凭证来源，见[手工替代方案](OPENAI_TUNNEL_TEAM_SETUP_CN.md)。本助手不支持 Windows 生命周期管理；Windows 应使用[手工操作](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell)，不要照搬 macOS 命令。

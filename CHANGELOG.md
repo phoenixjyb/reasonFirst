@@ -7,6 +7,10 @@ still reports 0.3.0; identify installations and test evidence by commit SHA.
 
 ### Correctness and deployment compatibility
 
+- Validate the fully chat-based Bridge path end to end on a synthetic GitLab repository: pinned TaskSpec, one managed workspace, Codex App Server execution, reviewed snapshot, explicit human approval, MR publication, matching-HEAD unit-test CI, and complete EvidencePack review; no auto-merge.
+- Fix current Codex App Server compatibility at worker start: use the current thread policy wire values and avoid synthesizing a transport-less `mcp_servers.reasonfirst` entry when ReasonFirst is not configured in the worker's effective Codex config (#69, #71).
+- Add an opt-in macOS launchd proxy synchronization helper for Bridge/tunnel LaunchAgents without writing proxy values to plist/source files, and make the MCP installer wait briefly for `/healthz` before reporting readiness (#68, #73).
+
 - Add Bridge Preview `reasonfirst_finish`, `reasonfirst_ci`, and `reasonfirst_evidence` for a fully chat-driven local workspace → reviewed snapshot → MR → matching-head CI loop. Local publication requires the exact current `finish_preview` snapshot digest and fails closed if validation/workspace state changed after review.
 - Add safety-gated `actual-coder practice-seed`: dry-run by default, refuses nontrivial/already-seeded targets, validates the packaged five-test baseline, requires explicit synthetic-project + human confirmation for apply, uses managed Git auth/proxy behavior, and performs only a normal non-force verified push.
 - Add `actual-coder practice-doctor` for non-destructive synthetic-lab readiness checks covering allowlist/seed/contract, worker availability, external-client proxy risk, local GitLab Runner executor configuration, and project runner eligibility; add `practice-start` to create the canonical Stage-1 TaskSpec/workspace without auto-launching a worker.

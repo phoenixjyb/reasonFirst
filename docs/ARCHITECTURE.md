@@ -296,6 +296,10 @@ Trust boundaries to keep distinct:
 - structured validation container vs arbitrary host execution;
 - review evidence vs final human merge decision.
 
+- process/network reachability vs local health: a loopback MCP can be healthy while a launchd-spawned coding worker lacks the proxy environment needed for outbound model traffic.
+
+macOS proxy propagation is therefore treated as an explicit **session-level operational boundary**, not repository policy. The Bridge helper can copy selected proxy variables from the current shell into the launchd user session without persisting their values into the LaunchAgent plist; logout/reboot clears that session environment.
+
 Secrets should never be passed as model prompts/tool arguments. The repository itself is protected by tracked-file/full-history secret scanning in CI.
 
 ## 12. Source map

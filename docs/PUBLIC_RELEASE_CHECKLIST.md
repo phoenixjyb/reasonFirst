@@ -2,6 +2,8 @@
 
 A public repository and green CI are not the same as a prepared release. This is a checklist, not a claim that every item has been completed. The source already contains Apache-2.0 licensing; do not relicense or expose another repository as part of documentation maintenance.
 
+Observed functional evidence on 2026-09-28: the synthetic chat-only path completed managed worker execution, reviewed snapshot approval, GitLab MR publication, matching-HEAD unit-test CI, and EvidencePack review without auto-merge. This is useful release evidence, but it does **not** by itself satisfy the privacy, packaging, repository-settings, multi-platform, or release-tag checks below.
+
 ## Source, privacy, and licensing
 
 - [ ] Confirm authority to distribute the source, examples, assets, and contributions. Review third-party notices and dependencies; preserve the existing LICENSE. Publishing code does not license external coding-agent services or grant rights to private target projects.
