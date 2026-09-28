@@ -18,6 +18,10 @@ The read-only GitLab MCP and the more privileged Bridge Preview have different t
 
 ActualCoder can also be invoked directly without ChatGPT for testing, recovery, CI repair, IDE integration, or other automation. That standalone use is supported as an operational byproduct, not the primary workflow described by this guide.
 
+If your goal is the **fully chat-based implementation loop**, complete the read connection in this guide first, then enable the [Bridge Preview](../tools/reasonfirst_v4_0_3/README.md) deliberately and follow the [fully chat-based E2E practice](CHAT_ONLY_PRACTICE.md). That path has been exercised through managed worker execution, reviewed snapshot approval, GitLab MR publication, matching-HEAD CI, and EvidencePack review. It still stops at a human merge decision.
+
+On macOS hosts that need an HTTP(S) proxy, remember that a LaunchAgent does not automatically inherit the interactive shell's proxy variables. The Bridge guide and [troubleshooting](TROUBLESHOOTING.md) document the session-scoped proxy sync helper; do not persist proxy credentials into a plist just to make the worker connect.
+
 **Finish this guide in order before sending a repository-work prompt.** The result is a normal ChatGPT conversation that can read your explicitly approved GitLab project through ReasonFirst MCP. Installing Python packages or seeing a local health check pass is not that result.
 
 This is the recommended **macOS + Keychain + existing-profile/stdio** path. Linux users can use the same lifecycle helper with an explicit environment/file credential source; see [manual alternatives](SETUP_TUTORIAL.md). Windows lifecycle management is not supported by this helper; use the [Windows manual procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell). Do not run macOS commands there.
