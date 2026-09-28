@@ -51,16 +51,16 @@ for line in sys.stdin:
         print(json.dumps({"method":"account/updated","params":{"account":None}}), flush=True)
         print(json.dumps({"id":rid,"result":{"userAgent":"fake"}}), flush=True)
     elif method == "configRequirements/read":
-        print(json.dumps({"id":rid,"result":{"requirements":{"allowedApprovalPolicies":["never","unlessTrusted","onRequest"],"allowedSandboxModes":["workspace-write","read-only","readOnly"]}}}), flush=True)
+        print(json.dumps({"id":rid,"result":{"requirements":{"allowedApprovalPolicies":["never","untrusted","on-request"],"allowedSandboxModes":["workspace-write","read-only"]}}}), flush=True)
     elif method == "thread/start":
         params=m.get("params",{})
         has_dynamic_tools=bool(params.get("dynamicTools"))
-        expected="readOnly" if has_dynamic_tools else "workspaceWrite"
+        expected="read-only" if has_dynamic_tools else "workspace-write"
         if params.get("sandbox") != expected:
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad sandbox mode"}}), flush=True)
         elif params.get("model") != "gpt-5.6-sol":
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad model"}}), flush=True)
-        elif params.get("approvalPolicy") != "unlessTrusted":
+        elif params.get("approvalPolicy") != "on-request":
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad approval policy"}}), flush=True)
         else:
             print(json.dumps({"id":rid,"result":{
@@ -84,7 +84,7 @@ for line in sys.stdin:
             },
             "model":"gpt-5.6-sol",
             "reasoningEffort":"high",
-            "approvalPolicy":"unlessTrusted",
+            "approvalPolicy":"on-request",
             "sandbox":{"type":"workspaceWrite"}
         }}), flush=True)
     elif method == "turn/start":
@@ -97,7 +97,7 @@ for line in sys.stdin:
         if params.get("model") != "gpt-5.6-sol" or params.get("effort") != "high":
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad model effort"}}), flush=True)
             continue
-        if params.get("approvalPolicy") != "unlessTrusted":
+        if params.get("approvalPolicy") != "on-request":
             print(json.dumps({"id":rid,"error":{"code":-32602,"message":"bad turn approval policy"}}), flush=True)
             continue
         print(json.dumps({"id":rid,"result":{"turn":{"id":turn,"status":"inProgress","items":[]}}}), flush=True)
