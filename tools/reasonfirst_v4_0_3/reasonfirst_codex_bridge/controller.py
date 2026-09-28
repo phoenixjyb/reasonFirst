@@ -472,8 +472,16 @@ class BridgeController:
                 "result": result,
             }
 
-    def _get_app(self, target: ExecutionTarget) -> tuple[str, AppServerClient]:
+    def _get_app(
+        self,
+        target: ExecutionTarget,
+        *,
+        cwd: str | None = None,
+    ) -> tuple[str, AppServerClient]:
         key = self._app_key(target)
+        if target.codex_backend in {"global-config-local", "desktop-proxy"}:
+            resolved_cwd = str(Path(cwd).expanduser().resolve()) if cwd else ""
+            key = f"{key}|cwd={resolved_cwd}"
         existing = self._apps.get(key)
         if existing is not None:
             return key, existing
@@ -491,6 +499,7 @@ class BridgeController:
             )
         elif target.codex_backend in {"global-config-local", "desktop-proxy"}:
             app = AppServerClient.global_config_local(
+                cwd=cwd,
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
@@ -519,6 +528,7 @@ class BridgeController:
         else:
             # v3 compatibility. Prefer v4 dedicated global-config app-server.
             app = AppServerClient.global_config_local(
+                cwd=cwd,
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
@@ -727,7 +737,10 @@ class BridgeController:
 
     def _app_for_session(self, session: dict[str, Any]) -> tuple[str, AppServerClient]:
         target = self._target_from_dict(session.get("target") or "local")
-        key, app = self._get_app(target)
+        key, app = self._get_app(
+            target,
+            cwd=str(session.get("codex_cwd") or session.get("worktree_path") or "") or None,
+        )
         tid = str(session["thread_id"])
         if key not in self._app_current_thread or self._app_current_thread.get(key) != tid:
             raw_policy = session.get("worker_policy")
@@ -1138,7 +1151,7 @@ class BridgeController:
                 timeout=120,
             )
             prompt = str(handoff.get("agent_prompt") or "").strip()
-        app_key, app = self._get_app(target)
+        app_key, app = self._get_app(target, cwd=codex_cwd)
         thread_id = app.start_thread(
             cwd=codex_cwd,
             policy=policy,
