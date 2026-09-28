@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
-import json, sys
+import json, os, sys
+
+if sys.argv[1:4] == ["mcp", "get", "reasonfirst"]:
+    mode = os.getenv("FAKE_CODEX_REASONFIRST_MCP", "absent")
+    if mode == "configured":
+        print(json.dumps({
+            "name": "reasonfirst",
+            "enabled": True,
+            "transport": {
+                "type": "streamable_http",
+                "url": "http://127.0.0.1:8765/mcp",
+            },
+        }))
+        raise SystemExit(0)
+    print("No MCP server named 'reasonfirst' found.", file=sys.stderr)
+    raise SystemExit(1)
+
 thread = "thr_fake"
 turn = "turn_fake"
 thread_name = None
