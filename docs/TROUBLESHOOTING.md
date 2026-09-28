@@ -62,6 +62,40 @@ GITLAB_GIT_TRUST_ENV=false
 
 Python and Git proxy policy are separate from the tunnel's outbound OpenAI route and from CA trust. A 502 can have other server/network causes; do not assume every 502 is a proxy failure. Inspect proxy settings privately: proxy URLs can contain credentials, so avoid posting `env` or full Git configuration. Do not install SOCKS support or enable proxy inheritance unless that route is actually intended.
 
+## GitLab CLI works but ReasonFirst returns HTTP 401
+
+`glab auth status` and ReasonFirst do not necessarily use the same credential source. `glab` may be authenticated from the operating-system keyring while ReasonFirst reads `GITLAB_TOKEN` from the selected private `~/.config/gitlab-agent/.env`.
+
+If `glab api user --hostname <host>` succeeds but `gitlab_whoami` returns 401, inspect only whether the configured ReasonFirst token is present/current; do not print the value into chat or logs. Refresh the private ReasonFirst credential through your approved secret-management path, then restart the GitLab MCP/tunnel consumer so it reloads the file. The OpenAI tunnel runtime key is unrelated to GitLab authentication.
+
+## Bridge worker fails before or immediately after start
+
+Two Codex App Server compatibility failures were fixed after the original v0.3.0 tag:
+
+- a `thread/start` policy wire-value mismatch with current Codex App Server; and
+- a synthetic `mcp_servers.reasonfirst.enabled=false` override that could create an MCP entry with no transport and abort App Server initialization.
+
+If an updated checkout still shows `INVALID_ARGUMENT`, `invalid transport`, or App Server initialization errors, record the ReasonFirst commit and Codex version, update to a reviewed current `main`, restage the Bridge runtime, and restart the MCP service before retrying. Reuse the existing managed workspace when it is still clean; repeated `dispatch` calls create unnecessary workspaces.
+
+## Worker starts but the model stream repeatedly reconnects or times out
+
+A healthy local MCP and a successfully created Codex thread do not prove that the launchd-managed worker can reach its external model service. On macOS, LaunchAgents do not automatically inherit the interactive shell's proxy variables.
+
+If your network requires `http_proxy` / `https_proxy` / `all_proxy`, sync only the current shell's proxy variables into the current launchd user session:
+
+```bash
+bash tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh sync
+launchctl kickstart -k "gui/$(id -u)/com.reasonfirst.v4-mcp"
+```
+
+The helper prints variable names/status only and does not write proxy values to a plist or source file. The launchd user-session environment is still visible to processes running as the same user and is cleared at logout/reboot. To remove the propagated values deliberately:
+
+```bash
+bash tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh clear
+```
+
+After restarting, wait for `http://127.0.0.1:8765/healthz` before continuing the same worker thread. ICMP `ping` is not a reliable proxy-path test: an HTTP(S) proxy can work even when the destination drops ICMP.
+
 ## ActualCoder installation or effective config differs
 
 From a stable checkout, see [local installation updates](LOCAL_PR_REVIEW.md). Inspect `actual-coder config` and the interpreter/source path locally. A global editable tool and `uv run` in a temporary checkout may use different environments. Package version `0.3.0` alone does not identify the source commit.
