@@ -19,6 +19,7 @@ These guides describe the source revision containing them, not necessarily the l
 | Start the required service and manage its lifecycle | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) |
 | Before using a newly proposed GitLab project | [Access preflight and user grants](PROJECT_ACCESS.md) | [项目预检与用户授权](PROJECT_ACCESS_CN.md) |
 | Rehearse ChatGPT, Codex and three rounds of one MR | [Practice lab](PRACTICE_LAB.md) | [实战演练](PRACTICE_LAB_CN.md) |
+| Run the full chat-only managed-worker → MR → matching-head CI loop | **[Chat-only E2E](CHAT_ONLY_PRACTICE.md)** | **[全聊天 E2E](CHAT_ONLY_PRACTICE_CN.md)** |
 | Interface responsibilities and evidence | [Workflow](WORKFLOW.md) | [工作流程](WORKFLOW_CN.md) |
 | Execution-engine setup and controlled implementation | [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) | [快速上手](QUICKSTART_CN.md) |
 | Manual/advanced startup, credential alternatives | [Operator guide](SETUP_TUTORIAL.md) | [手工接入/Windows](OPENAI_TUNNEL_TEAM_SETUP_CN.md) |
