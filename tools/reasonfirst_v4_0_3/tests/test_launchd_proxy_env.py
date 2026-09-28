@@ -48,12 +48,12 @@ else:
         )
         assert result.returncode == 0, (result.stdout, result.stderr)
         assert "https_proxy=propagated" in result.stdout
-        assert "HTTPS_PROXY=unset" in result.stdout
+        assert "HTTPS_PROXY=unchanged" in result.stdout
         assert "http://proxy.example:8080" not in result.stdout
 
         calls = log.read_text(encoding="utf-8")
         assert "setenv:https_proxy" in calls
         assert "setenv:no_proxy" in calls
-        assert "unsetenv:HTTPS_PROXY" in calls
+        assert "unsetenv:HTTPS_PROXY" not in calls
 
 print("launchd proxy environment sync: OK")
