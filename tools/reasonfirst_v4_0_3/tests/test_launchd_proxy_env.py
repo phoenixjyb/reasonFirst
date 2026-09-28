@@ -56,4 +56,16 @@ else:
         assert "setenv:no_proxy" in calls
         assert "unsetenv:HTTPS_PROXY" not in calls
 
+        cleared = subprocess.run(
+            ["bash", str(HELPER), "clear"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert cleared.returncode == 0, (cleared.stdout, cleared.stderr)
+        assert "https_proxy=cleared" in cleared.stdout
+        calls = log.read_text(encoding="utf-8")
+        assert "unsetenv:https_proxy" in calls
+
 print("launchd proxy environment sync: OK")
