@@ -44,6 +44,12 @@ ChatGPT + 人工审查
 
 **次要运维能力：**ActualCoder 也可以被终端、CI 修复流程、IDE 或其他客户端直接调用。这对测试、恢复、自动化和可移植性有价值，但它是解耦架构带来的副产品，不是 ReasonFirst 的主要产品叙事。
 
+## 已验证的全聊天闭环
+
+ChatGPT-first 主链路已经在合成 GitLab 演练仓库上完成端到端验证：实时源码读取、固定 TaskSpec、单一受管 workspace、Bridge 管理的 Codex App Server 执行、diff 审查、绑定 snapshot 的 finish preview、人工明确批准发布、创建 Merge Request、matching-HEAD CI 以及 EvidencePack 审查。coding worker 没有自行发布，ReasonFirst 也没有自动 merge。
+
+外部用户建议从通用化后的[全聊天闭环 E2E 演练](docs/CHAT_ONLY_PRACTICE_CN.md)开始，使用自己的 GitLab host/project 占位值，并始终把最终 merge 决定保留给人。若 macOS 网络必须通过 HTTP(S) 代理访问外部服务，应使用文档中的 launchd 会话级代理同步，不要把代理凭证写进 plist。
+
 ## 按任务选择指南
 
 | 目标 | 指南 |
