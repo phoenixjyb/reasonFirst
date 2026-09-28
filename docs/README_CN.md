@@ -21,6 +21,7 @@
 | 启动必需服务与生命周期管理 | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) |
 | 使用新提出的 GitLab 项目之前 | [项目预检与用户授权](PROJECT_ACCESS_CN.md) | [Project access](PROJECT_ACCESS.md) |
 | 演练 ChatGPT、Codex 与同一 MR 的三轮审查 | [实战演练](PRACTICE_LAB_CN.md) | [Practice lab](PRACTICE_LAB.md) |
+| 完整演练全聊天 managed worker → MR → matching-head CI | **[全聊天 E2E](CHAT_ONLY_PRACTICE_CN.md)** | **[Chat-only E2E](CHAT_ONLY_PRACTICE.md)** |
 | 界面职责与证据 | [工作流程](WORKFLOW_CN.md) | [Workflow](WORKFLOW.md) |
 | 执行引擎安装与受控实现 | [CLI 快速上手](QUICKSTART_CN.md) | [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) |
 | 手工/高级启动、凭证替代方式 | [运维指南/Windows](OPENAI_TUNNEL_TEAM_SETUP_CN.md) | [Manual operator guide](SETUP_TUTORIAL.md) |
