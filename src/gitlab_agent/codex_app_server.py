@@ -668,8 +668,10 @@ class AppServerClient:
 
     @staticmethod
     def _approval_policy(policy: WorkerPolicy) -> str:
-        # App Server names the interactive approval mode "unlessTrusted".
-        return "never" if policy.approval_policy == "never" else "unlessTrusted"
+        # Codex App Server v0.157.1 AskForApproval wire values are kebab-case:
+        # "untrusted", "on-request", and "never". WorkerPolicy currently exposes
+        # "on-request" or "never", so preserve that value directly.
+        return "never" if policy.approval_policy == "never" else "on-request"
 
     @staticmethod
     def _sandbox_mode(policy: WorkerPolicy, override: str | None = None) -> str:
@@ -867,7 +869,9 @@ class AppServerClient:
         params: dict[str, Any] = {
             "cwd": cwd,
             "approvalPolicy": approval,
-            "sandbox": "readOnly" if mode == "read-only" else "workspaceWrite",
+            # thread/start accepts SandboxMode (kebab-case), unlike
+            # turn/start sandboxPolicy whose structured type is camelCase.
+            "sandbox": "read-only" if mode == "read-only" else "workspace-write",
             "serviceName": "reasonfirst_codex_desktop",
             "threadSource": "user",
         }
