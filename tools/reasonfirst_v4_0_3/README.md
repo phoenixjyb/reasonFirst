@@ -66,6 +66,30 @@ export CONTROL_PLANE_API_KEY=...
 
 Tunnel credentials are handled by the dedicated tunnel setup; they are not stored in this source tree.
 
+## macOS LaunchAgent proxy handling
+
+ReasonFirst does not persist proxy credentials into its LaunchAgent plist. If your macOS network requires the interactive shell's HTTP(S) proxy for the Bridge-spawned Codex worker or the optional tunnel LaunchAgent, explicitly synchronize the current shell proxy variables into the current launchd user session:
+
+```bash
+bash tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh sync
+```
+
+Then restart the intended service. The MCP installer can do the sync before bootstrap when explicitly requested:
+
+```bash
+RF_LAUNCHD_PROXY_FROM_SHELL=true \
+RF_MCP_READ_ONLY=false \
+bash tools/reasonfirst_v4_0_3/install_launch_agent.sh
+```
+
+The tunnel LaunchAgent supports the same opt-in environment variable. The helper prints only variable names/status, not values; the values are not written to a plist or source file. They remain part of the current launchd user-session environment, are visible to same-user processes, and disappear at logout/reboot. Clear them explicitly with:
+
+```bash
+bash tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh clear
+```
+
+The MCP installer now waits briefly for `/healthz` before reporting readiness, avoiding the common race where the LaunchAgent is healthy a few seconds after `kickstart`.
+
 ## Local MCP and Desktop checks
 
 The configured loopback MCP URL is:
