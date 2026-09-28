@@ -27,6 +27,8 @@ def handler(ws):
             }],'nextCursor':None}
         elif method=='thread/start':
             params=msg.get('params') or {}
+            assert params.get('approvalPolicy') == 'on-request', params
+            assert params.get('sandbox') == 'workspace-write', params
             result={
                 'thread':{
                     'id':'thr_managed',
@@ -36,7 +38,7 @@ def handler(ws):
                 'model':params.get('model'),
                 'reasoningEffort':'high',
                 'approvalPolicy':params.get('approvalPolicy'),
-                'sandbox':{'type':params.get('sandbox')},
+                'sandbox':{'type':'workspaceWrite'},
             }
         elif method=='turn/start': result={'turn':{'id':'turn_managed','status':'inProgress'}}
         elif method in {'thread/name/set','thread/goal/set','thread/metadata/update'}: result={}
