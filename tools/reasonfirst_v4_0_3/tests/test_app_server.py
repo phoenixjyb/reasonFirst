@@ -1,10 +1,67 @@
 from pathlib import Path
+import os
 import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from reasonfirst_codex_bridge.app_server import AppServerClient
+
+
+
+
+
+def test_global_config_local_skips_reasonfirst_override_when_absent():
+    fake = str(ROOT / "tests" / "fake_codex.py")
+    old_bin = os.environ.get("CODEX_BRIDGE_CODEX_BIN")
+    old_mode = os.environ.get("FAKE_CODEX_REASONFIRST_MCP")
+    os.environ["CODEX_BRIDGE_CODEX_BIN"] = fake
+    os.environ["FAKE_CODEX_REASONFIRST_MCP"] = "absent"
+    try:
+        client = AppServerClient.global_config_local(cwd=str(ROOT))
+        try:
+            assert client.proc is not None
+            assert client.proc.args == [fake, "app-server"], client.proc.args
+        finally:
+            client.close()
+    finally:
+        if old_bin is None:
+            os.environ.pop("CODEX_BRIDGE_CODEX_BIN", None)
+        else:
+            os.environ["CODEX_BRIDGE_CODEX_BIN"] = old_bin
+        if old_mode is None:
+            os.environ.pop("FAKE_CODEX_REASONFIRST_MCP", None)
+        else:
+            os.environ["FAKE_CODEX_REASONFIRST_MCP"] = old_mode
+
+
+def test_global_config_local_disables_existing_reasonfirst_mcp():
+    fake = str(ROOT / "tests" / "fake_codex.py")
+    old_bin = os.environ.get("CODEX_BRIDGE_CODEX_BIN")
+    old_mode = os.environ.get("FAKE_CODEX_REASONFIRST_MCP")
+    os.environ["CODEX_BRIDGE_CODEX_BIN"] = fake
+    os.environ["FAKE_CODEX_REASONFIRST_MCP"] = "configured"
+    try:
+        client = AppServerClient.global_config_local(cwd=str(ROOT))
+        try:
+            assert client.proc is not None
+            assert client.proc.args == [
+                fake,
+                "--config",
+                "mcp_servers.reasonfirst.enabled=false",
+                "app-server",
+            ], client.proc.args
+        finally:
+            client.close()
+    finally:
+        if old_bin is None:
+            os.environ.pop("CODEX_BRIDGE_CODEX_BIN", None)
+        else:
+            os.environ["CODEX_BRIDGE_CODEX_BIN"] = old_bin
+        if old_mode is None:
+            os.environ.pop("FAKE_CODEX_REASONFIRST_MCP", None)
+        else:
+            os.environ["FAKE_CODEX_REASONFIRST_MCP"] = old_mode
 
 
 def test_callback_failure_does_not_kill_reader():
@@ -109,6 +166,8 @@ def test_dynamic_tool_roundtrip():
     client.close()
 
 def main():
+    test_global_config_local_skips_reasonfirst_override_when_absent()
+    test_global_config_local_disables_existing_reasonfirst_mcp()
     test_callback_failure_does_not_kill_reader()
     test_command_approval_roundtrip()
     test_unsupported_reasoning_effort_fails_before_turn()
