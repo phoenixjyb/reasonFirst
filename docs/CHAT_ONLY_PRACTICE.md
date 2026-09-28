@@ -4,6 +4,8 @@
 
 This rehearsal validates the ReasonFirst product loop **from one normal ChatGPT conversation**, without asking the user to open a terminal or interact with Codex CLI manually.
 
+A real synthetic acceptance run completed this loop through controlled publication, a GitLab Merge Request, and successful matching-HEAD unit-test CI. The run also confirmed that worker execution must inherit any network proxy required by the host; the troubleshooting guide now documents the macOS launchd boundary.
+
 The intended path is:
 
 ```text
@@ -25,7 +27,7 @@ The human still decides whether to merge. This practice does not enable auto-mer
 Use the existing synthetic project:
 
 ```text
-https://gitlab.recomo.com.cn/phoenixjyb/reasonfirst-practice
+https://gitlab.example.com/your-group/reasonfirst-practice
 ref: main
 ```
 
@@ -48,7 +50,7 @@ This gives the chat a real edit, commit, branch, MR and CI without mixing in Sta
 
 The new ChatGPT conversation should have access to:
 
-- the live **Recomo GitLab read-only MCP** for identity, access, source, MR and CI evidence;
+- the live **GitLab read-only MCP** for identity, access, source, MR and CI evidence;
 - the **ReasonFirst Bridge Preview MCP** for managed workspace creation, worker execution, unpublished diff/review, controlled local publication, CI and EvidencePack.
 
 For a fully chat-based run, the Bridge should expose at least:
@@ -61,6 +63,9 @@ reasonfirst_workspace_status
 reasonfirst_read
 reasonfirst_diff
 reasonfirst_codex_start
+reasonfirst_codex_continue
+reasonfirst_codex_steer
+reasonfirst_codex_interrupt
 reasonfirst_codex_status
 reasonfirst_codex_events
 reasonfirst_pending_approvals
@@ -74,6 +79,8 @@ reasonfirst_evidence
 
 If any required write/read capability is missing, the chat must stop rather than substituting web search, shell commands, a manual Codex CLI session, or guessed state.
 
+Before starting the worker on macOS, confirm the loopback MCP health endpoint is ready. If the host needs an outbound HTTP(S) proxy and the MCP is launchd-managed, sync the current shell proxy variables into the launchd user session with `tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh`, then restart the MCP service. The helper prints only which variable names were propagated, not their values.
+
 ## Conversation script
 
 ### Prompt 1 — read and plan only
@@ -83,12 +90,12 @@ Paste this as the first message in a fresh normal ChatGPT conversation:
 ```text
 We are running a fully chat-based ReasonFirst E2E rehearsal in:
 
-https://gitlab.recomo.com.cn/phoenixjyb/reasonfirst-practice
+https://gitlab.example.com/your-group/reasonfirst-practice
 ref = main
 
 I do not want to run terminal commands or interact with Codex CLI manually.
 Use only:
-1) the selected live Recomo GitLab read-only MCP for GitLab repository/MR/CI evidence; and
+1) the selected live GitLab read-only MCP for GitLab repository/MR/CI evidence; and
 2) the ReasonFirst Bridge Preview MCP for managed workspace and coding-worker execution.
 
 Do not use web search, GitHub copies, old conversation results, or localhost/manual shell as substitutes.
