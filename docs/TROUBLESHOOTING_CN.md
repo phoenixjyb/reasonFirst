@@ -64,6 +64,40 @@ GITLAB_GIT_TRUST_ENV=false
 
 Python/Git 的代理策略与 Tunnel 出站访问 OpenAI 的路径，以及 CA 信任相互独立。502 也可能由其他服务端或网络问题导致，不要将所有 502 都归因于代理。私下检查代理设置：代理 URL 可能含凭证，因此避免公开 `env` 或完整 Git 配置。只有确实打算使用该路径时，才安装 SOCKS 支持或启用代理继承。
 
+## glab 可用，但 ReasonFirst 返回 HTTP 401
+
+`glab auth status` 与 ReasonFirst 不一定使用同一份凭证。前者可能从操作系统 Keychain 读取认证，而 ReasonFirst 仍从选定的私有 `~/.config/gitlab-agent/.env` 中读取 `GITLAB_TOKEN`。
+
+如果 `glab api user --hostname <host>` 成功，但 `gitlab_whoami` 返回 401，只检查 ReasonFirst 私有配置中的 token 是否存在/是否已更新，不要把 token 值打印到聊天或日志。通过你认可的秘密管理方式更新 ReasonFirst 凭证后，重启 GitLab MCP/Tunnel 消费端，使其重新加载该文件。OpenAI Tunnel runtime key 与 GitLab 认证无关。
+
+## Bridge worker 在启动前或刚启动时失败
+
+原始 v0.3.0 tag 之后已经修复两类 Codex App Server 兼容问题：
+
+- 当前 Codex App Server 的 `thread/start` policy wire value 不兼容；
+- 无条件注入 `mcp_servers.reasonfirst.enabled=false` 可能生成没有 transport 的 MCP 配置，使 App Server 初始化直接失败。
+
+如果更新后的环境仍出现 `INVALID_ARGUMENT`、`invalid transport` 或 App Server 初始化错误，请记录 ReasonFirst commit 和 Codex 版本，更新到已审阅的当前 `main`，重新 stage Bridge runtime，并重启 MCP 服务后再试。若现有 managed workspace 仍然干净，应继续复用它；不要为了重试反复 dispatch 新 workspace。
+
+## worker 已创建，但模型流反复 reconnect / timeout
+
+本地 MCP 健康、Codex thread 已成功创建，并不代表 launchd 管理的 worker 一定能访问外部模型服务。macOS LaunchAgent 默认不会自动继承交互式 shell 中的代理变量。
+
+如果你的网络依赖 `http_proxy` / `https_proxy` / `all_proxy`，可将当前 shell 的代理变量仅同步到当前 launchd user session：
+
+```bash
+bash tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh sync
+launchctl kickstart -k "gui/$(id -u)/com.reasonfirst.v4-mcp"
+```
+
+该 helper 只输出变量名和状态，不把代理值写入 plist 或源码文件。launchd user-session 环境仍可被同一用户权限下的进程读取，并会在退出登录/重启后消失。需要主动清除时：
+
+```bash
+bash tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh clear
+```
+
+重启后先等待 `http://127.0.0.1:8765/healthz` 变为健康，再继续同一个 worker thread。ICMP `ping` 不能可靠验证代理链路：HTTP(S) 代理可能正常工作，而目标站点同时拒绝 ICMP。
+
 ## ActualCoder 安装或有效配置与预期不同
 
 从稳定检出目录按[安装更新指南](LOCAL_PR_REVIEW_CN.md)操作。私下检查 `actual-coder config` 及解释器/源码路径。全局 editable 工具与临时检出目录内的 `uv run` 可能使用不同环境。仅凭包版本 `0.3.0` 不能确定源码提交。
