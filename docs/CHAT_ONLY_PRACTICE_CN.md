@@ -4,6 +4,8 @@
 
 这个演练验证：用户只在一个普通 ChatGPT 对话里完成 ReasonFirst 的完整闭环，不需要手工打开 Terminal，也不需要手工操作 Codex CLI。
 
+已经有一次真实的合成验收完整走通这条链路：受控发布生成 GitLab Merge Request，并由 matching-HEAD 的真实 unit-test CI 成功收尾。该演练也验证了一个重要运行边界：如果主机访问外部服务依赖代理，Bridge 启动的 worker 也必须继承这套代理环境；macOS launchd 的处理方式已写入故障排查文档。
+
 目标链路：
 
 ```text
@@ -25,7 +27,7 @@ ChatGPT
 使用现有合成项目：
 
 ```text
-https://gitlab.recomo.com.cn/phoenixjyb/reasonfirst-practice
+https://gitlab.example.com/your-group/reasonfirst-practice
 ref: main
 ```
 
@@ -51,12 +53,12 @@ ref: main
 ```text
 我们要在下面项目进行一次“完全由 ChatGPT 对话驱动”的 ReasonFirst E2E 演练：
 
-https://gitlab.recomo.com.cn/phoenixjyb/reasonfirst-practice
+https://gitlab.example.com/your-group/reasonfirst-practice
 ref = main
 
 我不希望运行任何 Terminal 命令，也不手工操作 Codex CLI。
 只能使用：
-1）已连接的 Recomo GitLab 只读 MCP，用于 GitLab 仓库/MR/CI 证据；
+1）已连接的 GitLab 只读 MCP，用于 GitLab 仓库/MR/CI 证据；
 2）ReasonFirst Bridge Preview MCP，用于受管 workspace 和 coding worker 执行。
 
 不要用 web search、GitHub 副本、旧对话结果或手工 shell 代替。
@@ -110,7 +112,8 @@ dispatch 后：
 - 不要创建第二个 workspace。
 
 随后启动 Bridge 管理的 coding worker，并把刚才批准的文档任务、acceptance criteria、non-goals
-原样作为执行边界。
+原样作为执行边界。若主机依赖 HTTP(S) 代理且 MCP 由 launchd 管理，先确认 8765 health ready，
+并按文档把当前 shell 的代理变量同步到 launchd user session 后再启动 worker。
 
 通过 reasonfirst_codex_status/events 监控执行。必要时查看 pending approvals。
 不要批准任何扩大范围、读取凭证、修改 CI/policy、发布代码或触碰 README 之外文件的请求。
