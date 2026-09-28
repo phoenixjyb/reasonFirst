@@ -71,6 +71,56 @@ def resolve_desktop_or_codex_binary() -> str:
             return str(path.resolve())
     return resolve_codex_binary()
 
+def _reasonfirst_mcp_configured(codex_bin: str, *, cwd: str | None = None) -> bool:
+    """Return whether the effective Codex config contains a valid ReasonFirst MCP.
+
+    Current Codex rejects a CLI override that creates only
+    `mcp_servers.reasonfirst.enabled=false` without an inherited transport.
+    Probe the effective config first, in the worker cwd, so project-local Codex
+    configuration participates in the same way it will for the app-server.
+    """
+    try:
+        proc = subprocess.run(
+            [codex_bin, "mcp", "get", "reasonfirst", "--json"],
+            cwd=cwd or None,
+            env=os.environ.copy(),
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AppServerError(
+            f"Could not inspect Codex ReasonFirst MCP configuration: {exc}"
+        ) from exc
+
+    output = (proc.stdout or "").strip()
+    stderr = (proc.stderr or "").strip()
+    combined = "\n".join(part for part in (output, stderr) if part)
+
+    if proc.returncode != 0:
+        if "No MCP server named 'reasonfirst' found." in combined:
+            return False
+        raise AppServerError(
+            "Could not inspect Codex ReasonFirst MCP configuration: "
+            + (combined[-2000:] or f"exit {proc.returncode}")
+        )
+
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise AppServerError(
+            "Codex 'mcp get reasonfirst --json' returned invalid JSON"
+        ) from exc
+    transport = data.get("transport") if isinstance(data, dict) else None
+    transport_type = transport.get("type") if isinstance(transport, dict) else None
+    if transport_type not in {"stdio", "streamable_http"}:
+        raise AppServerError(
+            "Codex ReasonFirst MCP exists but has no valid transport"
+        )
+    return True
+
+
 def managed_app_server_socket() -> Path:
     """Return the managed Desktop socket path without requiring a resolvable HOME.
 
@@ -171,6 +221,7 @@ class AppServerClient:
     def global_config_local(
         cls,
         *,
+        cwd: str | None = None,
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -181,18 +232,19 @@ class AppServerClient:
         Desktop managed socket. ChatGPT chat remains the planner/orchestrator,
         while a dedicated Codex app-server performs implementation/testing.
 
-        The only one-shot config override disables the ReasonFirst MCP server in
-        this child process to prevent recursive self-invocation. All other global
-        config (model/provider, skills, rules, other MCP servers, login state,
-        approval/sandbox defaults, project config) remains inherited normally.
+        If the effective Codex config for this worker cwd already defines the
+        ReasonFirst MCP, disable that existing entry to prevent recursive
+        self-invocation. Do not synthesize a transport-less MCP entry when it is
+        absent, because current Codex rejects that as an invalid transport.
         """
         codex_bin = resolve_desktop_or_codex_binary()
-        argv = [
-            codex_bin,
-            "--config",
-            "mcp_servers.reasonfirst.enabled=false",
-            "app-server",
-        ]
+        argv = [codex_bin]
+        if _reasonfirst_mcp_configured(codex_bin, cwd=cwd):
+            argv.extend([
+                "--config",
+                "mcp_servers.reasonfirst.enabled=false",
+            ])
+        argv.append("app-server")
         return cls(
             launch_argv=argv,
             backend_name="global-config-local",

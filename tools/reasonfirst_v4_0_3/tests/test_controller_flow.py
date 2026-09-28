@@ -23,8 +23,10 @@ class FakeApp:
 
 
     @classmethod
-    def global_config_local(cls, *, event_handler=None, server_request_handler=None, approval_request_handler=None):
-        return cls(event_handler=event_handler, server_request_handler=server_request_handler, approval_request_handler=approval_request_handler, backend_name="global-config-local")
+    def global_config_local(cls, *, cwd=None, event_handler=None, server_request_handler=None, approval_request_handler=None):
+        app = cls(event_handler=event_handler, server_request_handler=server_request_handler, approval_request_handler=approval_request_handler, backend_name="global-config-local")
+        app.launch_cwd = cwd
+        return app
 
     @classmethod
     def desktop_preferred(cls, *, event_handler=None, server_request_handler=None, approval_request_handler=None, required=False):
@@ -181,6 +183,7 @@ def main():
             assert started["turn_id"] == "turn_test"
             assert started["thread_name"].startswith("[ReasonFirst] group/project")
             app = next(iter(ctrl._apps.values()))
+            assert app.launch_cwd == str(worktree.resolve())
             assert app.goal == "implement reviewed plan"
             assert app.metadata["branch"] == "chatgpt/optimize-abc123"
             bundle = ctrl.review_bundle(thread_id="thr_test", artifact_path="reports")
