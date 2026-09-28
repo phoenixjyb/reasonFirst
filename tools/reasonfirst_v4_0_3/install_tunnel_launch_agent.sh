@@ -4,6 +4,12 @@ HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LABEL="com.reasonfirst.v4-tunnel"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="$HOME/.local/share/reasonfirst/logs"
+PROXY_SYNC_RAW="${RF_LAUNCHD_PROXY_FROM_SHELL:-false}"
+case "$PROXY_SYNC_RAW" in
+  1|true|TRUE|yes|YES|on|ON) PROXY_SYNC_VALUE=true ;;
+  0|false|FALSE|no|NO|off|OFF|"") PROXY_SYNC_VALUE=false ;;
+  *) echo "RF_LAUNCHD_PROXY_FROM_SHELL must be a boolean value" >&2; exit 2 ;;
+esac
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 TUNNEL_BIN="${TUNNEL_CLIENT_BIN:-$(command -v tunnel-client 2>/dev/null || true)}"
 if [ -z "$TUNNEL_BIN" ] && [ -x "$HOME/.local/bin/tunnel-client" ]; then
@@ -14,6 +20,9 @@ if [ -z "$TUNNEL_BIN" ] || [ ! -x "$TUNNEL_BIN" ]; then
   exit 127
 fi
 mkdir -p "$(dirname "$PLIST")" "$LOG_DIR"
+if [ "$PROXY_SYNC_VALUE" = true ]; then
+  bash "$HERE/sync_launchd_proxy_env.sh" sync
+fi
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -35,3 +44,4 @@ launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 launchctl enable "gui/$(id -u)/$LABEL"
 echo "Installed and started $LABEL"
+echo "Launchd proxy sync from current shell: $PROXY_SYNC_VALUE"
