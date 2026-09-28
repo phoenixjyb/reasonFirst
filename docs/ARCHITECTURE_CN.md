@@ -185,6 +185,10 @@ ReasonFirst 是控制软件，不是通用 sandbox。需要明确区分：
 - 容器 validation 与任意主机命令；
 - 自动收集证据与最终人工 merge 决策。
 
+- 进程/网络可达性与本地健康：回环 MCP 可以健康，但 launchd 启动的 coding worker 仍可能缺少访问外部模型服务所需的代理环境。
+
+因此 macOS 代理传播被视为明确的**会话级运维边界**，而不是仓库策略。Bridge helper 可以把当前 shell 中选定的代理变量同步到 launchd user session，而不把代理值持久化到 LaunchAgent plist；退出登录/重启后该会话环境会消失。
+
 凭证不应进入 prompt/tool 参数。仓库 CI 会扫描 tracked files 与 Git history 中的高风险 secret 模式。
 
 ## 12. 代码位置
