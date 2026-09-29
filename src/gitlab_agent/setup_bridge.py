@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import subprocess
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -148,24 +149,48 @@ def bridge_tool_inventory() -> dict[str, Any]:
         ) from exc
 
 
-def bridge_execution_prerequisites() -> dict[str, Any]:
+def bridge_execution_prerequisites(
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
     socket = managed_app_server_socket()
     codex_bin: str | None = None
     error: str | None = None
-    try:
-        codex_bin = resolve_codex_binary()
-    except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"
-    available = bool(codex_bin) or socket.exists()
+    app_server_capable = socket.exists()
+
+    if not app_server_capable:
+        try:
+            codex_bin = resolve_codex_binary()
+            proc = runner(
+                [codex_bin, "app-server", "--help"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+                env=os.environ.copy(),
+            )
+            app_server_capable = proc.returncode == 0
+            if not app_server_capable:
+                error = (
+                    "Codex executable exists but 'codex app-server --help' failed "
+                    f"with exit {proc.returncode}."
+                )
+        except (OSError, subprocess.SubprocessError) as exc:
+            error = f"{type(exc).__name__}: {exc}"
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+
     return {
-        "ok": available,
-        "codex_app_server_capable": available,
+        "ok": app_server_capable,
+        "codex_app_server_capable": app_server_capable,
         "codex_bin": codex_bin,
         "managed_socket": str(socket),
         "managed_socket_exists": socket.exists(),
+        "authentication_verified": False,
         "error": error,
         "note": (
             "The current full-chat Bridge worker-control surface uses Codex App Server. "
+            "This check proves local App Server capability, not provider authentication. "
             "Copilot CLI remains supported through the standard terminal ActualCoder path, "
             "not this chat-controlled worker surface."
         ),
