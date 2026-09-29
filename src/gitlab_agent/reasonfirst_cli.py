@@ -37,6 +37,19 @@ from .setup_state import (
     save_setup_state,
 )
 from .setup_status import build_setup_status
+from .setup_tunnel import (
+    DEFAULT_TUNNEL_ALIAS,
+    RUNTIME_KEY_ENV,
+    build_chatgpt_handoff,
+    connect_runtime,
+    open_handoff_pages,
+    persist_tunnel_state,
+    resolve_read_mcp,
+    resolve_tunnel_client,
+    runtime_status,
+    stop_runtime,
+)
+from .tunnel_install import install_official_tunnel_client
 
 
 def _print_json(payload: dict[str, object]) -> None:
@@ -406,6 +419,132 @@ def _run_guided_setup(
     }
 
 
+def _save_tunnel_client_path(
+    *,
+    state_path: Path,
+    tunnel_client_path: str,
+) -> SetupState:
+    previous = load_setup_state(state_path) or SetupState()
+    state = replace(
+        previous,
+        tunnel_client_path=tunnel_client_path,
+        installed_version=__version__,
+        last_verified_at=datetime.now(timezone.utc).isoformat(),
+    )
+    save_setup_state(state, state_path)
+    return state
+
+
+def _select_project_for_handoff(
+    settings: AgentSettings,
+    explicit: str | None,
+) -> str:
+    if explicit:
+        if explicit not in settings.allowed_projects:
+            raise RuntimeError(
+                "Requested handoff project is not in the local ReasonFirst allowlist"
+            )
+        return explicit
+    projects = sorted(settings.allowed_projects)
+    if len(projects) == 1:
+        return projects[0]
+    if not projects:
+        raise RuntimeError("No project is locally allowlisted for a ChatGPT acceptance probe")
+    raise RuntimeError(
+        "More than one project is allowlisted; pass --project explicitly for the acceptance probe"
+    )
+
+
+def _resolve_or_install_tunnel_client(
+    *,
+    state_path: Path,
+    install: bool,
+    interactive: bool,
+) -> str:
+    state = load_setup_state(state_path)
+    existing = resolve_tunnel_client(state=state)
+    if existing:
+        return existing
+
+    should_install = install
+    if not should_install and interactive:
+        should_install = _confirm(
+            "Official tunnel-client is missing. Download and verify the latest OpenAI release now?"
+        )
+    if not should_install:
+        raise RuntimeError(
+            "tunnel-client is not available. Re-run with --install or install the official client first."
+        )
+
+    installed = install_official_tunnel_client()
+    path = str(installed["path"])
+    _save_tunnel_client_path(state_path=state_path, tunnel_client_path=path)
+    return path
+
+
+def _connect_tunnel_from_args(args: argparse.Namespace) -> dict[str, object]:
+    interactive = sys.stdin.isatty()
+    state = load_setup_state(args.state_file)
+    tunnel_client = _resolve_or_install_tunnel_client(
+        state_path=args.state_file,
+        install=bool(args.install),
+        interactive=interactive,
+    )
+    mcp_executable = resolve_read_mcp()
+    if not mcp_executable:
+        raise RuntimeError(
+            "reasonfirst-gitlab-mcp is not available from this installation"
+        )
+
+    tunnel_id = args.tunnel_id or (state.tunnel_id if state is not None else None)
+    if not tunnel_id:
+        if not interactive:
+            raise RuntimeError(
+                "Tunnel ID is required in non-interactive mode; pass --tunnel-id"
+            )
+        if args.open_platform:
+            open_handoff_pages(open_platform=True, open_chatgpt=False)
+        tunnel_id = _prompt("OpenAI tunnel ID")
+
+    runtime_key = os.getenv(RUNTIME_KEY_ENV, "").strip()
+    if not runtime_key:
+        if not interactive:
+            raise RuntimeError(
+                f"{RUNTIME_KEY_ENV} is not set; runtime keys are never accepted on argv"
+            )
+        runtime_key = getpass.getpass(
+            "OpenAI tunnel runtime API key (masked; not stored by ReasonFirst): "
+        ).strip()
+    if not runtime_key:
+        raise RuntimeError("OpenAI tunnel runtime API key is required")
+
+    alias = args.alias or (
+        state.tunnel_runtime if state is not None and state.tunnel_runtime else DEFAULT_TUNNEL_ALIAS
+    )
+    result = connect_runtime(
+        tunnel_id=tunnel_id,
+        runtime_key=runtime_key,
+        alias=alias,
+        tunnel_client=tunnel_client,
+        mcp_executable=mcp_executable,
+    )
+    if bool(result.get("ok")) and bool(result.get("ready")):
+        persist_tunnel_state(
+            tunnel_id=str(result["tunnel_id"]),
+            alias=str(result["alias"]),
+            tunnel_client=tunnel_client,
+            state_path=args.state_file,
+        )
+    return {
+        **result,
+        "tunnel_client": tunnel_client,
+        "mcp_executable": mcp_executable,
+        "runtime_key_stored": False,
+        "local_tunnel_ready": bool(result.get("ok")) and bool(result.get("ready")),
+        "chatgpt_ready": False,
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="reasonfirst",
@@ -480,6 +619,81 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SETUP_STATE_PATH,
         help="Override the non-secret setup progress file",
     )
+    tunnel = sub.add_parser("tunnel", help="Manage the private OpenAI MCP tunnel runtime")
+    tunnel_sub = tunnel.add_subparsers(dest="tunnel_command", required=True)
+
+    tunnel_install = tunnel_sub.add_parser(
+        "install",
+        help="Download and checksum-verify the latest official tunnel-client",
+    )
+    tunnel_install.add_argument("--json", action="store_true")
+    tunnel_install.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
+    tunnel_connect = tunnel_sub.add_parser(
+        "connect",
+        help="Attach the packaged read MCP to an existing OpenAI tunnel",
+    )
+    tunnel_connect.add_argument("--tunnel-id", default=None)
+    tunnel_connect.add_argument("--alias", default=None)
+    tunnel_connect.add_argument(
+        "--install",
+        action="store_true",
+        help="Install the official tunnel-client if it is missing",
+    )
+    tunnel_connect.add_argument(
+        "--open-platform",
+        action="store_true",
+        help="Open Platform tunnel settings before prompting for a tunnel ID",
+    )
+    tunnel_connect.add_argument("--json", action="store_true")
+    tunnel_connect.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
+    tunnel_status = tunnel_sub.add_parser("status", help="Inspect managed tunnel runtime health")
+    tunnel_status.add_argument("--alias", default=None)
+    tunnel_status.add_argument("--json", action="store_true")
+    tunnel_status.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
+    tunnel_stop = tunnel_sub.add_parser("stop", help="Stop the managed tunnel runtime")
+    tunnel_stop.add_argument("--alias", default=None)
+    tunnel_stop.add_argument("--json", action="store_true")
+    tunnel_stop.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
+    chatgpt = sub.add_parser("chatgpt", help="Prepare the ChatGPT-side acceptance handoff")
+    chatgpt_sub = chatgpt.add_subparsers(dest="chatgpt_command", required=True)
+    handoff = chatgpt_sub.add_parser(
+        "handoff",
+        help="Show the exact browser steps and live-read acceptance prompt",
+    )
+    handoff.add_argument("--project", default=None)
+    handoff.add_argument("--ref", default="main")
+    handoff.add_argument(
+        "--open",
+        action="store_true",
+        help="Open Platform tunnel settings and ChatGPT in the default browser",
+    )
+    handoff.add_argument("--json", action="store_true")
+    handoff.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
     return parser
 
 
@@ -611,6 +825,100 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Worker preference saved: {args.backend}")
                 print("Provider authentication remains a separate verification step.")
+            return 0
+
+        if args.command == "tunnel":
+            if args.tunnel_command == "install":
+                installed = install_official_tunnel_client()
+                _save_tunnel_client_path(
+                    state_path=args.state_file,
+                    tunnel_client_path=str(installed["path"]),
+                )
+                if args.json:
+                    _print_json(installed)
+                else:
+                    print(f"Installed tunnel-client: {installed['path']}")
+                    print(f"Verified SHA256: {installed['sha256']}")
+                return 0
+
+            state = load_setup_state(args.state_file)
+            tunnel_client = resolve_tunnel_client(state=state)
+            if args.tunnel_command == "connect":
+                result = _connect_tunnel_from_args(args)
+                if args.json:
+                    _print_json(result)
+                else:
+                    if result.get("local_tunnel_ready"):
+                        print("ReasonFirst tunnel runtime is healthy and ready.")
+                        print(f"Alias: {result.get('alias')}")
+                        if result.get("ui_url"):
+                            print(f"Local admin UI: {result.get('ui_url')}")
+                        print(
+                            "Runtime key was used only through the child environment and was not stored by ReasonFirst."
+                        )
+                        print("Next: reasonfirst chatgpt handoff --open")
+                    else:
+                        print("Tunnel runtime did not become ready.", file=sys.stderr)
+                        _print_json(result)
+                return 0 if result.get("local_tunnel_ready") else 1
+
+            if not tunnel_client:
+                raise RuntimeError(
+                    "tunnel-client is not available; run 'reasonfirst tunnel install'"
+                )
+            alias = args.alias or (
+                state.tunnel_runtime if state is not None and state.tunnel_runtime else DEFAULT_TUNNEL_ALIAS
+            )
+            if args.tunnel_command == "status":
+                result = runtime_status(alias=alias, tunnel_client=tunnel_client)
+            else:
+                result = stop_runtime(alias=alias, tunnel_client=tunnel_client)
+            if args.json:
+                _print_json(result)
+            else:
+                if args.tunnel_command == "status":
+                    print(f"Alias: {result.get('alias')}")
+                    print(f"Process running: {result.get('process_running')}")
+                    print(f"Healthy: {result.get('healthy')}")
+                    print(f"Ready: {result.get('native_ready')}")
+                    if result.get("ui_url"):
+                        print(f"Local admin UI: {result.get('ui_url')}")
+                else:
+                    print(f"Stopped: {result.get('stopped')}")
+            return 0 if result.get("ok") else 1
+
+        if args.command == "chatgpt":
+            state = load_setup_state(args.state_file)
+            if state is None or not state.tunnel_id:
+                raise RuntimeError(
+                    "No verified tunnel is recorded; run 'reasonfirst tunnel connect' first"
+                )
+            settings = _load_settings_clean()
+            project = _select_project_for_handoff(settings, args.project)
+            payload = build_chatgpt_handoff(
+                tunnel_id=state.tunnel_id,
+                project=project,
+                ref=args.ref,
+            )
+            if args.open:
+                payload["browser"] = open_handoff_pages(
+                    open_platform=True,
+                    open_chatgpt=True,
+                )
+            if args.json:
+                _print_json(payload)
+            else:
+                print("ChatGPT handoff")
+                print(f"Tunnel ID: {payload['tunnel_id']}")
+                for index, step in enumerate(payload["chatgpt_steps"], 1):
+                    print(f"  {index}. {step}")
+                print()
+                print("Acceptance prompt:")
+                print(payload["acceptance_prompt"])
+                print()
+                print(
+                    "CHATGPT_READY remains false until that live ChatGPT probe succeeds."
+                )
             return 0
 
         parser.error(f"Unhandled command {args.command}")
