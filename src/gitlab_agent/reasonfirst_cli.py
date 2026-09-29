@@ -274,6 +274,35 @@ def _guided_tunnel_after_local(
     input_fn: Callable[[str], str],
     secret_fn: Callable[[str], str],
 ) -> dict[str, object]:
+    existing_state = load_setup_state(state_path)
+    existing_client = resolve_tunnel_client(state=existing_state)
+    if (
+        existing_state is not None
+        and existing_state.tunnel_id
+        and existing_state.tunnel_runtime
+        and "tunnel" in existing_state.completed_phases
+        and existing_client
+    ):
+        existing_status = runtime_status(
+            alias=existing_state.tunnel_runtime,
+            tunnel_client=existing_client,
+        )
+        if bool(existing_status.get("ok")) and bool(existing_status.get("ready")):
+            handoff = build_chatgpt_handoff(
+                tunnel_id=existing_state.tunnel_id,
+                project=project,
+                ref=ref,
+            )
+            return {
+                "attempted": False,
+                "reused": True,
+                "local_tunnel_ready": True,
+                "chatgpt_ready": False,
+                "runtime": existing_status,
+                "handoff": handoff,
+                "next": handoff["acceptance_prompt"],
+            }
+
     if not _confirm("Configure ChatGPT read access now?", input_fn=input_fn):
         return {
             "attempted": False,
@@ -384,6 +413,33 @@ def _guided_bridge_after_read(
     input_fn: Callable[[str], str],
     secret_fn: Callable[[str], str],
 ) -> dict[str, object]:
+    existing_state = load_setup_state(state_path)
+    existing_client = resolve_tunnel_client(state=existing_state)
+    if (
+        existing_state is not None
+        and existing_state.bridge_tunnel_id
+        and existing_state.bridge_runtime
+        and "bridge" in existing_state.completed_phases
+        and existing_client
+    ):
+        existing_status = bridge_runtime_status(
+            alias=existing_state.bridge_runtime,
+            tunnel_client=existing_client,
+        )
+        if bool(existing_status.get("ok")) and bool(existing_status.get("ready")):
+            handoff = build_bridge_handoff(
+                tunnel_id=existing_state.bridge_tunnel_id
+            )
+            return {
+                "attempted": False,
+                "reused": True,
+                "local_bridge_ready": True,
+                "full_chat_ready": False,
+                "runtime": existing_status,
+                "handoff": handoff,
+                "next": handoff["acceptance_prompt"],
+            }
+
     if not _confirm(
         "Configure the optional full-chat Bridge now? This requires a ChatGPT workspace/client with write-capable custom MCP actions.",
         input_fn=input_fn,
