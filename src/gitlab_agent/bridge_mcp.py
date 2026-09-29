@@ -40,9 +40,9 @@ def build_server():
         "Codex is only the implementation/build/test executor. For local workspaces prefer dispatch -> files/read -> "
         "ChatGPT analysis -> codex_start -> review_bundle/diff -> finish_preview. Do not call reasonfirst_finish until the "
         "human explicitly approves publication of that exact reviewed snapshot digest. After publication, use reasonfirst_ci "
-        "and reasonfirst_evidence for matching-head status/evidence. For SSH workspaces use authorize_push only after review. "
-        "Never send passwords/tokens/keys as tool arguments. Execution targets are task-scoped; SSH workspaces are isolated "
-        "and preserve the user's original checkout."
+        "and reasonfirst_evidence for matching-head status/evidence. Experimental remote SSH push is not exposed by this "
+        "packaged full-chat surface. Never send passwords/tokens/keys as tool arguments. Execution targets are task-scoped; "
+        "SSH workspaces are isolated and preserve the user's original checkout."
     )
     if read_only_mode:
         instructions = (
@@ -53,33 +53,8 @@ def build_server():
         )
     server = MCPServer("ReasonFirst", instructions=instructions)
 
-    if not read_only_mode:
-        token_path = ctrl.state_dir / "control-token"
-        if not token_path.exists():
-            token_path.write_text(secrets.token_hex(32), encoding="ascii")
-            token_path.chmod(0o600)
-
-        @server.custom_route("/control", methods=["POST"], include_in_schema=False)
-        async def control(request):
-            from starlette.responses import JSONResponse
-            from github_control_relay import dispatch
-            expected = token_path.read_text(encoding="ascii").strip()
-            provided = request.headers.get("authorization", "").removeprefix("Bearer ")
-            if not hmac.compare_digest(expected, provided):
-                return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-            try:
-                body = await request.json()
-                if not isinstance(body, dict) or not isinstance(body.get("command"), dict):
-                    return JSONResponse({"ok": False, "error": "invalid command"}, status_code=400)
-                result = await asyncio.to_thread(
-                    dispatch,
-                    ctrl,
-                    body["command"],
-                    control_repo=str(body.get("control_repo") or ""),
-                )
-                return JSONResponse(result)
-            except Exception as exc:
-                return JSONResponse({"ok": False, "error": redact(str(exc), 2000)}, status_code=400)
+    # The packaged stdio/tunnel Bridge intentionally omits the legacy HTTP
+    # /control bearer-token route. ChatGPT uses only the declared MCP tools.
 
     @server.custom_route("/healthz", methods=["GET"], include_in_schema=False)
     async def healthz(_request):
