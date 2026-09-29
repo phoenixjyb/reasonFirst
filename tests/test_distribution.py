@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.check_release_tag import verify
+from scripts.check_release_tag import package_version, verify
 from scripts.render_homebrew_formula import render
 
 
@@ -13,16 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class DistributionTests(unittest.TestCase):
     def test_release_tag_matches_current_package_metadata(self) -> None:
-        # Current stacked development still reports 0.5.0 until the v0.5.1
-        # release-preparation change intentionally bumps package metadata.
+        version = package_version(ROOT)
         self.assertEqual(
-            verify("v0.5.0", ROOT),
-            {"tag": "v0.5.0", "version": "0.5.0"},
+            verify(f"v{version}", ROOT),
+            {"tag": f"v{version}", "version": version},
         )
 
     def test_release_tag_mismatch_fails(self) -> None:
+        version = package_version(ROOT)
+        parts = version.split(".")
+        self.assertEqual(len(parts), 3)
+        mismatch = f"v{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
         with self.assertRaisesRegex(ValueError, "tag/package version mismatch"):
-            verify("v0.5.1", ROOT)
+            verify(mismatch, ROOT)
 
     def test_homebrew_formula_renderer_pins_source_and_hash(self) -> None:
         template = (ROOT / "packaging/homebrew/reasonfirst.rb.in").read_text(
