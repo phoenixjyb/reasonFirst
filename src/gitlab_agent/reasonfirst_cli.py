@@ -453,6 +453,7 @@ def _guided_bridge_after_read(
         tunnel_client=tunnel_client,
         bridge_executable=bridge_executable,
         alias=alias,
+        read_tunnel_id=state.tunnel_id if state is not None else None,
     )
     if not bool(runtime.get("ok")) or not bool(runtime.get("ready")):
         return {
@@ -897,6 +898,7 @@ def _connect_bridge_from_args(args: argparse.Namespace) -> dict[str, object]:
         tunnel_client=tunnel_client,
         bridge_executable=bridge_executable,
         alias=alias,
+        read_tunnel_id=state.tunnel_id,
     )
     if bool(result.get("ok")) and bool(result.get("ready")):
         persist_bridge_state(
