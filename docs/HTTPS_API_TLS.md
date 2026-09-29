@@ -92,4 +92,4 @@ uv run python -m unittest discover -s tests -v
 
 Native Git trust/destination integration and layered API-versus-Git diagnostics remain in [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10). The migration lock is not general workspace locking. Provider eligibility, code-execution isolation, token scopes, and release approval are separate concerns.
 
-Implementation reference: [`tls.py`](../src/gitlab_agent/tls.py). Primary library references: [HTTPX SSL](https://www.python-httpx.org/advanced/ssl/), [HTTPX environment variables](https://www.python-httpx.org/environment_variables/), and [Git configuration](https://git-scm.com/docs/git-config).
+Implementation reference: [`tls.py`](https://github.com/phoenixjyb/reasonFirst/blob/main/src/gitlab_agent/tls.py). Primary library references: [HTTPX SSL](https://www.python-httpx.org/advanced/ssl/), [HTTPX environment variables](https://www.python-httpx.org/environment_variables/), and [Git configuration](https://git-scm.com/docs/git-config).
