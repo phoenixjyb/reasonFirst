@@ -98,7 +98,7 @@ After restarting, wait for `http://127.0.0.1:8765/healthz` before continuing the
 
 ## ActualCoder installation or effective config differs
 
-From a stable checkout, see [local installation updates](LOCAL_PR_REVIEW.md). Inspect `actual-coder config` and the interpreter/source path locally. A global editable tool and `uv run` in a temporary checkout may use different environments. Package version `0.3.0` alone does not identify the source commit.
+From a stable checkout, see [local installation updates](LOCAL_PR_REVIEW.md). Inspect `actual-coder config` and the interpreter/source path locally. A global editable tool and `uv run` in a temporary checkout may use different environments. Package version alone does not identify a moving source checkout. For v0.5.0 and later source builds, record the exact commit SHA together with the package version.
 
 Config selection is `GITLAB_AGENT_ENV_FILE`, then the stable user config, then local `.env`; already-exported values take precedence. CLI fallback is relative to its working directory; MCP fallback is relative to its server source. Do not overwrite a working config with `.env.example` or rename managed workspace directories to match a source-repository rename.
 
