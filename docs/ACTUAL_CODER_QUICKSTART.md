@@ -145,7 +145,7 @@ uv run actual-coder project-config team/project-a --validate
 
 Inspect `config` locally; even token-free diagnostics can expose private hostnames and paths. `agents` checks CLI executable presence and the managed Desktop App Server socket; it does not authenticate or consume quota. `doctor` checks API authentication unless `--offline`; it does not test Git push rights. For an intentional Git-only deployment with no `GITLAB_TOKEN`, configure exactly one Git credential source and use `actual-coder doctor --git-only` / `actual-coder start ... --git-only`. `project-config` performs managed Git fetch/read and validates the contract, without creating a worktree or pushing.
 
-`found: false, valid: true` means `.actualcoder.yaml` is absent, not that application tests passed. No project-specific validation commands were loaded. Copy and adapt [the example contract](../.actualcoder.example.yaml) **in the target GitLab project**, use its actual test commands, and review it through that project's normal process. Validate a candidate without fetching it:
+`found: false, valid: true` means `.actualcoder.yaml` is absent, not that application tests passed. No project-specific validation commands were loaded. Copy and adapt [the example contract](https://github.com/phoenixjyb/reasonFirst/blob/main/.actualcoder.example.yaml) **in the target GitLab project**, use its actual test commands, and review it through that project's normal process. Validate a candidate without fetching it:
 
 ```bash
 uv run actual-coder project-config team/project-a --file .actualcoder.example.yaml --validate
