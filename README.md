@@ -109,7 +109,7 @@ Tests use temporary repositories, mocked services and loopback fixtures, not pro
 
 ## What is available on main
 
-The source/package version prepared by this release candidate is **0.5.0**. Until a maintainer explicitly creates the tag/GitHub Release, **v0.3.0 remains the last published tag**. Record the exact commit SHA as well as the package version in bug reports. See [0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md) and [CHANGELOG.md](CHANGELOG.md).
+The source/package version is **0.5.0**. The **v0.5.0** release is identified by its release tag; source checkouts can move ahead of a tag, so record the exact commit SHA as well as the package version in bug reports. See [0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md) and [CHANGELOG.md](CHANGELOG.md).
 
 | Capability | Current scope |
 | --- | --- |
