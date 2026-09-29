@@ -60,7 +60,9 @@ This acceptance proves the exercised path, not every deployment topology.
 - Native Git trust/destination policy remains distinct from Python API/MCP TLS
   handling.
 - The Bridge Preview MCP is more privileged than the read-oriented GitLab MCP
-  and should be enabled deliberately.
+  and should be enabled deliberately. Whether its write-capable tools are
+  available through ChatGPT depends on the connected client/workspace; terminal
+  ActualCoder remains the portable execution fallback.
 - macOS launchd does not automatically inherit an interactive shell's proxy
   environment; use the documented session-scoped sync helper when required.
 - Final merge remains a human decision. ReasonFirst does not auto-merge.
