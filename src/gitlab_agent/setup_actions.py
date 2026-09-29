@@ -20,6 +20,7 @@ from .setup_config import (
     ConfigMutationError,
     apply_env_updates,
     assert_no_effective_env_override,
+    ensure_persistent_config_target,
     selected_user_config_path,
 )
 from .tls import api_client_options, validate_base_url
@@ -117,6 +118,7 @@ def plan_project_add(
         ref=ref,
         required_files=required_files,
     )
+    config_target = ensure_persistent_config_target(settings.config_file)
     existing = sorted(settings.allowed_projects)
     after = sorted(set(existing) | {key})
     return {
@@ -126,7 +128,7 @@ def plan_project_add(
         "requested_ref": ref or None,
         "resolved_commit_sha": preflight.get("resolved_commit_sha"),
         "already_allowed": key in settings.allowed_projects,
-        "config_file": str(selected_user_config_path()),
+        "config_file": str(config_target),
         "before_projects": existing,
         "after_projects": after,
         "preflight": preflight,
@@ -162,7 +164,7 @@ def apply_project_add(
         }
 
     assert_no_effective_env_override(["GITLAB_ALLOWED_PROJECTS"])
-    config_path = selected_user_config_path()
+    config_path = Path(str(plan["config_file"])).expanduser()
     result = apply_env_updates(
         config_path,
         {
