@@ -1,6 +1,6 @@
 # Practice lab: first ChatGPT read to three MR review rounds
 
-[简体中文](PRACTICE_LAB_CN.md) · [Project access first](PROJECT_ACCESS.md) · [Workflow](WORKFLOW.md) · [Handoff template](TASK_HANDOFF_TEMPLATE.md) · [Seed files](../examples/practice-lab/)
+[简体中文](PRACTICE_LAB_CN.md) · [Project access first](PROJECT_ACCESS.md) · [Workflow](WORKFLOW.md) · [Handoff template](TASK_HANDOFF_TEMPLATE.md) · [Seed files](https://github.com/phoenixjyb/reasonFirst/tree/main/examples/practice-lab)
 
 Use **one dedicated private GitLab practice project, one managed workspace, one feature branch and one MR with three reviewed revisions**. Never switch this rehearsal to an allowed production application or reuse an old smoke workspace to get past an access failure. The clip-summary exercise has no robot controls, dependencies, network IO or deployment. Normal ChatGPT is the reasoning interface; the localhost Assistant is not used.
 
@@ -238,4 +238,4 @@ Record each round's approved stage, WS/branch, local HEAD, MR IID, pipeline ID/S
 
 For a **second MR**, finish/merge the first, approve a genuinely separate task, then create a new workspace from updated main. An alternative of one MR per stage must be agreed before starting, not mixed into the same-MR rehearsal halfway through. No fixed time, token quota or cost-saving guarantee is made.
 
-Primary references: [ReasonFirst CLI](../src/gitlab_agent/cli.py), [Codex CLI](https://developers.openai.com/codex/cli/reference/), [GitLab projects](https://docs.gitlab.com/user/project/), [MR pipelines](https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/), [workflow rules](https://docs.gitlab.com/ci/yaml/workflow/).
+Primary references: [ReasonFirst CLI](https://github.com/phoenixjyb/reasonFirst/blob/main/src/gitlab_agent/cli.py), [Codex CLI](https://developers.openai.com/codex/cli/reference/), [GitLab projects](https://docs.gitlab.com/user/project/), [MR pipelines](https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/), [workflow rules](https://docs.gitlab.com/ci/yaml/workflow/).
