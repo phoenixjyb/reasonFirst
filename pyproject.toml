@@ -11,6 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
+reasonfirst = "gitlab_agent.reasonfirst_cli:main"
 gitlab-agent = "gitlab_agent.cli:main"
 actual-coder = "gitlab_agent.actual_coder_cli:main"
 codingagent = "gitlab_agent.codingagent_cli:main"
