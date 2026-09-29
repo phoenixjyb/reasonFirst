@@ -169,7 +169,7 @@ jobs:
           BIN=/tmp/reasonfirst-release-check/bin
           "$PY" -m pip install --upgrade pip
           "$PY" -m pip install dist/*.whl
-          "$PY" -c 'import gitlab_agent; assert gitlab_agent.__version__ == "0.3.1", gitlab_agent.__version__'
+          "$PY" -c 'import gitlab_agent; assert gitlab_agent.__version__ == "0.5.0", gitlab_agent.__version__'
           "$BIN/actual-coder" --help >/dev/null
           "$BIN/gitlab-agent" --help >/dev/null
           "$BIN/actual-coder-tunnel" --help >/dev/null
