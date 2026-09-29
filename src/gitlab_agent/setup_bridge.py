@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
@@ -79,27 +80,34 @@ def resolve_bridge_mcp(
 
 
 async def _bridge_tool_inventory_async() -> dict[str, Any]:
-    old_read_only = os.environ.get("RF_MCP_READ_ONLY")
-    old_remote_push = os.environ.get("RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH")
-    os.environ["RF_MCP_READ_ONLY"] = "false"
-    os.environ["RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH"] = "false"
+    managed_keys = (
+        "RF_MCP_READ_ONLY",
+        "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH",
+        "RF_CODEX_BRIDGE_STATE_DIR",
+        "RF_BRIDGE_CONFIG",
+    )
+    previous = {key: os.environ.get(key) for key in managed_keys}
 
-    server = build_server()
-    ctrl = getattr(server, "_reasonfirst_controller", None)
-    try:
-        async with Client(server) as client:
-            listed = await client.list_tools()
-    finally:
-        if ctrl is not None:
-            ctrl.close()
-        if old_read_only is None:
-            os.environ.pop("RF_MCP_READ_ONLY", None)
-        else:
-            os.environ["RF_MCP_READ_ONLY"] = old_read_only
-        if old_remote_push is None:
-            os.environ.pop("RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", None)
-        else:
-            os.environ["RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH"] = old_remote_push
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        os.environ["RF_MCP_READ_ONLY"] = "false"
+        os.environ["RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH"] = "false"
+        os.environ["RF_CODEX_BRIDGE_STATE_DIR"] = str(root / "state")
+        os.environ["RF_BRIDGE_CONFIG"] = str(root / "bridge.yaml")
+
+        server = build_server()
+        ctrl = getattr(server, "_reasonfirst_controller", None)
+        try:
+            async with Client(server) as client:
+                listed = await client.list_tools()
+        finally:
+            if ctrl is not None:
+                ctrl.close()
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
     tools: dict[str, dict[str, Any]] = {}
     for tool in listed.tools:
