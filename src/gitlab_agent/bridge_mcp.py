@@ -298,26 +298,9 @@ def build_server():
             max_visual_previews=1,
         )
 
-    remote_push_enabled = (
-        not read_only_mode
-        and os.getenv("RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", "false").strip().lower()
-        in {"1", "true", "yes", "on"}
-    )
-    if remote_push_enabled:
-        @write_tool("reasonfirst_authorize_push")
-        def reasonfirst_authorize_push(
-            thread_id: str,
-            commit_message: str,
-            allow_protected: bool = False,
-            allow_secret_match: bool = False,
-        ) -> dict[str, Any]:
-            """Authorize only an unblocked fresh SSH finish plan and exact snapshot."""
-            return ctrl.authorize_push(
-                thread_id=thread_id,
-                commit_message=commit_message,
-                allow_protected=allow_protected,
-                allow_secret_match=allow_secret_match,
-            )
+    # Experimental remote SSH publication is intentionally not registered by
+    # the packaged full-chat Bridge. The legacy compatibility surface retains
+    # its explicit opt-in path for expert users.
 
     # Keep controller alive for the process lifetime. MCPServer does not own it.
     setattr(server, "_reasonfirst_controller", ctrl)
