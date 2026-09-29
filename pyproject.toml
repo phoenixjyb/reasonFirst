@@ -1,6 +1,6 @@
 [project]
 name = "chatgpt-selfhosted-gitlab-mcp"
-version = "0.3.1"
+version = "0.5.0"
 description = "ReasonFirst: reasoning-first coding orchestration with ActualCoder, coding-agent backends, and a read-only GitLab MCP bridge"
 requires-python = ">=3.10"
 dependencies = [
