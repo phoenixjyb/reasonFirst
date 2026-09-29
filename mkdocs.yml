@@ -95,6 +95,8 @@ nav:
       - 架构说明: docs/ARCHITECTURE_CN.md
       - 安全边界: SECURITY_CN.md
   - Reference:
+      - Release notes v0.5.0: docs/RELEASE_NOTES_0.5.0.md
+      - 中文发布说明 v0.5.0: docs/RELEASE_NOTES_0.5.0_CN.md
       - Documentation index: docs/README.md
       - Task handoff: docs/TASK_HANDOFF_TEMPLATE.md
       - Changelog: CHANGELOG.md
