@@ -41,6 +41,7 @@ used previously, so this release does not reuse that version family.
 ### Public documentation and contribution workflow
 
 - Add a bilingual fully chat-based E2E rehearsal with copy/paste prompts for read-only grounding, Bridge-managed execution, explicit human snapshot approval, MR publication, and final CI/EvidencePack review.
+- Complete the v0.5.0 public-documentation audit: align active guides with the implemented three-backend/two-MCP architecture, TaskSpec/EvidencePack and workspace locking; label historical roadmap notes; add rendered GitHub Pages link checking; and surface release-validation evidence on the bilingual site.
 - Polish the public documentation site around onboarding: add a first-10-minutes path, ChatGPT prompt patterns, EvidencePack review guidance, bilingual equivalents, compact visual workflow, and tabbed navigation.
 - Recenter README, onboarding, architecture, workflow, documentation indexes and quickstarts on the primary ChatGPT-first reasoning loop; retain direct ActualCoder use as a secondary execution/operations capability rather than a co-equal product mode.
 - Add a bilingual current-architecture reference covering the two MCP surfaces, three worker backends, WorkerPolicy verification, approval mediation, workspace locking, structured SSH container validation, shared finish gates and experimental remote publication.
