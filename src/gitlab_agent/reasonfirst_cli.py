@@ -26,6 +26,7 @@ from .setup_actions import (
 from .setup_config import (
     apply_env_updates,
     assert_no_effective_env_override,
+    ensure_persistent_config_target,
     selected_user_config_path,
 )
 from .setup_state import (
@@ -256,6 +257,9 @@ def _run_guided_setup(
         current = _load_settings_clean()
     except Exception:
         current = None
+
+    if current is not None:
+        ensure_persistent_config_target(current.config_file)
 
     state = load_setup_state(args.state_file)
     mode = args.mode or (state.mode if state is not None else "standard")
@@ -513,13 +517,17 @@ def main(argv: list[str] | None = None) -> int:
                 ref=args.ref,
                 required_files=args.require_file,
             )
-            if args.json:
+            if args.json and not args.yes:
                 _print_json(plan)
-            else:
+            elif not args.json:
                 _print_project_plan(plan)
             if not bool(plan.get("ok")):
+                if args.json and args.yes:
+                    _print_json(plan)
                 return 1
             if bool(plan.get("already_allowed")):
+                if args.json and args.yes:
+                    _print_json(plan)
                 return 0
 
             approved = bool(args.yes)
@@ -558,6 +566,13 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
                 return 0
+
+            try:
+                current_settings = _load_settings_clean()
+            except Exception:
+                current_settings = None
+            if current_settings is not None:
+                ensure_persistent_config_target(current_settings.config_file)
 
             plan = plan_worker_use(args.backend)
             if not bool(plan.get("ok")):
