@@ -160,6 +160,11 @@ class ReasonFirstCLITests(unittest.TestCase):
                     "_load_settings_clean",
                     side_effect=RuntimeError("no config"),
                 ),
+                patch.object(
+                    reasonfirst_cli,
+                    "resolve_env_file",
+                    return_value=root / "missing.env",
+                ),
                 patch.object(reasonfirst_cli, "load_setup_state", return_value=None),
                 patch.object(reasonfirst_cli, "_choose_worker", return_value="codex-cli"),
                 patch.object(reasonfirst_cli, "candidate_settings", return_value=candidate),
@@ -219,6 +224,11 @@ class ReasonFirstCLITests(unittest.TestCase):
                     "_load_settings_clean",
                     side_effect=RuntimeError("no config"),
                 ),
+                patch.object(
+                    reasonfirst_cli,
+                    "resolve_env_file",
+                    return_value=root / "missing.env",
+                ),
                 patch.object(reasonfirst_cli, "load_setup_state", return_value=None),
                 patch.object(reasonfirst_cli, "_choose_worker", return_value="codex-cli"),
                 patch.object(reasonfirst_cli, "candidate_settings", return_value=candidate),
@@ -273,6 +283,32 @@ class ReasonFirstCLITests(unittest.TestCase):
         self.assertTrue(payload["writes_performed"])
         self.assertEqual(payload["project"], "team/two")
 
+    def test_project_add_json_without_yes_is_plan_only(self) -> None:
+        plan = {
+            "ok": True,
+            "project": "team/two",
+            "resolved_commit_sha": "abc123",
+            "already_allowed": False,
+            "config_file": "/tmp/config",
+            "before_projects": ["team/one"],
+            "after_projects": ["team/one", "team/two"],
+            "writes_performed": False,
+        }
+        out = io.StringIO()
+        with (
+            patch.object(reasonfirst_cli, "_load_settings_clean", return_value=object()),
+            patch.object(reasonfirst_cli, "plan_project_add", return_value=plan),
+            patch.object(reasonfirst_cli, "apply_project_add") as apply,
+            contextlib.redirect_stdout(out),
+        ):
+            code = reasonfirst_cli.main(
+                ["project", "add", "team/two", "--ref", "main", "--json"]
+            )
+        self.assertEqual(code, 0)
+        payload = json.loads(out.getvalue())
+        self.assertFalse(payload["writes_performed"])
+        apply.assert_not_called()
+
     def test_project_add_noninteractive_requires_explicit_yes(self) -> None:
         plan = {
             "ok": True,
@@ -293,6 +329,36 @@ class ReasonFirstCLITests(unittest.TestCase):
             code = reasonfirst_cli.main(["project", "add", "team/two"])
         self.assertEqual(code, 1)
         self.assertIn("--yes", err.getvalue())
+
+    def test_worker_use_refuses_ambiguous_invalid_legacy_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            legacy = Path(td) / "repo" / ".env"
+            legacy.parent.mkdir()
+            legacy.write_text("malformed but existing", encoding="utf-8")
+            err = io.StringIO()
+            with (
+                patch.object(
+                    reasonfirst_cli,
+                    "_load_settings_clean",
+                    side_effect=RuntimeError("invalid config"),
+                ),
+                patch.object(
+                    reasonfirst_cli,
+                    "resolve_env_file",
+                    return_value=legacy,
+                ),
+                patch.object(
+                    reasonfirst_cli,
+                    "ensure_persistent_config_target",
+                    side_effect=RuntimeError("partial higher-precedence config"),
+                ),
+                patch.object(reasonfirst_cli, "plan_worker_use") as plan,
+                contextlib.redirect_stderr(err),
+            ):
+                code = reasonfirst_cli.main(["worker", "use", "auto"])
+            self.assertEqual(code, 1)
+            self.assertIn("partial higher-precedence", err.getvalue())
+            plan.assert_not_called()
 
     def test_worker_use_updates_setup_progress(self) -> None:
         with tempfile.TemporaryDirectory() as td:
