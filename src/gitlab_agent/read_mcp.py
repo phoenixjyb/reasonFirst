@@ -653,6 +653,12 @@ async def get_job_log(
 
 
 def main() -> None:
+    # The Secure MCP Tunnel runtime needs its own OpenAI credential, but the
+    # read-only GitLab MCP child does not. The upstream stdio launcher inherits
+    # the runtime environment, so drop unrelated high-value credentials before
+    # serving any MCP request.
+    for key in ("CONTROL_PLANE_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_API_KEY"):
+        os.environ.pop(key, None)
     mcp.run(transport="stdio")
 
 
