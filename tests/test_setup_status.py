@@ -192,6 +192,31 @@ class SetupStatusTests(unittest.TestCase):
         self.assertIn("verify-full-chat", action_ids)
         self.assertNotIn("configure-bridge", action_ids)
 
+    def test_full_chat_copilot_only_reports_codex_bridge_prerequisite(self) -> None:
+        def copilot_only(name: str) -> str | None:
+            if name in {"git", "uv", "tunnel-client", "copilot"}:
+                return f"/tools/{name}"
+            return None
+
+        state = SetupState(
+            mode="full-chat",
+            selected_worker="copilot-cli",
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            completed_phases=("system", "gitlab", "worker", "tunnel"),
+        )
+        result = build_setup_status(
+            which=copilot_only,
+            settings_loader=lambda: self.settings,
+            setup_state_loader=lambda _: state,
+            system_name="Linux",
+            machine="x86_64",
+            desktop_socket=self.desktop_socket,
+        )
+        self.assertFalse(result["readiness"]["bridge_worker_available"])
+        action_ids = [item["id"] for item in result["plan"]["actions"]]
+        self.assertIn("configure-codex-bridge-worker", action_ids)
+
     def test_full_chat_without_bridge_points_to_bridge_configuration(self) -> None:
         state = SetupState(
             mode="full-chat",
