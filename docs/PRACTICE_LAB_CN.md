@@ -1,6 +1,6 @@
 # 实战演练：从首次 ChatGPT 对话到三轮 MR 审查
 
-[English](PRACTICE_LAB.md) · [先确认项目访问](PROJECT_ACCESS_CN.md) · [工作流程](WORKFLOW_CN.md) · [交接模板](TASK_HANDOFF_TEMPLATE_CN.md) · [初始代码](../examples/practice-lab/)
+[English](PRACTICE_LAB.md) · [先确认项目访问](PROJECT_ACCESS_CN.md) · [工作流程](WORKFLOW_CN.md) · [交接模板](TASK_HANDOFF_TEMPLATE_CN.md) · [初始代码](https://github.com/phoenixjyb/reasonFirst/tree/main/examples/practice-lab)
 
 使用**一个专门的私有 GitLab 练习项目、一个受管工作区、一个功能分支、同一个 MR 的三轮修订**。不能为了绕过访问失败而换成已获准的生产应用，也不复用旧 smoke 工作区。片段时长统计练习不涉及机器人控制、依赖安装、网络读写或部署。普通 ChatGPT 负责推理，不使用 localhost Assistant。
 
