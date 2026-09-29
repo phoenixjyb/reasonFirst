@@ -106,6 +106,21 @@ def _sanitize(text: str, secret: str | None) -> str:
     return text
 
 
+def _redact_payload(value: Any, secret: str | None) -> Any:
+    if not secret:
+        return value
+    if isinstance(value, str):
+        return value.replace(secret, "<redacted>")
+    if isinstance(value, list):
+        return [_redact_payload(item, secret) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _redact_payload(item, secret)
+            for key, item in value.items()
+        }
+    return value
+
+
 def _parse_json_output(stdout: str, stderr: str, *, secret: str | None = None) -> dict[str, Any]:
     safe_stdout = _sanitize(stdout, secret).strip()
     safe_stderr = _sanitize(stderr, secret).strip()
@@ -115,7 +130,7 @@ def _parse_json_output(stdout: str, stderr: str, *, secret: str | None = None) -
         except ValueError:
             payload = None
         if isinstance(payload, dict):
-            return payload
+            return _redact_payload(payload, secret)
     return {
         "ok": False,
         "error": safe_stderr or safe_stdout or "tunnel-client produced no JSON output",
