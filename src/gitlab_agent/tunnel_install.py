@@ -150,21 +150,22 @@ def _write_bundle_member(path: Path, raw: bytes, *, executable: bool) -> None:
 def _validate_existing_bundle(
     bundle_dir: Path,
     *,
+    expected_files: dict[str, bytes],
     client_name: str,
-    companion_name: str,
     runner: Callable[..., subprocess.CompletedProcess[str]],
 ) -> str:
     if bundle_dir.is_symlink():
         raise TunnelInstallError(f"Refusing symlinked tunnel-client bundle: {bundle_dir}")
-    expected = [
-        bundle_dir / client_name,
-        bundle_dir / companion_name,
-        bundle_dir / "cloudflared-manifest.json",
-    ]
-    if not all(path.is_file() and not path.is_symlink() for path in expected):
-        raise TunnelInstallError(
-            f"Existing tunnel-client bundle is incomplete: {bundle_dir}"
-        )
+    for name, expected in expected_files.items():
+        path = bundle_dir / name
+        if not path.is_file() or path.is_symlink():
+            raise TunnelInstallError(
+                f"Existing tunnel-client bundle is incomplete: {bundle_dir}"
+            )
+        if path.read_bytes() != expected:
+            raise TunnelInstallError(
+                f"Existing tunnel-client bundle differs from the verified official archive: {path}"
+            )
     return _verify_binary(bundle_dir / client_name, runner=runner)
 
 
@@ -225,11 +226,22 @@ def install_official_tunnel_client(
     bundle_dir = root / bundle_name
     target = bundle_dir / client_name
 
+    expected_files: dict[str, bytes] = {}
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        for name in (client_name, companion_name, "cloudflared-manifest.json"):
+            member = _member_by_basename(archive, name)
+            assert member is not None
+            expected_files[name] = archive.read(member)
+        for optional in ("LICENSE", "NOTICE"):
+            member = _member_by_basename(archive, optional, required=False)
+            if member is not None:
+                expected_files[optional] = archive.read(member)
+
     if bundle_dir.exists():
         version = _validate_existing_bundle(
             bundle_dir,
+            expected_files=expected_files,
             client_name=client_name,
-            companion_name=companion_name,
             runner=runner,
         )
         return {
@@ -253,28 +265,12 @@ def install_official_tunnel_client(
     try:
         if os.name != "nt":
             stage.chmod(0o700)
-        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-            required = {
-                client_name: True,
-                companion_name: True,
-                "cloudflared-manifest.json": False,
-            }
-            for name, executable in required.items():
-                member = _member_by_basename(archive, name)
-                assert member is not None
-                _write_bundle_member(
-                    stage / name,
-                    archive.read(member),
-                    executable=executable,
-                )
-            for optional in ("LICENSE", "NOTICE"):
-                member = _member_by_basename(archive, optional, required=False)
-                if member is not None:
-                    _write_bundle_member(
-                        stage / optional,
-                        archive.read(member),
-                        executable=False,
-                    )
+        for name, raw in expected_files.items():
+            _write_bundle_member(
+                stage / name,
+                raw,
+                executable=name in {client_name, companion_name},
+            )
 
         version = _verify_binary(stage / client_name, runner=runner)
         os.replace(stage, bundle_dir)
