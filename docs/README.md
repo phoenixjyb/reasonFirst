@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README_CN.md)
 
-These guides describe the source revision containing them, not necessarily the last release tag. See [the main README](../README.md) and [Unreleased changes](../CHANGELOG.md).
+These guides describe the source revision containing them, not necessarily the last release tag. See [the main README](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) and [Unreleased changes](../CHANGELOG.md).
 
 ## Start with the reasoning-first workflow
 
@@ -15,7 +15,7 @@ These guides describe the source revision containing them, not necessarily the l
 | Topic | English | 简体中文 |
 | --- | --- | --- |
 | Complete first-time setup and first normal ChatGPT prompt | **[Start here](GETTING_STARTED.md)** | **[首次完整接入](GETTING_STARTED_CN.md)** |
-| Product and supported capabilities | [ReasonFirst](../README.md) | [项目说明](../README_CN.md) |
+| Product and supported capabilities | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) | [项目说明](../README_CN.md) |
 | Start the required service and manage its lifecycle | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) |
 | Before using a newly proposed GitLab project | [Access preflight and user grants](PROJECT_ACCESS.md) | [项目预检与用户授权](PROJECT_ACCESS_CN.md) |
 | Rehearse ChatGPT, Codex and three rounds of one MR | [Practice lab](PRACTICE_LAB.md) | [实战演练](PRACTICE_LAB_CN.md) |
