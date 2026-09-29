@@ -217,6 +217,10 @@ def _print_human_status(payload: dict[str, object]) -> None:
     )
     if payload.get("mode") == "full-chat":
         print(
+            f"{_mark(bool(readiness.get('bridge_worker_available')))} "
+            "Codex App Server-capable Bridge worker available"
+        )
+        print(
             f"{_mark(bool(readiness.get('bridge_recorded')))} "
             "managed privileged Bridge recorded"
         )
