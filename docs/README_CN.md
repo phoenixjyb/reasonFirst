@@ -4,7 +4,7 @@
 
 <!-- Paired with docs/README.md in this change; base 61f464ebbb8906817e32802be22df4012881ece5. -->
 
-这些指南描述包含它们的源码修订，不一定对应最近发布 tag。参见[项目说明](../README_CN.md)和 [Unreleased 更新](../CHANGELOG.md)。
+这些指南描述包含它们的源码修订，不一定对应最近发布 tag。参见[项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md)和 [Unreleased 更新](../CHANGELOG.md)。
 
 ## 从推理优先主流程开始
 
@@ -17,7 +17,7 @@
 | 主题 | 简体中文 | English |
 | --- | --- | --- |
 | 完整首次接入与第一条普通 ChatGPT 提示词 | **[从这里开始](GETTING_STARTED_CN.md)** | **[First-time setup](GETTING_STARTED.md)** |
-| 产品与能力 | [项目说明](../README_CN.md) | [ReasonFirst](../README.md) |
+| 产品与能力 | [项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md) | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) |
 | 启动必需服务与生命周期管理 | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) |
 | 使用新提出的 GitLab 项目之前 | [项目预检与用户授权](PROJECT_ACCESS_CN.md) | [Project access](PROJECT_ACCESS.md) |
 | 演练 ChatGPT、Codex 与同一 MR 的三轮审查 | [实战演练](PRACTICE_LAB_CN.md) | [Practice lab](PRACTICE_LAB.md) |
