@@ -32,6 +32,7 @@ The 0.5.0 version line is intentional: prior development had already used the
   classification, and safer finish gates accumulated since v0.3.0.
 - Public bilingual chat-only rehearsal, onboarding, troubleshooting,
   architecture, contribution, and release-maintainer documentation.
+- Final release documentation/Pages audit: current guides are reconciled with the implemented architecture, historical v0.2/v0.3 notes are labeled, rendered internal links are CI-checked, and the bilingual site exposes the v0.5.0 architecture/validation baseline.
 
 ## Observed end-to-end acceptance
 
