@@ -151,7 +151,7 @@ printf 'Workspace: %s\nWorktree: %s\nPrivate notes: %s\n' "$WS" "$WT" "$NOTES"
 
 This fetches code and writes local state; it is not an offline/no-write preview. Inspect the real workspace/base/branch and compare the base with the revision reviewed by ChatGPT. If it changed, review the new base before implementation. Save values privately, but do not execute saved notes as shell scripts. **Never repeat `start` just to continue this task.**
 
-Generated handoffs still mention low-level commit/push and resume context remains incomplete. Review their output, but supply the explicit approved limits below. This exercise does not implement automatic TaskSpec ingestion or fix every generated-handoff path.
+ActualCoder now persists the approved goal plus bounded acceptance/non-goals as TaskSpec/attempt state. Generated handoffs can still mention lower-level commit/push compatibility paths, so review their output and keep the explicit stage limits below. This terminal-oriented practice deliberately uses a human-reviewed stage prompt even though persistent TaskSpec exists.
 
 Launch ordinary Codex in the same worktree:
 
@@ -183,7 +183,7 @@ actual-coder run "$WS" -- python3 -m unittest discover -s tests -v
 actual-coder finish "$WS" --message "fix: validate clip durations" --title "Reliable clip duration summaries" --dry-run > "$NOTES/round1-plan.json"
 ```
 
-Require an unblocked plan, passing required validation, intended paths and complete declared scan coverage. **Dry-run executes validation and can modify local files**, but does not commit/push. MCP cannot see unpublished local diffs; manually share only reviewed, sanitized evidence when needed.
+Require an unblocked plan, passing required validation, intended paths and complete declared scan coverage. **Dry-run executes validation and can modify local files**, but does not commit/push. The **read-only GitLab MCP** cannot see unpublished local diffs; use `actual-coder evidence`/reviewed excerpts for this terminal path, or Bridge Preview when deliberately enabled and available.
 
 The following is a real write: only after human review, run interactive finish without `--yes` or bypass flags:
 
@@ -208,7 +208,7 @@ proposed Stage 2 handoff. Do not invent bugs, treat absent evidence as success,
 change access or merge. If access now fails, stop with the diagnostic.
 ```
 
-Angle brackets here are prompt fields, not shell syntax. Post the reviewed summary as an MR comment yourself: the MCP is read-only. If Stage 1 is correct, approve it and authorize Stage 2 explicitly; do not manufacture a defect for another round.
+Angle brackets here are prompt fields, not shell syntax. Post the reviewed summary as an MR comment yourself: the **GitLab read MCP** is read-only. If Stage 1 is correct, approve it and authorize Stage 2 explicitly; do not manufacture a defect for another round.
 
 ```bash
 actual-coder resume "$WS" --agent codex --goal "Preserve approved Stage 1 and implement EXERCISE.md Stage 2 only. Same workspace and MR. No commit/push, CI/policy edits, future stages or credential reads." > "$NOTES/round2-handoff.json"
