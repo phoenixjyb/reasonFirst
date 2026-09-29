@@ -4,7 +4,7 @@
 
 **在 ReasonFirst 中的定位：**这是一份执行引擎/运维指南，不是另一种主要产品模式。正常主流程从 ChatGPT（或其他强推理界面）开始，在那里完成架构、诊断、范围和验收标准；本指南负责配置和运行已批准任务的 worker 侧。脱离 ChatGPT 的直接 CLI 使用仍适合测试、恢复和自动化。
 
-ReasonFirst 将“判断该做什么”和“执行编码迭代”分开：用户与推理界面定义目标、约束和验收条件，ActualCoder 准备工作区并将任务交给 Codex CLI 或 Copilot CLI，再把实际 Git/MR/CI 结果交回审阅。当前不是全自动云端编码服务，也没有通过 MCP 提交本地任务的接口。
+ReasonFirst 将“判断该做什么”和“执行编码迭代”分开：用户与推理界面定义目标、约束和验收条件，ActualCoder 准备工作区并将任务交给 Codex CLI、GitHub Copilot CLI 或 Codex Desktop/App Server，再把实际 Git/MR/CI 结果交回审阅。原始 GitLab MCP 仍是只读证据接口；可选的 Bridge Preview 是权限更高的本地编排 MCP，可创建/读取受管 workspace、控制 App Server、审查未发布 diff 并执行受审 finish 流程。
 
 **本项目适合可信个人开发机和经过授权的仓库；worktree 不是安全沙箱。** 代码托管在 GitHub，但当前业务任务的 SCM/CI 适配器是 GitLab，不能据此认为已支持任意 GitHub 目标仓库。
 
@@ -72,7 +72,7 @@ uv run actual-coder project-config team/project-a --validate
 
 `agents` 只说明可执行文件是否存在，不检查登录/剩余配额。`doctor` 检查 API 认证；`project-config` 走 Git fetch/read，不创建工作区、不推送。
 
-若返回 `found: false, valid: true`，只说明 `.actualcoder.yaml` 不存在且允许回退默认配置。**这不是应用测试通过；此时没有项目专属 validation commands。** 在业务 GitLab 仓库中按实际构建系统填写[项目契约示例](../.actualcoder.example.yaml)，不要对 C++/ROS 等项目照搬 pytest 命令。契约不能给自己增加本机执行权限。finish 固定使用工作区 base commit 的契约，因此新契约应从包含它的新 base 创建新任务，而不是假定旧任务自动更新。
+若返回 `found: false, valid: true`，只说明 `.actualcoder.yaml` 不存在且允许回退默认配置。**这不是应用测试通过；此时没有项目专属 validation commands。** 在业务 GitLab 仓库中按实际构建系统填写[项目契约示例](https://github.com/phoenixjyb/reasonFirst/blob/main/.actualcoder.example.yaml)，不要对 C++/ROS 等项目照搬 pytest 命令。契约不能给自己增加本机执行权限。finish 固定使用工作区 base commit 的契约，因此新契约应从包含它的新 base 创建新任务，而不是假定旧任务自动更新。
 
 ## 4. 推荐主流程
 
@@ -121,4 +121,4 @@ MCP/tunnel 是可选独立链路。使用既有 launcher 与正确配置重启�
 
 ## 6. 开源协作
 
-[贡献指南](../CONTRIBUTING.md)接受中英文问题和 PR；请提供最小合成复现、精确源码 SHA 和真实执行过的验证，不上传私有仓库或运行备份。README/CHANGELOG 区分已发布标签、main 已合入代码和后续规划；包仍显示 `0.3.0` 不表示包含所有 main 改动。许可证保持现有 Apache-2.0，不代表第三方编码服务或目标项目也使用同一许可证。
+[贡献指南](../CONTRIBUTING.md)接受中英文问题和 PR；请提供最小合成复现、精确源码 SHA 和真实执行过的验证，不上传私有仓库或运行备份。README/CHANGELOG 区分 release tag、`main` 已合入代码和后续规划。v0.5.0 包版本为 `0.5.0`；之后的源码构建仍应同时记录准确 commit SHA。许可证保持 Apache-2.0，不代表第三方编码服务或目标项目也使用同一许可证。
