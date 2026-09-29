@@ -27,6 +27,18 @@
 !!! info "One primary loop"
     ActualCoder can also run directly from a terminal, CI job, IDE, or another client. That is useful for testing, recovery, and automation, but it is a secondary operational capability—not a separate product mode.
 
+## v0.5.0 validated baseline
+
+v0.5.0 brings the architecture shown above together as one tested system: **three worker backends** (`codex-cli`, `copilot-cli`, `codex-desktop`), **two deliberately different MCP surfaces** (read-only GitLab evidence vs. optional Bridge Preview orchestration), persistent **TaskSpec/attempt** state, cross-process workspace mutation locking, bounded **EvidencePack**, shared finish/review gates, and matching-HEAD CI feedback.
+
+The pre-release audit baseline `7d16061061f6337604bd3135c9e4a693ad1fd68a` passed all seven release-critical CI jobs plus the documentation deployment. The main validation job ran **445 tests**; the package job built wheel + sdist, inspected archive paths, clean-installed the wheel, verified version/CLI entry points, and reran source/full-history secret scanning. The final release tag identifies the exact released commit after this documentation audit also passes the same gates.
+
+[Read the v0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md){ .md-button }
+[Review the architecture](docs/ARCHITECTURE.md){ .md-button }
+
+!!! note "Bridge Preview availability"
+    The read-only GitLab MCP is the portable evidence connection. Bridge Preview requires a connected client/workspace that permits its more privileged custom-MCP actions. If that surface is unavailable, use terminal ActualCoder; TaskSpec, workspace identity, validation and review gates remain the same.
+
 ## Where should I start?
 
 <div class="grid cards" markdown>
