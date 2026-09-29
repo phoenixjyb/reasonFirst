@@ -32,6 +32,7 @@ jobs:
         run: |
           uv run reasonfirst --help
           uv run reasonfirst setup --help
+          uv run python -c "import shutil; assert shutil.which('reasonfirst-gitlab-mcp')"
           uv run actual-coder --help
           uv run actual-coder doctor --help
           uv run codingagent --help
@@ -176,6 +177,7 @@ jobs:
           "$PY" -c 'import gitlab_agent; assert gitlab_agent.__version__ == "0.5.0", gitlab_agent.__version__'
           "$BIN/reasonfirst" --help >/dev/null
           "$BIN/reasonfirst" setup --help >/dev/null
+          test -x "$BIN/reasonfirst-gitlab-mcp"
           "$BIN/actual-coder" --help >/dev/null
           "$BIN/gitlab-agent" --help >/dev/null
           "$BIN/actual-coder-tunnel" --help >/dev/null
