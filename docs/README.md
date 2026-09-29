@@ -32,7 +32,7 @@ These guides describe the source revision containing them, not necessarily the l
 | Diagnosis without weakening controls | [Troubleshooting](TROUBLESHOOTING.md) | [分层故障排查](TROUBLESHOOTING_CN.md) |
 | Contribution process | [Contributing](../CONTRIBUTING.md) | [贡献指南](../CONTRIBUTING_CN.md) |
 | Security reporting and limitations | [Security policy](../SECURITY.md) | [安全策略](../SECURITY_CN.md) |
-| Prepared 0.3.1 release candidate notes | [0.3.1 release notes](RELEASE_NOTES_0.3.1.md) | [0.3.1 release notes](RELEASE_NOTES_0.3.1.md) |
+| Prepared 0.3.1 release candidate notes | [0.3.1 release notes](RELEASE_NOTES_0.3.1.md) | [0.3.1 中文 release notes](RELEASE_NOTES_0.3.1_CN.md) |
 | Before a public release | [Maintainer checklist](PUBLIC_RELEASE_CHECKLIST.md) | [公开发布清单](PUBLIC_RELEASE_CHECKLIST_CN.md) |
 
 ## Required before the first ChatGPT prompt
