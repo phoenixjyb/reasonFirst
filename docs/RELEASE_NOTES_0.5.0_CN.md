@@ -1,7 +1,7 @@
-# ReasonFirst 0.5.0 Release Candidate
+# ReasonFirst 0.5.0 发布说明
 
-本文汇总 v0.3.0 之后准备发布的 0.5.0 release candidate。**这不是发布公告**：
-仅有本文不代表已经授权创建 tag、GitHub Release 或上传外部软件包。
+本文汇总 ReasonFirst v0.5.0。GitHub release/tag 标识准确的发布提交；
+源码检出可能继续领先，因此复现验证或报告问题时仍应记录准确 commit SHA。
 
 ## 为什么是 0.5.0
 
@@ -9,7 +9,7 @@
 强推理界面先负责判断和审查，可替换的 coding worker 再负责实现。
 
 选择 0.5.0 是有意的版本线调整：此前开发工作已经使用过 0.4 版本线，
-因此本次 release candidate 不再复用该版本族。
+因此本次发布不再复用该版本族。
 
 ## 主要用户可见变化
 
@@ -56,15 +56,20 @@
 - 最终 merge 仍由人决定，ReasonFirst 不自动 merge。
 - 外部 coding tools 使用各自认证、quota 与 billing；ReasonFirst 不直接调用模型推理 API。
 
-## Release Candidate 验证要求
+## 发布验证
 
-正式发布 0.5.0 前：
+v0.5.0 发布门要求最终 exact HEAD 通过：
 
-1. release candidate exact HEAD 的 GitHub CI 必须全绿；
-2. build wheel + sdist，并检查 archive member names；
-3. 在干净 virtual environment 安装构建出的 wheel，验证 package version 与 CLI entry points；
-4. 执行 tracked-file/full-history secret scan；
-5. 另行检查公共 repository surfaces 与 GitHub security settings；
-6. 创建 tag / GitHub Release / 外部包上传前再次获得维护者明确批准。
+- `validate`（完整 Python 单元/集成测试）；
+- Ubuntu、macOS、Windows 跨平台 job；
+- Ubuntu、macOS Bridge 回归 job；
+- `package-release-candidate`（wheel + sdist 构建、archive path 检查、
+  干净 wheel 安装/版本/CLI 检查，以及源码/完整历史 secret scan）；
+- 文档有变化时的 documentation-site build/deploy。
+
+预发布审计基线 `7d16061061f6337604bd3135c9e4a693ad1fd68a`
+的七个 CI job 与 Docs site 均成功；`validate` 共运行 **445 个测试**。
+最终 GitHub Release 记录准确 tag SHA，只有最终文档提交在相同 exact-head
+门槛下通过后才应发布。
 
 完整维护者清单见 `docs/PUBLIC_RELEASE_CHECKLIST_CN.md`。
