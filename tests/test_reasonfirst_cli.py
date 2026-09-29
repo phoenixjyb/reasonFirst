@@ -400,6 +400,141 @@ class ReasonFirstCLITests(unittest.TestCase):
             self.assertEqual(saved[0].selected_worker, "codex-cli")
             self.assertIn("worker", saved[0].completed_phases)
 
+    def test_tunnel_connect_persists_only_nonsecret_runtime_metadata(self) -> None:
+        tunnel_id = "tunnel_" + "a" * 32
+        with tempfile.TemporaryDirectory() as td:
+            state_file = Path(td) / "setup.yaml"
+            state = SetupState()
+            result = {
+                "ok": True,
+                "ready": True,
+                "alias": "reasonfirst-gitlab",
+                "tunnel_id": tunnel_id,
+                "local_tunnel_ready": True,
+                "chatgpt_ready": False,
+            }
+            with (
+                patch.object(reasonfirst_cli, "load_setup_state", return_value=state),
+                patch.object(
+                    reasonfirst_cli,
+                    "_resolve_or_install_tunnel_client",
+                    return_value="/tools/tunnel-client",
+                ),
+                patch.object(
+                    reasonfirst_cli,
+                    "resolve_read_mcp",
+                    return_value="/tools/reasonfirst-gitlab-mcp",
+                ),
+                patch.dict(
+                    reasonfirst_cli.os.environ,
+                    {reasonfirst_cli.RUNTIME_KEY_ENV: "runtime-secret"},
+                    clear=False,
+                ),
+                patch.object(
+                    reasonfirst_cli,
+                    "connect_runtime",
+                    return_value=result,
+                ) as connect,
+                patch.object(reasonfirst_cli, "persist_tunnel_state") as persist,
+            ):
+                args = argparse.Namespace(
+                    state_file=state_file,
+                    install=False,
+                    tunnel_id=tunnel_id,
+                    alias="reasonfirst-gitlab",
+                    open_platform=False,
+                    json=True,
+                )
+                payload = reasonfirst_cli._connect_tunnel_from_args(args)
+
+            self.assertTrue(payload["local_tunnel_ready"])
+            self.assertFalse(payload["runtime_key_stored"])
+            self.assertNotIn("runtime-secret", repr(payload))
+            connect.assert_called_once()
+            persist.assert_called_once()
+
+    def test_tunnel_connect_noninteractive_never_accepts_runtime_key_on_argv(self) -> None:
+        parser = reasonfirst_cli._build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "tunnel",
+                    "connect",
+                    "--tunnel-id",
+                    "tunnel_" + "a" * 32,
+                    "--runtime-key",
+                    "secret",
+                ]
+            )
+
+    def test_tunnel_status_uses_recorded_alias_and_binary(self) -> None:
+        state = SetupState(
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            tunnel_client_path="/tools/tunnel-client",
+            completed_phases=("tunnel",),
+        )
+        out = io.StringIO()
+        with (
+            patch.object(reasonfirst_cli, "load_setup_state", return_value=state),
+            patch.object(
+                reasonfirst_cli,
+                "resolve_tunnel_client",
+                return_value="/tools/tunnel-client",
+            ),
+            patch.object(
+                reasonfirst_cli,
+                "runtime_status",
+                return_value={
+                    "ok": True,
+                    "ready": True,
+                    "alias": "reasonfirst-gitlab",
+                    "process_running": True,
+                    "healthy": True,
+                    "native_ready": True,
+                },
+            ) as status,
+            contextlib.redirect_stdout(out),
+        ):
+            code = reasonfirst_cli.main(
+                ["tunnel", "status", "--json"]
+            )
+        self.assertEqual(code, 0)
+        payload = json.loads(out.getvalue())
+        self.assertTrue(payload["ready"])
+        status.assert_called_once_with(
+            alias="reasonfirst-gitlab",
+            tunnel_client="/tools/tunnel-client",
+        )
+
+    def test_chatgpt_handoff_never_claims_ready(self) -> None:
+        state = SetupState(
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            completed_phases=("tunnel",),
+        )
+        settings = fake_settings(Path("/tmp/config"))
+        settings = AgentSettings(**{**settings.__dict__, "allowed_projects": {"team/project"}})
+        out = io.StringIO()
+        with (
+            patch.object(reasonfirst_cli, "load_setup_state", return_value=state),
+            patch.object(reasonfirst_cli, "_load_settings_clean", return_value=settings),
+            contextlib.redirect_stdout(out),
+        ):
+            code = reasonfirst_cli.main(
+                [
+                    "chatgpt",
+                    "handoff",
+                    "--project",
+                    "team/project",
+                    "--json",
+                ]
+            )
+        self.assertEqual(code, 0)
+        payload = json.loads(out.getvalue())
+        self.assertFalse(payload["chatgpt_ready"])
+        self.assertIn("gitlab_whoami", payload["acceptance_prompt"])
+
     def test_version(self) -> None:
         out = io.StringIO()
         with self.assertRaises(SystemExit) as raised, contextlib.redirect_stdout(out):
