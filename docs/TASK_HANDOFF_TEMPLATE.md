@@ -2,7 +2,7 @@
 
 [Workflow](WORKFLOW.md) · [Quickstart](ACTUAL_CODER_QUICKSTART.md)
 
-This is a **human-maintained Markdown template**, not an implemented TaskSpec/EvidencePack API, a configuration file, or an automatically loaded instruction file. ActualCoder does not discover or parse it. Review it, then supply its relevant content explicitly to the selected worker and return sanitized results to the reasoning conversation.
+This is a **human-maintained Markdown planning template**, not the machine TaskSpec/EvidencePack schema, a configuration file, or an automatically loaded instruction file. ActualCoder now implements persistent TaskSpec/attempt records and a bounded read-only EvidencePack; it does not discover or parse this Markdown page. Use the template when a human-readable planning/review note is useful, then keep the machine TaskSpec and EvidencePack as the authoritative managed-workspace state/evidence.
 
 Keep private task material only in an approved private location. Do not add filled examples, credentials, credential-file contents, or private logs to the public ReasonFirst repository. A reference to a private credential file is not permission for the worker to read or print it.
 
@@ -84,4 +84,4 @@ Human decision needed next:
 
 Separate observed command results from a worker's claim that tests passed. Do not mark missing evidence as success, infer a full build from a detection-only job, or infer write rights from a successful read. Review outgoing material for secrets even when a sanitizer ran.
 
-For unpublished local changes, the current GitLab MCP bridge cannot fetch the worktree's local diff. Share only reviewed excerpts manually; do not publish a branch merely to make a read test pass. A future evidence interface should remove this manual reconstruction, but does not exist yet.
+For unpublished local changes, the **read-only GitLab MCP** cannot fetch the worktree's local diff. Use `actual-coder evidence WORKSPACE` (optionally `--from-ci`) for the bounded EvidencePack, or use Bridge Preview for unpublished workspace review when deliberately enabled and available. Share only reviewed excerpts manually when neither path is available; do not publish a branch merely to make a read test pass.
