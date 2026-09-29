@@ -1,13 +1,40 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import os
 import sys
+from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Callable
 
 from . import __version__
-from .setup_state import DEFAULT_SETUP_STATE_PATH
+from .config import AgentSettings
+from .setup_actions import (
+    CANONICAL_WORKERS,
+    apply_project_add,
+    apply_worker_use,
+    candidate_settings,
+    detect_workers,
+    list_projects,
+    plan_project_add,
+    plan_worker_use,
+    preflight_project,
+)
+from .setup_config import (
+    apply_env_updates,
+    assert_no_effective_env_override,
+    selected_user_config_path,
+)
+from .setup_state import (
+    DEFAULT_SETUP_STATE_PATH,
+    SETUP_MODES,
+    SetupState,
+    load_setup_state,
+    save_setup_state,
+)
 from .setup_status import build_setup_status
 
 
@@ -17,6 +44,105 @@ def _print_json(payload: dict[str, object]) -> None:
 
 def _mark(value: bool) -> str:
     return "✓" if value else "·"
+
+
+def _load_settings_clean() -> AgentSettings:
+    """Load legacy/effective config without leaking file values into this process."""
+    before = dict(os.environ)
+    try:
+        return AgentSettings.load()
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
+
+
+def _prompt(
+    label: str,
+    *,
+    default: str | None = None,
+    input_fn: Callable[[str], str] = input,
+) -> str:
+    suffix = f" [{default}]" if default else ""
+    value = input_fn(f"{label}{suffix}: ").strip()
+    return value or (default or "")
+
+
+def _confirm(
+    message: str,
+    *,
+    input_fn: Callable[[str], str] = input,
+) -> bool:
+    answer = input_fn(f"{message} [y/N] ").strip().lower()
+    return answer in {"y", "yes"}
+
+
+def _available_worker_names() -> list[str]:
+    return [
+        str(item["name"])
+        for item in detect_workers()
+        if bool(item.get("available"))
+    ]
+
+
+def _choose_worker(
+    *,
+    requested: str | None,
+    current: AgentSettings | None,
+    input_fn: Callable[[str], str] = input,
+) -> str:
+    available = _available_worker_names()
+    if not available:
+        raise RuntimeError(
+            "No supported coding worker is available. Install/sign in to Codex CLI, "
+            "Copilot CLI, or start Codex Desktop, then rerun setup."
+        )
+
+    if requested:
+        choice = requested
+    else:
+        current_choice = current.default_backend if current is not None else "auto"
+        default = (
+            current_choice
+            if current_choice == "auto" or current_choice in available
+            else "auto"
+        )
+        print("Detected workers: " + ", ".join(available))
+        choice = _prompt(
+            "Worker (auto/codex-cli/copilot-cli/codex-desktop)",
+            default=default,
+            input_fn=input_fn,
+        )
+
+    plan = plan_worker_use(choice)
+    if not bool(plan.get("ok")):
+        raise RuntimeError(str(plan.get("message") or "Selected worker is unavailable"))
+    return choice
+
+
+def _persist_progress(
+    *,
+    state_path: Path,
+    mode: str,
+    worker: str,
+    config_file: str,
+    phases: set[str],
+) -> Path:
+    previous = load_setup_state(state_path) or SetupState()
+    completed = tuple(
+        phase
+        for phase in ("system", "gitlab", "worker", "chatgpt-read", "bridge", "ready")
+        if phase in (set(previous.completed_phases) | phases)
+    )
+    state = replace(
+        previous,
+        mode=mode,
+        selected_worker=worker,
+        config_file=config_file,
+        completed_phases=completed,
+        installed_version=__version__,
+        last_verified_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return save_setup_state(state, state_path)
 
 
 def _print_human_status(payload: dict[str, object]) -> None:
@@ -86,11 +212,189 @@ def _print_human_status(payload: dict[str, object]) -> None:
     else:
         print("No local prerequisite action detected.")
         print(
-            "A future guided setup phase must still verify external/project "
-            "authorization before reporting READY."
+            "Provider/project acceptance still requires the relevant live checks "
+            "before reporting READY."
         )
     print()
     print("No changes were made.")
+
+
+def _print_project_plan(plan: dict[str, object]) -> None:
+    print("ReasonFirst project grant plan")
+    print(f"Project: {plan.get('project')}")
+    print(f"Resolved SHA: {plan.get('resolved_commit_sha')}")
+    print(f"Already allowed: {bool(plan.get('already_allowed'))}")
+    print(f"Config: {plan.get('config_file')}")
+    print("No changes have been made yet.")
+
+
+def _run_guided_setup(
+    args: argparse.Namespace,
+    *,
+    input_fn: Callable[[str], str] = input,
+    secret_fn: Callable[[str], str] = getpass.getpass,
+) -> tuple[int, dict[str, object]]:
+    if not sys.stdin.isatty():
+        raise RuntimeError(
+            "Guided setup requires an interactive TTY because secrets and approval "
+            "must not be supplied on argv. Use setup --status for non-interactive inspection."
+        )
+
+    assert_no_effective_env_override(
+        [
+            "GITLAB_BASE_URL",
+            "GITLAB_TOKEN",
+            "GITLAB_ALLOWED_PROJECTS",
+            "GITLAB_VERIFY_SSL",
+            "GITLAB_REQUIRE_WRITE_ALLOWLIST",
+            "REASONFIRST_DEFAULT_BACKEND",
+        ]
+    )
+
+    current: AgentSettings | None
+    try:
+        current = _load_settings_clean()
+    except Exception:
+        current = None
+
+    state = load_setup_state(args.state_file)
+    mode = args.mode or (state.mode if state is not None else "standard")
+    if mode not in SETUP_MODES:
+        raise ValueError("Unsupported setup mode")
+
+    base_url = args.gitlab_url or _prompt(
+        "GitLab URL",
+        default=current.gitlab_base_url if current is not None else None,
+        input_fn=input_fn,
+    )
+    if not base_url:
+        raise ValueError("GitLab URL is required")
+
+    existing_token = current.api_token if current is not None else ""
+    token_prompt = (
+        "GitLab API token (press Enter to keep existing): "
+        if existing_token
+        else "GitLab API token: "
+    )
+    entered_token = secret_fn(token_prompt).strip()
+    api_token = entered_token or existing_token
+    if not api_token:
+        raise ValueError("GitLab API token is required")
+
+    default_project = None
+    if current is not None and current.allowed_projects:
+        default_project = sorted(current.allowed_projects)[0]
+    project = args.project or _prompt(
+        "Initial GitLab project (namespace/project)",
+        default=default_project,
+        input_fn=input_fn,
+    )
+    if not project:
+        raise ValueError("An initial GitLab project is required")
+
+    ref = args.ref or (
+        current.default_base_ref if current is not None else "main"
+    )
+    worker = _choose_worker(
+        requested=args.worker,
+        current=current,
+        input_fn=input_fn,
+    )
+
+    candidate = candidate_settings(
+        base_url=base_url,
+        api_token=api_token,
+        project=project,
+        default_backend=worker,
+        current=current,
+    )
+    preflight = preflight_project(candidate, project, ref=ref)
+    if not bool(preflight.get("ok")):
+        return 1, {
+            "ok": False,
+            "command": "setup",
+            "stage": "project-preflight",
+            "project": project,
+            "ref": ref,
+            "preflight": preflight,
+            "writes_performed": False,
+        }
+
+    existing_projects = set(current.allowed_projects) if current is not None else set()
+    after_projects = sorted(existing_projects | {project})
+    plan: dict[str, object] = {
+        "ok": True,
+        "command": "setup",
+        "stage": "review",
+        "mode": mode,
+        "gitlab_base_url": candidate.gitlab_base_url,
+        "project": project,
+        "ref": preflight.get("ref") or ref,
+        "resolved_commit_sha": preflight.get("resolved_commit_sha"),
+        "worker": worker,
+        "worker_authentication_verified": False,
+        "config_file": str(selected_user_config_path()),
+        "allowed_projects_after": after_projects,
+        "api_token_configured": True,
+        "writes_performed": False,
+        "chatgpt_connection": "not_configured_in_slice2",
+    }
+
+    if not args.json:
+        print("ReasonFirst guided setup plan")
+        print(f"GitLab: {plan['gitlab_base_url']}")
+        print(f"Project: {project}")
+        print(f"Resolved SHA: {plan['resolved_commit_sha']}")
+        print(f"Worker: {worker} (login not asserted by executable detection)")
+        print(f"Mode: {mode}")
+        print(f"Config: {plan['config_file']}")
+        print("No secret value will be printed or stored in setup progress.")
+        print("Tunnel/ChatGPT setup is intentionally deferred to Slice 3.")
+        print()
+
+    if not _confirm(
+        "Write this private config and grant exactly this project?",
+        input_fn=input_fn,
+    ):
+        return 1, {
+            **plan,
+            "ok": False,
+            "cancelled": True,
+            "message": "No configuration change was made.",
+        }
+
+    config_change = apply_env_updates(
+        selected_user_config_path(),
+        {
+            "GITLAB_BASE_URL": candidate.gitlab_base_url,
+            "GITLAB_TOKEN": api_token,
+            "GITLAB_ALLOWED_PROJECTS": ",".join(after_projects),
+            "GITLAB_VERIFY_SSL": "true",
+            "GITLAB_REQUIRE_WRITE_ALLOWLIST": "true",
+            "REASONFIRST_DEFAULT_BACKEND": worker,
+        },
+    )
+    state_file = _persist_progress(
+        state_path=args.state_file,
+        mode=mode,
+        worker=worker,
+        config_file=str(selected_user_config_path()),
+        phases={"system", "gitlab", "worker"},
+    )
+
+    return 0, {
+        **plan,
+        "stage": "local-configured",
+        "writes_performed": bool(config_change["changed"]),
+        "config_change": config_change,
+        "setup_state": str(state_file),
+        "local_control_configured": True,
+        "ready": False,
+        "next": (
+            "Run 'reasonfirst setup --status'. ChatGPT/tunnel configuration and "
+            "end-to-end live-read acceptance are delivered in Slice 3."
+        ),
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -105,6 +409,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
+
     setup = sub.add_parser(
         "setup",
         help="Inspect or configure the ReasonFirst installation",
@@ -125,6 +430,47 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SETUP_STATE_PATH,
         help="Override the non-secret setup progress file",
     )
+    setup.add_argument(
+        "--mode",
+        choices=sorted(SETUP_MODES),
+        default=None,
+        help="Select standard, full-chat, or cli-only setup mode",
+    )
+    setup.add_argument("--gitlab-url", default=None, help="Prefill the GitLab URL")
+    setup.add_argument("--project", default=None, help="Prefill namespace/project")
+    setup.add_argument("--ref", default=None, help="Project ref (default: configured/main)")
+    setup.add_argument(
+        "--worker",
+        choices=CANONICAL_WORKERS,
+        default=None,
+        help="Prefill the worker preference; secrets are never accepted on argv",
+    )
+
+    project = sub.add_parser("project", help="Manage explicit GitLab project grants")
+    project_sub = project.add_subparsers(dest="project_command", required=True)
+    project_sub.add_parser("list", help="List locally allowlisted projects")
+    project_add = project_sub.add_parser(
+        "add",
+        help="Verify a GitLab project/ref, then explicitly grant it locally",
+    )
+    project_add.add_argument("project")
+    project_add.add_argument("--ref", default="")
+    project_add.add_argument("--require-file", action="append", default=[])
+    project_add.add_argument("--yes", action="store_true", help="Apply after successful preflight")
+    project_add.add_argument("--json", action="store_true")
+
+    worker = sub.add_parser("worker", help="Inspect or select the coding worker")
+    worker_sub = worker.add_subparsers(dest="worker_command", required=True)
+    worker_sub.add_parser("list", help="List detected coding workers")
+    worker_use = worker_sub.add_parser("use", help="Persist a worker preference")
+    worker_use.add_argument("backend", choices=CANONICAL_WORKERS)
+    worker_use.add_argument("--json", action="store_true")
+    worker_use.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+        help="Override the non-secret setup progress file",
+    )
     return parser
 
 
@@ -134,28 +480,111 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "setup":
-            if not args.status:
-                payload: dict[str, object] = {
-                    "ok": False,
-                    "command": "setup",
-                    "error": (
-                        "Guided setup apply is delivered in the next v0.5.1 slice; "
-                        "use 'reasonfirst setup --status' for the non-mutating "
-                        "cross-platform inventory implemented in Slice 1."
-                    ),
-                    "mutating": False,
-                }
+            if args.status:
+                payload = build_setup_status(state_path=args.state_file)
                 if args.json:
                     _print_json(payload)
                 else:
-                    print(payload["error"], file=sys.stderr)
-                return 2
+                    _print_human_status(payload)
+                return 0
 
-            payload = build_setup_status(state_path=args.state_file)
+            code, payload = _run_guided_setup(args)
             if args.json:
                 _print_json(payload)
+            elif code == 0:
+                print("ReasonFirst local control setup complete.")
+                print(str(payload.get("next") or ""))
+            elif payload.get("cancelled"):
+                print(str(payload.get("message") or "Cancelled."), file=sys.stderr)
             else:
-                _print_human_status(payload)
+                print("GitLab project preflight failed; no config was changed.", file=sys.stderr)
+                _print_json(payload)
+            return code
+
+        if args.command == "project":
+            settings = _load_settings_clean()
+            if args.project_command == "list":
+                _print_json(list_projects(settings))
+                return 0
+
+            plan = plan_project_add(
+                settings,
+                args.project,
+                ref=args.ref,
+                required_files=args.require_file,
+            )
+            if args.json:
+                _print_json(plan)
+            else:
+                _print_project_plan(plan)
+            if not bool(plan.get("ok")):
+                return 1
+            if bool(plan.get("already_allowed")):
+                return 0
+
+            approved = bool(args.yes)
+            if not approved:
+                if not sys.stdin.isatty():
+                    raise RuntimeError(
+                        "project add requires interactive confirmation on a TTY "
+                        "or --yes after reviewing the successful preflight"
+                    )
+                approved = _confirm(
+                    "Grant exactly this project in the local ReasonFirst allowlist?"
+                )
+            if not approved:
+                return 1
+
+            result = apply_project_add(settings, plan)
+            if args.json:
+                _print_json(result)
+            else:
+                print(f"Granted: {result['project']}")
+                print(f"Config: {result['config_change']['config_file']}")
+                if result.get("reload_required"):
+                    print(
+                        "The running read MCP may still have old configuration; "
+                        "service reload is automated in Slice 3."
+                    )
+            return 0
+
+        if args.command == "worker":
+            if args.worker_command == "list":
+                _print_json(
+                    {
+                        "ok": True,
+                        "workers": detect_workers(),
+                        "writes_performed": False,
+                    }
+                )
+                return 0
+
+            plan = plan_worker_use(args.backend)
+            if not bool(plan.get("ok")):
+                if args.json:
+                    _print_json(plan)
+                else:
+                    print(str(plan.get("message") or "Worker unavailable"), file=sys.stderr)
+                return 1
+            result = apply_worker_use(plan)
+            previous = load_setup_state(args.state_file) or SetupState()
+            state = replace(
+                previous,
+                selected_worker=args.backend,
+                completed_phases=tuple(
+                    phase
+                    for phase in ("system", "gitlab", "worker", "chatgpt-read", "bridge", "ready")
+                    if phase in (set(previous.completed_phases) | {"worker"})
+                ),
+                installed_version=__version__,
+                last_verified_at=datetime.now(timezone.utc).isoformat(),
+            )
+            save_setup_state(state, args.state_file)
+            if args.json:
+                _print_json(result)
+            else:
+                print(f"Worker preference saved: {args.backend}")
+                print("Provider authentication remains a separate verification step.")
             return 0
 
         parser.error(f"Unhandled command {args.command}")
@@ -172,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "json", False):
             _print_json(payload)
         else:
-            print(f"ReasonFirst setup status failed: {exc}", file=sys.stderr)
+            print(f"ReasonFirst command failed: {exc}", file=sys.stderr)
         return 1
 
 
