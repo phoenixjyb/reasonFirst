@@ -10,7 +10,6 @@ DOCS = ROOT / "docs"
 WEBSITE = ROOT / "website"
 
 ROOT_MARKDOWN = (
-    "README.md",
     "README_CN.md",
     "SECURITY.md",
     "SECURITY_CN.md",
