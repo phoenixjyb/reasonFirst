@@ -18,7 +18,7 @@ ChatGPT 读取与推理
 
 ActualCoder 也可以脱离 ChatGPT 被终端直接调用，用于测试、恢复、CI 修复、IDE 集成或其他自动化。这是受支持的运维副产品，不是本指南描述的主要工作方式。
 
-如果你的目标是**完全由聊天驱动的实现闭环**，先完成本指南中的只读连接，再明确启用 [Bridge Preview](../tools/reasonfirst_v4_0_3/README.md)，然后按[全聊天闭环 E2E 演练](CHAT_ONLY_PRACTICE_CN.md)操作。这条路径已经真实走通过受管 worker 执行、审阅 snapshot、人工批准发布、GitLab MR、matching-HEAD CI 和 EvidencePack 审查；最终 merge 仍由人决定。
+如果你的目标是**完全由聊天驱动的实现闭环**，先完成本指南中的只读连接，再明确启用 [Bridge Preview](https://github.com/phoenixjyb/reasonFirst/blob/main/tools/reasonfirst_v4_0_3/README.md)，然后按[全聊天闭环 E2E 演练](CHAT_ONLY_PRACTICE_CN.md)操作。这条路径已经真实走通过受管 worker 执行、审阅 snapshot、人工批准发布、GitLab MR、matching-HEAD CI 和 EvidencePack 审查；最终 merge 仍由人决定。
 
 如果 macOS 主机访问外部服务依赖 HTTP(S) 代理，要注意 LaunchAgent 默认不会自动继承交互式 shell 的代理变量。Bridge 文档与[故障排查](TROUBLESHOOTING_CN.md)已经提供会话级代理同步 helper；不要为了让 worker 联网而把代理凭证持久化到 plist。
 
@@ -302,9 +302,9 @@ localhost Assistant 不属于本任务。
 
 **验收条件：**实际身份、成功项目预检、固定到已解析提交的文件内容。只在私有范围保存必要的项目/ref/修订证据。连续七个文件读取失败、本地状态绿色、或貌似可信但无来源的概括都不能替代验收。仓库指令与 CI 日志仍是不可信数据。
 
-成功后，在**同一普通 ChatGPT 对话**中说明目标、约束与审阅要求。ChatGPT 可通过 MCP 继续检查文件/MR/CI 并给出方案。[工作流程](WORKFLOW_CN.md)与[人工交接模板](TASK_HANDOFF_TEMPLATE_CN.md)说明如何把已批准实现交给本地编程 worker。当前 MCP 不提交本地任务，也不读取未发布 worktree 修改。
+成功后，在**同一普通 ChatGPT 对话**中说明目标、约束与审阅要求。ChatGPT 可通过**只读 GitLab MCP**继续检查文件/MR/CI 并给出方案。[工作流程](WORKFLOW_CN.md)与[人工交接模板](TASK_HANDOFF_TEMPLATE_CN.md)说明如何把已批准实现交给 coding worker。只读 GitLab MCP 不提交本地任务、也不读取未发布 worktree 修改；独立的 **Bridge Preview** 在所连接 ChatGPT 客户端/workspace 允许 write-capable custom MCP action 时，可完成受管 workspace/App Server 编排和未发布内容审查。如果该能力不可用，则使用终端 ActualCoder；执行模型和审查门保持一致。
 
-首次实现前，安装并认证选定的 [Codex CLI](https://developers.openai.com/codex/cli/) 或 [Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)，确认 Git 写权限、项目验证及 runner 就绪，再使用[受控任务指南](QUICKSTART_CN.md)或[演练](PRACTICE_LAB_CN.md)。读取验收不等于批准推送。`start --no-launch` 会创建本地工作区状态；`finish --dry-run` 会运行配置的测试；只有另行审阅确认的实际 `finish` 才发布。
+首次实现前，认证一个受支持 worker：[Codex CLI](https://developers.openai.com/codex/cli/)、[Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)，或 Codex Desktop/App Server；确认 Git 写权限、项目验证及 runner 就绪，再使用[受控任务指南](QUICKSTART_CN.md)或[演练](PRACTICE_LAB_CN.md)。读取验收不等于批准推送。`start --no-launch` 会创建本地工作区状态；`finish --dry-run` 会运行配置的测试；只有另行审阅确认的实际 `finish` 才发布。
 
 <a id="daily-use"></a>
 ## 日常使用与新项目：不要重复首次接入
@@ -320,4 +320,4 @@ localhost Assistant 不属于本任务。
 
 例外情况见[生命周期边界](TUNNEL_LIFECYCLE_CN.md)和[访问诊断](PROJECT_ACCESS_CN.md)。Restart 可能在停止旧实例后失败；自动回滚、开机自启和自动项目授权均未实现。
 
-文档基线：ReasonFirst `61f464ebbb8906817e32802be22df4012881ece5`；服务商参考资料核对日期为 2026-09-21。本指南本身不会安装软件、创建远端资源、保存真实秘密，也不证明某位用户的连接已成功。
+v0.5.0 文档审计中已于 2026-09-29 重新核对服务商连接参考资料。服务商 UI/套餐资格可能变化；界面文字或能力不一致时以文中链接的 OpenAI/GitHub 当前说明为准。本指南本身不会安装软件、创建远端资源、保存真实秘密，也不证明某位用户的连接已成功。
