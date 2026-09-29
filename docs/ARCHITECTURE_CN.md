@@ -57,6 +57,8 @@ ReasonFirst 是一个**ChatGPT 强推理在前、worker 执行在后的编程编
 
 远端发布仍是保守能力：默认不暴露、不启用，只有显式设置 `RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH=true` 才出现。
 
+Bridge Preview 是已经实现的 ReasonFirst 表面，但能否通过 ChatGPT 暴露其 write-capable 工具取决于所连接客户端/workspace 是否支持这些 custom MCP action。因此通用基线路径仍是：推理客户端通过只读 GitLab MCP 获取证据，终端 ActualCoder 执行；两条路径共用同一受管任务/workspace/review 模型。
+
 ## 3. Worker 后端
 
 用户可明确选择：
