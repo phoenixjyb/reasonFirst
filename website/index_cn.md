@@ -8,7 +8,8 @@
 
 <p class="rf-lead">ReasonFirst 把 ChatGPT（或用户明确选择的其他强推理界面）放在架构、诊断、范围、验收标准和最终审查的位置；可替换的 coding agent 在受控 workspace 中完成实现。</p>
 
-[十分钟上手](first-10-minutes_cn.md){ .md-button .md-button--primary }
+[安装 ReasonFirst](docs/INSTALL_CN.md){ .md-button .md-button--primary }
+[十分钟上手](first-10-minutes_cn.md){ .md-button }
 [查看日常工作流](docs/WORKFLOW_CN.md){ .md-button }
 [English](index.md){ .md-button }
 
@@ -45,7 +46,7 @@ v0.5.0 把上面的架构组合为一套经过测试的系统：**三个 worker 
 
 -   **第一次使用**
 
-    先用[十分钟上手](first-10-minutes_cn.md)走最短路径；需要完整演练时再跑[实战演练](docs/PRACTICE_LAB_CN.md)。
+    先看[安装与更新](docs/INSTALL_CN.md)，选择打包快速路径或继续正式支持的源码/开发者路径；两条路径都进入 `reasonfirst setup`。然后用[十分钟上手](first-10-minutes_cn.md)走最短闭环。
 
 -   **ChatGPT 已经能读取 GitLab**
 
