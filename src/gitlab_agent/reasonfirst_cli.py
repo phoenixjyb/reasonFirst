@@ -213,8 +213,13 @@ def _print_human_status(payload: dict[str, object]) -> None:
     )
     print(
         f"{_mark(bool(readiness.get('tunnel_recorded')))} "
-        "managed tunnel recorded"
+        "managed read tunnel recorded"
     )
+    if payload.get("mode") == "full-chat":
+        print(
+            f"{_mark(bool(readiness.get('bridge_recorded')))} "
+            "managed privileged Bridge recorded"
+        )
     print()
     print("Readiness:")
     print(
