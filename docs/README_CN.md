@@ -67,7 +67,7 @@ Keychain 是 Mac 指南推荐的 runtime-key 来源，不是所有平台强制�
 
 [V0.2 设计](V0.2_WRITE_ACCESS_DESIGN.md)、[V0.2 Codex 指南](V0.2_CODEX_QUICKSTART.md)、[CodingAgent 兼容指南](CODINGAGENT_QUICKSTART.md)、[V0.3 路线图](V0.3_ROADMAP_CN.md)、[V0.3 审计](V0.3_RELEASE_AUDIT_CN.md)保留历史背景。
 
-专项实现说明包括[发布安全](V0.3.1_PUBLICATION_SAFETY_CN.md)、[退出状态](V0.3.1_COMMAND_EXIT_CN.md)、[历史扫描](V0.3.1_SECRET_HISTORY_CN.md)、[日志证据](V0.3.1_SHARED_LOG_EVIDENCE_CN.md)。文件名不代表 v0.3.1 已发布。[Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) 现跟踪已合并 core 之外更丰富的 TaskSpec/EvidencePack 生命周期与跨界面工作；[Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) 跟踪剩余的原生 Git trust/destination-policy 工作。
+历史专项实现说明包括[发布安全](V0.3.1_PUBLICATION_SAFETY_CN.md)、[退出状态](V0.3.1_COMMAND_EXIT_CN.md)、[历史扫描](V0.3.1_SECRET_HISTORY_CN.md)、[日志证据](V0.3.1_SHARED_LOG_EVIDENCE_CN.md)。这些文件名记录开发增量，不代表当前发布状态。v0.5.0 已实现持久 TaskSpec/attempt 与 bounded EvidencePack；[Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) 保留为历史/路线 umbrella，[Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) 跟踪剩余原生 Git trust/destination-policy 工作。
 
 ## 全聊天闭环演练
 
