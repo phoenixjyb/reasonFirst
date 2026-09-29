@@ -1,5 +1,7 @@
 # 首次接入：从你的 Mac 到 ChatGPT 中的 GitLab 对话
 
+> **详细/手工运维指南。** v0.5.1 普通用户建议先看[安装与更新](INSTALL_CN.md)，然后运行 `reasonfirst setup`。本文作为源码/手工路径和运维参考继续正式支持，并未废弃。
+
 [English](GETTING_STARTED.md) · [中文文档索引](README_CN.md) · [架构说明](ARCHITECTURE_CN.md) · [日常隧道操作](TUNNEL_LIFECYCLE_CN.md)
 
 ## ReasonFirst 的目标主流程
