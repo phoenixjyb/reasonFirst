@@ -154,9 +154,16 @@ def connect_bridge_runtime(
     tunnel_client: str,
     bridge_executable: str,
     alias: str = DEFAULT_BRIDGE_ALIAS,
+    read_tunnel_id: str | None = None,
     runner=None,
     sleep=None,
 ) -> dict[str, Any]:
+    bridge_tunnel_id = validate_tunnel_id(tunnel_id)
+    if read_tunnel_id is not None and bridge_tunnel_id == validate_tunnel_id(read_tunnel_id):
+        raise BridgeSetupError(
+            "The privileged Bridge must use a separate tunnel ID from the read-only GitLab app."
+        )
+
     inventory = bridge_tool_inventory()
     if not inventory["ok"]:
         return {
@@ -173,7 +180,7 @@ def connect_bridge_runtime(
         kwargs["sleep"] = sleep
 
     result = connect_runtime(
-        tunnel_id=validate_tunnel_id(tunnel_id),
+        tunnel_id=bridge_tunnel_id,
         runtime_key=runtime_key,
         alias=validate_alias(alias),
         tunnel_client=tunnel_client,
