@@ -50,7 +50,8 @@
   不代表已实现 GitHub target task adapter。
 - Git worktree 与 worker subprocess control 不是 OS security sandbox。
 - native Git trust/destination policy 与 Python API/MCP TLS 仍是不同边界。
-- Bridge Preview MCP 权限高于 read-oriented GitLab MCP，应明确启用。
+- Bridge Preview MCP 权限高于 read-oriented GitLab MCP，应明确启用；其 write-capable
+  工具能否通过 ChatGPT 使用取决于所连接客户端/workspace，终端 ActualCoder 仍是通用执行兜底。
 - macOS launchd 不会自动继承交互 shell 的 proxy 环境；需要时使用文档化的
   session-scoped sync helper。
 - 最终 merge 仍由人决定，ReasonFirst 不自动 merge。
