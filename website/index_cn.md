@@ -27,6 +27,18 @@
 !!! info "只有一条主闭环"
     ActualCoder 也可以被终端、CI、IDE 或其他客户端直接调用，适合测试、恢复和自动化；但这是次要运维能力，不是另一种并列产品模式。
 
+## v0.5.0 已验证基线
+
+v0.5.0 把上面的架构组合为一套经过测试的系统：**三个 worker backend**（`codex-cli`、`copilot-cli`、`codex-desktop`）、**两个刻意分开的 MCP 面**（只读 GitLab 证据面与可选 Bridge Preview 编排面）、持久 **TaskSpec/attempt**、跨进程 workspace 变更锁、有界 **EvidencePack**、共享 finish/review gates，以及 matching-HEAD CI 反馈。
+
+预发布审计基线 `7d16061061f6337604bd3135c9e4a693ad1fd68a` 的七个 release-critical CI job 与文档部署全部通过；主验证 job 共运行 **445 个测试**。package job 构建 wheel + sdist、检查 archive path、在干净环境安装 wheel、验证版本/CLI 入口，并重新执行源码/完整历史 secret scan。最终 release tag 会在本轮文档审计也通过相同门槛后标识准确发布提交。
+
+[阅读 v0.5.0 发布说明](docs/RELEASE_NOTES_0.5.0_CN.md){ .md-button }
+[查看架构说明](docs/ARCHITECTURE_CN.md){ .md-button }
+
+!!! note "Bridge Preview 可用性"
+    只读 GitLab MCP 是通用证据连接；Bridge Preview 需要所连接客户端/workspace 允许其权限更高的 custom-MCP action。该面不可用时使用终端 ActualCoder；TaskSpec、workspace identity、validation 与 review gates 保持相同。
+
 ## 我应该从哪里开始？
 
 <div class="grid cards" markdown>

@@ -263,7 +263,7 @@ ReasonFirst currently has strong GitLab integration because that is where the sy
 
 That should not define the product.
 
-Likewise, Codex and Copilot are current execution backends, not permanent architectural assumptions.
+Likewise, Codex CLI, GitHub Copilot CLI, and Codex Desktop/App Server are current execution surfaces, not permanent architectural assumptions.
 
 The abstraction should remain:
 
@@ -285,8 +285,9 @@ ChatGPT
 ReasonFirst
    ↓
 ActualCoder
-   ├── Codex
-   └── Copilot
+   ├── Codex CLI
+   ├── Copilot CLI
+   └── Codex Desktop / App Server
    ↓
 GitLab
 ```
@@ -360,11 +361,11 @@ The coding backend can be replaced mid-task without changing that state.
 This allows:
 
 ```text
-Codex
+Codex CLI
   ↓
-same workspace
+same workspace / TaskSpec
   ↓
-Copilot
+Copilot CLI or Codex Desktop
   ↓
 same branch / HEAD / MR
 ```

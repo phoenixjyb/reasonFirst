@@ -1,6 +1,6 @@
 # Practice lab: first ChatGPT read to three MR review rounds
 
-[简体中文](PRACTICE_LAB_CN.md) · [Project access first](PROJECT_ACCESS.md) · [Workflow](WORKFLOW.md) · [Handoff template](TASK_HANDOFF_TEMPLATE.md) · [Seed files](../examples/practice-lab/)
+[简体中文](PRACTICE_LAB_CN.md) · [Project access first](PROJECT_ACCESS.md) · [Workflow](WORKFLOW.md) · [Handoff template](TASK_HANDOFF_TEMPLATE.md) · [Seed files](https://github.com/phoenixjyb/reasonFirst/tree/main/examples/practice-lab)
 
 Use **one dedicated private GitLab practice project, one managed workspace, one feature branch and one MR with three reviewed revisions**. Never switch this rehearsal to an allowed production application or reuse an old smoke workspace to get past an access failure. The clip-summary exercise has no robot controls, dependencies, network IO or deployment. Normal ChatGPT is the reasoning interface; the localhost Assistant is not used.
 
@@ -151,7 +151,7 @@ printf 'Workspace: %s\nWorktree: %s\nPrivate notes: %s\n' "$WS" "$WT" "$NOTES"
 
 This fetches code and writes local state; it is not an offline/no-write preview. Inspect the real workspace/base/branch and compare the base with the revision reviewed by ChatGPT. If it changed, review the new base before implementation. Save values privately, but do not execute saved notes as shell scripts. **Never repeat `start` just to continue this task.**
 
-Generated handoffs still mention low-level commit/push and resume context remains incomplete. Review their output, but supply the explicit approved limits below. This exercise does not implement automatic TaskSpec ingestion or fix every generated-handoff path.
+ActualCoder now persists the approved goal plus bounded acceptance/non-goals as TaskSpec/attempt state. Generated handoffs can still mention lower-level commit/push compatibility paths, so review their output and keep the explicit stage limits below. This terminal-oriented practice deliberately uses a human-reviewed stage prompt even though persistent TaskSpec exists.
 
 Launch ordinary Codex in the same worktree:
 
@@ -183,7 +183,7 @@ actual-coder run "$WS" -- python3 -m unittest discover -s tests -v
 actual-coder finish "$WS" --message "fix: validate clip durations" --title "Reliable clip duration summaries" --dry-run > "$NOTES/round1-plan.json"
 ```
 
-Require an unblocked plan, passing required validation, intended paths and complete declared scan coverage. **Dry-run executes validation and can modify local files**, but does not commit/push. MCP cannot see unpublished local diffs; manually share only reviewed, sanitized evidence when needed.
+Require an unblocked plan, passing required validation, intended paths and complete declared scan coverage. **Dry-run executes validation and can modify local files**, but does not commit/push. The **read-only GitLab MCP** cannot see unpublished local diffs; use `actual-coder evidence`/reviewed excerpts for this terminal path, or Bridge Preview when deliberately enabled and available.
 
 The following is a real write: only after human review, run interactive finish without `--yes` or bypass flags:
 
@@ -208,7 +208,7 @@ proposed Stage 2 handoff. Do not invent bugs, treat absent evidence as success,
 change access or merge. If access now fails, stop with the diagnostic.
 ```
 
-Angle brackets here are prompt fields, not shell syntax. Post the reviewed summary as an MR comment yourself: the MCP is read-only. If Stage 1 is correct, approve it and authorize Stage 2 explicitly; do not manufacture a defect for another round.
+Angle brackets here are prompt fields, not shell syntax. Post the reviewed summary as an MR comment yourself: the **GitLab read MCP** is read-only. If Stage 1 is correct, approve it and authorize Stage 2 explicitly; do not manufacture a defect for another round.
 
 ```bash
 actual-coder resume "$WS" --agent codex --goal "Preserve approved Stage 1 and implement EXERCISE.md Stage 2 only. Same workspace and MR. No commit/push, CI/policy edits, future stages or credential reads." > "$NOTES/round2-handoff.json"
@@ -238,4 +238,4 @@ Record each round's approved stage, WS/branch, local HEAD, MR IID, pipeline ID/S
 
 For a **second MR**, finish/merge the first, approve a genuinely separate task, then create a new workspace from updated main. An alternative of one MR per stage must be agreed before starting, not mixed into the same-MR rehearsal halfway through. No fixed time, token quota or cost-saving guarantee is made.
 
-Primary references: [ReasonFirst CLI](../src/gitlab_agent/cli.py), [Codex CLI](https://developers.openai.com/codex/cli/reference/), [GitLab projects](https://docs.gitlab.com/user/project/), [MR pipelines](https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/), [workflow rules](https://docs.gitlab.com/ci/yaml/workflow/).
+Primary references: [ReasonFirst CLI](https://github.com/phoenixjyb/reasonFirst/blob/main/src/gitlab_agent/cli.py), [Codex CLI](https://developers.openai.com/codex/cli/reference/), [GitLab projects](https://docs.gitlab.com/user/project/), [MR pipelines](https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/), [workflow rules](https://docs.gitlab.com/ci/yaml/workflow/).

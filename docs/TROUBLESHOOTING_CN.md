@@ -100,7 +100,7 @@ bash tools/reasonfirst_v4_0_3/sync_launchd_proxy_env.sh clear
 
 ## ActualCoder 安装或有效配置与预期不同
 
-从稳定检出目录按[安装更新指南](LOCAL_PR_REVIEW_CN.md)操作。私下检查 `actual-coder config` 及解释器/源码路径。全局 editable 工具与临时检出目录内的 `uv run` 可能使用不同环境。仅凭包版本 `0.3.0` 不能确定源码提交。
+从稳定检出目录按[安装更新指南](LOCAL_PR_REVIEW_CN.md)操作。私下检查 `actual-coder config` 及解释器/源码路径。全局 editable 工具与临时检出目录内的 `uv run` 可能使用不同环境。仅凭包版本不能确定持续前进的源码检出；对 v0.5.0 及之后的源码构建，应同时记录准确 commit SHA 与包版本。
 
 配置选择顺序是 `GITLAB_AGENT_ENV_FILE`、稳定用户配置、本地 `.env`；已导出的值优先。CLI 的本地回退相对工作目录，MCP 的回退相对 server 源码目录。不要用 `.env.example` 覆盖工作配置，也不要为匹配源码仓库新名称而重命名受管工作区目录。
 

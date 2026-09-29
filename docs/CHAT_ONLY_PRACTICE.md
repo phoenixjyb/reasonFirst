@@ -6,6 +6,9 @@ This rehearsal validates the ReasonFirst product loop **from one normal ChatGPT 
 
 A real synthetic acceptance run completed this loop through controlled publication, a GitLab Merge Request, and successful matching-HEAD unit-test CI. The run also confirmed that worker execution must inherit any network proxy required by the host; the troubleshooting guide now documents the macOS launchd boundary.
 
+!!! important "ChatGPT plan/workspace eligibility"
+    As of 2026-09-29, OpenAI documents **Pro** developer-mode custom MCP as read/fetch-only. Full custom-MCP write/modify actions are currently beta for **Business, Enterprise, and Edu** workspaces. This fully chat-based Bridge rehearsal therefore requires a workspace/client where those write-capable custom MCP actions are available. If your ChatGPT connection is read/fetch-only, use the same reasoning flow with **terminal ActualCoder** for execution instead. See the [current OpenAI developer-mode policy](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt) and [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+
 The intended path is:
 
 ```text

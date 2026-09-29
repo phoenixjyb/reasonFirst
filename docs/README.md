@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README_CN.md)
 
-These guides describe the source revision containing them, not necessarily the last release tag. See [the main README](../README.md) and [Unreleased changes](../CHANGELOG.md).
+These guides describe the source revision containing them, not necessarily the last release tag. See [the main README](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) and [Unreleased changes](../CHANGELOG.md).
 
 ## Start with the reasoning-first workflow
 
@@ -15,7 +15,7 @@ These guides describe the source revision containing them, not necessarily the l
 | Topic | English | 简体中文 |
 | --- | --- | --- |
 | Complete first-time setup and first normal ChatGPT prompt | **[Start here](GETTING_STARTED.md)** | **[首次完整接入](GETTING_STARTED_CN.md)** |
-| Product and supported capabilities | [ReasonFirst](../README.md) | [项目说明](../README_CN.md) |
+| Product and supported capabilities | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) | [项目说明](../README_CN.md) |
 | Start the required service and manage its lifecycle | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) |
 | Before using a newly proposed GitLab project | [Access preflight and user grants](PROJECT_ACCESS.md) | [项目预检与用户授权](PROJECT_ACCESS_CN.md) |
 | Rehearse ChatGPT, Codex and three rounds of one MR | [Practice lab](PRACTICE_LAB.md) | [实战演练](PRACTICE_LAB_CN.md) |
@@ -32,7 +32,7 @@ These guides describe the source revision containing them, not necessarily the l
 | Diagnosis without weakening controls | [Troubleshooting](TROUBLESHOOTING.md) | [分层故障排查](TROUBLESHOOTING_CN.md) |
 | Contribution process | [Contributing](../CONTRIBUTING.md) | [贡献指南](../CONTRIBUTING_CN.md) |
 | Security reporting and limitations | [Security policy](../SECURITY.md) | [安全策略](../SECURITY_CN.md) |
-| Prepared 0.5.0 release candidate notes | [0.5.0 release notes](RELEASE_NOTES_0.5.0.md) | [0.5.0 中文 release notes](RELEASE_NOTES_0.5.0_CN.md) |
+| v0.5.0 release notes | [0.5.0 release notes](RELEASE_NOTES_0.5.0.md) | [0.5.0 中文 release notes](RELEASE_NOTES_0.5.0_CN.md) |
 | Before a public release | [Maintainer checklist](PUBLIC_RELEASE_CHECKLIST.md) | [公开发布清单](PUBLIC_RELEASE_CHECKLIST_CN.md) |
 
 ## Required before the first ChatGPT prompt
@@ -65,7 +65,7 @@ Historical notes/CHANGELOG are records, and LICENSE is unchanged. Documentation 
 
 [V0.2 design](V0.2_WRITE_ACCESS_DESIGN.md), [V0.2 Codex guide](V0.2_CODEX_QUICKSTART.md), [CodingAgent compatibility guide](CODINGAGENT_QUICKSTART.md), [V0.3 roadmap](V0.3_ROADMAP_CN.md) and [V0.3 audit](V0.3_RELEASE_AUDIT_CN.md) provide historical context.
 
-Focused implementation notes cover [publication safety](V0.3.1_PUBLICATION_SAFETY_CN.md), [exit status](V0.3.1_COMMAND_EXIT_CN.md), [history scanning](V0.3.1_SECRET_HISTORY_CN.md) and [log evidence](V0.3.1_SHARED_LOG_EVIDENCE_CN.md). Their filenames do not announce a v0.3.1 release. [Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) now tracks richer TaskSpec/EvidencePack lifecycle and cross-interface work beyond the merged core; [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) tracks remaining native-Git trust/destination-policy work.
+Historical focused implementation notes cover [publication safety](V0.3.1_PUBLICATION_SAFETY_CN.md), [exit status](V0.3.1_COMMAND_EXIT_CN.md), [history scanning](V0.3.1_SECRET_HISTORY_CN.md) and [log evidence](V0.3.1_SHARED_LOG_EVIDENCE_CN.md). Their filenames record development increments, not the current release state. Persistent TaskSpec/attempt records and the bounded EvidencePack are implemented in v0.5.0; [Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) remains the historical/roadmap umbrella, while [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) tracks remaining native-Git trust/destination-policy work.
 
 ## Chat-only rehearsal
 

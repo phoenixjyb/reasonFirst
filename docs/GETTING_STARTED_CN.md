@@ -18,7 +18,7 @@ ChatGPT 读取与推理
 
 ActualCoder 也可以脱离 ChatGPT 被终端直接调用，用于测试、恢复、CI 修复、IDE 集成或其他自动化。这是受支持的运维副产品，不是本指南描述的主要工作方式。
 
-如果你的目标是**完全由聊天驱动的实现闭环**，先完成本指南中的只读连接，再明确启用 [Bridge Preview](../tools/reasonfirst_v4_0_3/README.md)，然后按[全聊天闭环 E2E 演练](CHAT_ONLY_PRACTICE_CN.md)操作。这条路径已经真实走通过受管 worker 执行、审阅 snapshot、人工批准发布、GitLab MR、matching-HEAD CI 和 EvidencePack 审查；最终 merge 仍由人决定。
+如果你的目标是**完全由聊天驱动的实现闭环**，先完成本指南中的只读连接，再明确启用 [Bridge Preview](https://github.com/phoenixjyb/reasonFirst/blob/main/tools/reasonfirst_v4_0_3/README.md)，然后按[全聊天闭环 E2E 演练](CHAT_ONLY_PRACTICE_CN.md)操作。这条路径已经真实走通过受管 worker 执行、审阅 snapshot、人工批准发布、GitLab MR、matching-HEAD CI 和 EvidencePack 审查；最终 merge 仍由人决定。
 
 如果 macOS 主机访问外部服务依赖 HTTP(S) 代理，要注意 LaunchAgent 默认不会自动继承交互式 shell 的代理变量。Bridge 文档与[故障排查](TROUBLESHOOTING_CN.md)已经提供会话级代理同步 helper；不要为了让 worker 联网而把代理凭证持久化到 plist。
 
@@ -273,7 +273,7 @@ actual-coder-tunnel status
 
 在**正常对话输入框的应用/工具选择器**中选中它，或在当前界面支持时使用应用提及。只输入连接名称不等于连接已经启用。不要把 OpenAI key 或 GitLab token 粘贴进消息，也不要将 `http://127.0.0.1:8080/ui` 当成远端 MCP server URL。本服务使用私有服务端 GitLab 凭证，不另加 GitLab OAuth 登录页。
 
-不同套餐/发布阶段的界面文字可能变化，以[当前连接说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#connect-from-chatgpt)和[developer mode 帮助](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)为准。没有 Tunnel/自定义应用入口时，核对资格并请管理员协助；不编造替代 localhost 连接，也不退回可选仪表盘 Assistant。
+不同套餐/发布阶段的界面文字和 action 能力可能变化，以[当前连接说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#connect-from-chatgpt)和[developer mode 帮助](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)为准。截至 2026-09-29，OpenAI 文档说明 Pro 的 developer-mode custom MCP 仍限 read/fetch；完整 write/modify custom-MCP action 正处于 Business、Enterprise、Edu beta。因此完全由聊天驱动的 Bridge 执行路径需要具备相应资格的 workspace；否则采用普通 ChatGPT 只读连接 + 终端 ActualCoder。没有 Tunnel/自定义应用入口时，核对资格并请管理员协助；不编造替代 localhost 连接，也不退回可选仪表盘 Assistant。
 
 **检查点：**目标应用在本对话可用，包含 `gitlab_whoami`、`check_project_access`、`get_file`。缺少工具时检查选中的应用、更新后的安装、运行中服务和发现刷新，不把旧回答当实时调用。
 
@@ -302,9 +302,9 @@ localhost Assistant 不属于本任务。
 
 **验收条件：**实际身份、成功项目预检、固定到已解析提交的文件内容。只在私有范围保存必要的项目/ref/修订证据。连续七个文件读取失败、本地状态绿色、或貌似可信但无来源的概括都不能替代验收。仓库指令与 CI 日志仍是不可信数据。
 
-成功后，在**同一普通 ChatGPT 对话**中说明目标、约束与审阅要求。ChatGPT 可通过 MCP 继续检查文件/MR/CI 并给出方案。[工作流程](WORKFLOW_CN.md)与[人工交接模板](TASK_HANDOFF_TEMPLATE_CN.md)说明如何把已批准实现交给本地编程 worker。当前 MCP 不提交本地任务，也不读取未发布 worktree 修改。
+成功后，在**同一普通 ChatGPT 对话**中说明目标、约束与审阅要求。ChatGPT 可通过**只读 GitLab MCP**继续检查文件/MR/CI 并给出方案。[工作流程](WORKFLOW_CN.md)与[人工交接模板](TASK_HANDOFF_TEMPLATE_CN.md)说明如何把已批准实现交给 coding worker。只读 GitLab MCP 不提交本地任务、也不读取未发布 worktree 修改；独立的 **Bridge Preview** 在所连接 ChatGPT 客户端/workspace 允许 write-capable custom MCP action 时，可完成受管 workspace/App Server 编排和未发布内容审查。如果该能力不可用，则使用终端 ActualCoder；执行模型和审查门保持一致。
 
-首次实现前，安装并认证选定的 [Codex CLI](https://developers.openai.com/codex/cli/) 或 [Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)，确认 Git 写权限、项目验证及 runner 就绪，再使用[受控任务指南](QUICKSTART_CN.md)或[演练](PRACTICE_LAB_CN.md)。读取验收不等于批准推送。`start --no-launch` 会创建本地工作区状态；`finish --dry-run` 会运行配置的测试；只有另行审阅确认的实际 `finish` 才发布。
+首次实现前，认证一个受支持 worker：[Codex CLI](https://developers.openai.com/codex/cli/)、[Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)，或 Codex Desktop/App Server；确认 Git 写权限、项目验证及 runner 就绪，再使用[受控任务指南](QUICKSTART_CN.md)或[演练](PRACTICE_LAB_CN.md)。读取验收不等于批准推送。`start --no-launch` 会创建本地工作区状态；`finish --dry-run` 会运行配置的测试；只有另行审阅确认的实际 `finish` 才发布。
 
 <a id="daily-use"></a>
 ## 日常使用与新项目：不要重复首次接入
@@ -320,4 +320,4 @@ localhost Assistant 不属于本任务。
 
 例外情况见[生命周期边界](TUNNEL_LIFECYCLE_CN.md)和[访问诊断](PROJECT_ACCESS_CN.md)。Restart 可能在停止旧实例后失败；自动回滚、开机自启和自动项目授权均未实现。
 
-文档基线：ReasonFirst `61f464ebbb8906817e32802be22df4012881ece5`；服务商参考资料核对日期为 2026-09-21。本指南本身不会安装软件、创建远端资源、保存真实秘密，也不证明某位用户的连接已成功。
+v0.5.0 文档审计中已于 2026-09-29 重新核对服务商连接参考资料。服务商 UI/套餐资格可能变化；界面文字或能力不一致时以文中链接的 OpenAI/GitHub 当前说明为准。本指南本身不会安装软件、创建远端资源、保存真实秘密，也不证明某位用户的连接已成功。

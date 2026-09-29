@@ -1,6 +1,6 @@
 # One reasoning interface, one controlled implementation workflow
 
-[README](../README.md) · [Architecture](ARCHITECTURE.md) · [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) · [Task handoff template](TASK_HANDOFF_TEMPLATE.md)
+[README](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) · [Architecture](ARCHITECTURE.md) · [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) · [Task handoff template](TASK_HANDOFF_TEMPLATE.md)
 
 **Use ChatGPT as the reasoning forefront and keep coding agents in the execution role.** Normal ChatGPT is the default surface for reading, architecture, diagnosis, scope, acceptance criteria and review. ActualCoder or the optional Bridge Preview turns that approved intent into a controlled handoff for `codex-cli`, `copilot-cli`, or `codex-desktop`. The localhost Assistant is not required.
 

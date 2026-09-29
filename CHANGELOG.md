@@ -2,17 +2,16 @@
 
 ## Unreleased
 
-No user-facing changes have been recorded after the 0.5.0 release-candidate cut.
+No post-v0.5.0 user-facing changes are recorded yet.
 
 ## 0.5.0 - 2026-09-29
 
-This section is the prepared 0.5.0 release note set. The source/package version is
-0.5.0 on the release-candidate branch, but no tag, GitHub Release, or external
-package upload is authorized merely by this changelog entry. Identify test
-evidence by exact commit SHA until a maintainer explicitly publishes the release.
+This section describes ReasonFirst v0.5.0. The release tag is the authoritative
+release identity; source builds and later `main` commits should still be identified
+by exact commit SHA when reporting test evidence or bugs.
 
 Versioning note: 0.5.0 is intentional. The 0.4 development line was already
-used previously, so this release candidate does not reuse that version family.
+used previously, so this release does not reuse that version family.
 
 ### Correctness and deployment compatibility
 
@@ -42,6 +41,7 @@ used previously, so this release candidate does not reuse that version family.
 ### Public documentation and contribution workflow
 
 - Add a bilingual fully chat-based E2E rehearsal with copy/paste prompts for read-only grounding, Bridge-managed execution, explicit human snapshot approval, MR publication, and final CI/EvidencePack review.
+- Complete the v0.5.0 public-documentation audit: align active guides with the implemented three-backend/two-MCP architecture, TaskSpec/EvidencePack and workspace locking; label historical roadmap notes; add rendered GitHub Pages link checking; and surface release-validation evidence on the bilingual site.
 - Polish the public documentation site around onboarding: add a first-10-minutes path, ChatGPT prompt patterns, EvidencePack review guidance, bilingual equivalents, compact visual workflow, and tabbed navigation.
 - Recenter README, onboarding, architecture, workflow, documentation indexes and quickstarts on the primary ChatGPT-first reasoning loop; retain direct ActualCoder use as a secondary execution/operations capability rather than a co-equal product mode.
 - Add a bilingual current-architecture reference covering the two MCP surfaces, three worker backends, WorkerPolicy verification, approval mediation, workspace locking, structured SSH container validation, shared finish gates and experimental remote publication.

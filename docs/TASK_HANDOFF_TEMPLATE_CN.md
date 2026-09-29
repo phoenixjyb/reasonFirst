@@ -4,7 +4,7 @@
 
 <!-- Translation source: docs/TASK_HANDOFF_TEMPLATE.md @ a3e33c72c55efef6a0dc3808fb9853c62ad15f9d -->
 
-这是**由人工维护的 Markdown 模板**，不是已实现的 TaskSpec/EvidencePack API、配置文件或自动加载的指令文件。ActualCoder 不会发现或解析它。请先审阅，再将其中相关内容明确提供给选定的执行者，并将经过脱敏的结果返回推理对话。
+这是**由人工维护的 Markdown 规划模板**，不是机器 TaskSpec/EvidencePack schema、配置文件或自动加载的指令文件。ActualCoder 现已实现持久 TaskSpec/attempt 记录以及有界只读 EvidencePack；但不会发现或解析本文。需要人工可读规划/审查笔记时使用本文，同时以受管 workspace 内的机器 TaskSpec 与 EvidencePack 作为权威状态/证据。
 
 私有任务材料只能保存在获准的私有位置。不要向公开的 ReasonFirst 仓库加入填写后的真实案例、凭证、凭证文件内容或私有日志。提到私有凭证文件的位置，不代表授权执行者读取或打印该文件。
 
@@ -84,4 +84,4 @@ CI：
 
 把实际观察到的命令结果与执行者“测试已通过”的说法分开。不要把缺失证据标为成功，不要从只做检测的 job 推断完整构建，也不要从读取成功推断拥有写入权限。即使已经运行脱敏器，向外分享之前仍须检查是否含有秘密。
 
-对于尚未发布的本地变更，当前 GitLab MCP bridge 无法获取工作树的本地 diff。仅人工分享经过审阅的片段；不要为了让读取测试通过而发布分支。未来的证据接口应消除这种人工重建上下文的负担，但该接口目前尚不存在。
+对于未发布的本地修改，**只读 GitLab MCP** 无法获取 worktree 本地 diff。可使用 `actual-coder evidence WORKSPACE`（可选 `--from-ci`）生成有界 EvidencePack；或在明确启用且可用时用 Bridge Preview 审阅未发布 workspace。两者都不可用时只人工分享已审脱敏片段，不要为了读取测试而发布分支。

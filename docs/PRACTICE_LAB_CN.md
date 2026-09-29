@@ -1,6 +1,6 @@
 # 实战演练：从首次 ChatGPT 对话到三轮 MR 审查
 
-[English](PRACTICE_LAB.md) · [先确认项目访问](PROJECT_ACCESS_CN.md) · [工作流程](WORKFLOW_CN.md) · [交接模板](TASK_HANDOFF_TEMPLATE_CN.md) · [初始代码](../examples/practice-lab/)
+[English](PRACTICE_LAB.md) · [先确认项目访问](PROJECT_ACCESS_CN.md) · [工作流程](WORKFLOW_CN.md) · [交接模板](TASK_HANDOFF_TEMPLATE_CN.md) · [初始代码](https://github.com/phoenixjyb/reasonFirst/tree/main/examples/practice-lab)
 
 使用**一个专门的私有 GitLab 练习项目、一个受管工作区、一个功能分支、同一个 MR 的三轮修订**。不能为了绕过访问失败而换成已获准的生产应用，也不复用旧 smoke 工作区。片段时长统计练习不涉及机器人控制、依赖安装、网络读写或部署。普通 ChatGPT 负责推理，不使用 localhost Assistant。
 
@@ -148,7 +148,7 @@ printf 'Workspace: %s\nWorktree: %s\nPrivate notes: %s\n' "$WS" "$WT" "$NOTES"
 
 这会获取代码并写本地状态，不是离线/无写入预览。检查实际 workspace/base/branch，将 base 与 ChatGPT 审阅修订比较；发生变化时先审阅新 base，再实现。私下保存实际变量，不把笔记当 shell 执行。**继续这个任务时不得再次 start。**
 
-生成交接仍可能提到低层 commit/push，resume 上下文也尚未完全一致。审查输出，但应明确提供下方获批约束。本练习没有实现自动 TaskSpec 导入，也没有修复所有交接入口。
+ActualCoder 现已把获批目标以及有界 acceptance/non-goals 持久化为 TaskSpec/attempt 状态。生成交接仍可能提到低层 commit/push 兼容路径，因此仍需审查输出并保留下方阶段约束。虽然已有持久 TaskSpec，本终端演练仍有意使用人工审阅的阶段提示词。
 
 在同一个工作树启动普通 Codex：
 
@@ -179,7 +179,7 @@ actual-coder run "$WS" -- python3 -m unittest discover -s tests -v
 actual-coder finish "$WS" --message "fix: validate clip durations" --title "Reliable clip duration summaries" --dry-run > "$NOTES/round1-plan.json"
 ```
 
-要求计划未阻断、必需验证通过、路径符合意图、声明扫描范围完整。**Dry-run 会执行验证，可能修改本地文件**，但不提交/推送。MCP 看不到未发布本地 diff；需要时只能人工分享审查脱敏后的证据。
+要求计划未阻断、必需验证通过、路径符合意图、声明扫描范围完整。**Dry-run 会执行验证，可能修改本地文件**，但不提交/推送。**只读 GitLab MCP** 看不到未发布本地 diff；本终端路径可使用 `actual-coder evidence`/已审脱敏片段，或在明确启用且客户端可用时使用 Bridge Preview。
 
 下方是真实写入：人工审查后才执行交互式 finish，不加 `--yes` 或绕过参数：
 
@@ -202,7 +202,7 @@ actual-coder ci "$WS" > "$NOTES/round1-ci.json"
 不编造缺陷，不把缺失证据当成功，不修改授权或合并；访问失败时带诊断停止。
 ```
 
-尖括号是对话占位符，不是 shell 语法。你自行把已审阅摘要发为 MR 评论，MCP 仍只读。正确就批准本阶段并明确授权下一阶段，不为多一轮而制造缺陷。
+尖括号是对话占位符，不是 shell 语法。你自行把已审阅摘要发为 MR 评论；**GitLab read MCP** 仍只读。正确就批准本阶段并明确授权下一阶段，不为多一轮而制造缺陷。
 
 ```bash
 actual-coder resume "$WS" --agent codex --goal "Preserve approved Stage 1 and implement EXERCISE.md Stage 2 only. Same workspace and MR. No commit/push, CI/policy edits, future stages or credential reads." > "$NOTES/round2-handoff.json"
@@ -232,4 +232,4 @@ actual-coder resume "$WS" --agent codex --from-ci --goal "Diagnose and repair th
 
 练习**第二个 MR**时，先完成并合并第一个，批准真正独立任务，再从更新后的 main 创建新工作区。每阶段单独 MR 的替代路线应在开始前约定，不能中途混用。不承诺固定耗时、额度或费用节省。
 
-一手参考：[ReasonFirst CLI](../src/gitlab_agent/cli.py)、[Codex CLI](https://developers.openai.com/codex/cli/reference/)、[GitLab 项目](https://docs.gitlab.com/user/project/)、[MR 流水线](https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/)、[workflow 规则](https://docs.gitlab.com/ci/yaml/workflow/)。
+一手参考：[ReasonFirst CLI](https://github.com/phoenixjyb/reasonFirst/blob/main/src/gitlab_agent/cli.py)、[Codex CLI](https://developers.openai.com/codex/cli/reference/)、[GitLab 项目](https://docs.gitlab.com/user/project/)、[MR 流水线](https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/)、[workflow 规则](https://docs.gitlab.com/ci/yaml/workflow/)。

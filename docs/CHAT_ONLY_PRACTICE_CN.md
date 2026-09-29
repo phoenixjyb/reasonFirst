@@ -6,6 +6,9 @@
 
 已经有一次真实的合成验收完整走通这条链路：受控发布生成 GitLab Merge Request，并由 matching-HEAD 的真实 unit-test CI 成功收尾。该演练也验证了一个重要运行边界：如果主机访问外部服务依赖代理，Bridge 启动的 worker 也必须继承这套代理环境；macOS launchd 的处理方式已写入故障排查文档。
 
+!!! important "ChatGPT 套餐 / workspace 资格"
+    截至 2026-09-29，OpenAI 文档说明 **Pro** 的 developer-mode custom MCP 仍限 read/fetch；完整 custom-MCP write/modify action 当前处于 **Business、Enterprise、Edu** beta。因此本“全聊天 Bridge”演练要求所连接的 workspace/client 已开放这些可写 custom MCP action。如果你的 ChatGPT 连接只有 read/fetch，则保持同一推理流程，但改用**终端 ActualCoder**执行。参见[当前 OpenAI developer-mode 说明](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)与[Secure MCP Tunnel 指南](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)。
+
 目标链路：
 
 ```text

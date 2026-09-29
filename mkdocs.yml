@@ -81,6 +81,9 @@ nav:
       - Architecture: docs/ARCHITECTURE.md
       - Security: SECURITY.md
       - Design philosophy: docs/DESIGN_PHILOSOPHY.md
+      - Runtime TLS: docs/HTTPS_API_TLS.md
+      - HTTPS migration: docs/HTTPS_MIGRATION.md
+      - Local PR review: docs/LOCAL_PR_REVIEW.md
   - 中文:
       - 中文首页: index_cn.md
       - 十分钟上手: first-10-minutes_cn.md
@@ -88,14 +91,24 @@ nav:
       - 证据与审查: evidence-review_cn.md
       - 核心概念: concepts_cn.md
       - 首次完整接入: docs/GETTING_STARTED_CN.md
+      - 项目访问: docs/PROJECT_ACCESS_CN.md
+      - Tunnel 生命周期: docs/TUNNEL_LIFECYCLE_CN.md
+      - 实战演练: docs/PRACTICE_LAB_CN.md
       - 工作流程: docs/WORKFLOW_CN.md
       - 全聊天闭环演练: docs/CHAT_ONLY_PRACTICE_CN.md
       - 快速上手: docs/QUICKSTART_CN.md
       - 故障排查: docs/TROUBLESHOOTING_CN.md
       - 架构说明: docs/ARCHITECTURE_CN.md
       - 安全边界: SECURITY_CN.md
+      - 设计理念: docs/DESIGN_PHILOSOPHY_CN.md
+      - 运行时 TLS: docs/HTTPS_API_TLS_CN.md
+      - HTTPS 迁移: docs/HTTPS_MIGRATION_CN.md
+      - 本地 PR 审阅: docs/LOCAL_PR_REVIEW_CN.md
   - Reference:
+      - Release notes v0.5.0: docs/RELEASE_NOTES_0.5.0.md
+      - 中文发布说明 v0.5.0: docs/RELEASE_NOTES_0.5.0_CN.md
       - Documentation index: docs/README.md
       - Task handoff: docs/TASK_HANDOFF_TEMPLATE.md
+      - Maintainer release checklist: docs/PUBLIC_RELEASE_CHECKLIST.md
       - Changelog: CHANGELOG.md
       - Contributing: CONTRIBUTING.md

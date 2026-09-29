@@ -1,7 +1,7 @@
-# ReasonFirst 0.5.0 Release Candidate
+# ReasonFirst 0.5.0 发布说明
 
-本文汇总 v0.3.0 之后准备发布的 0.5.0 release candidate。**这不是发布公告**：
-仅有本文不代表已经授权创建 tag、GitHub Release 或上传外部软件包。
+本文汇总 ReasonFirst v0.5.0。GitHub release/tag 标识准确的发布提交；
+源码检出可能继续领先，因此复现验证或报告问题时仍应记录准确 commit SHA。
 
 ## 为什么是 0.5.0
 
@@ -9,7 +9,7 @@
 强推理界面先负责判断和审查，可替换的 coding worker 再负责实现。
 
 选择 0.5.0 是有意的版本线调整：此前开发工作已经使用过 0.4 版本线，
-因此本次 release candidate 不再复用该版本族。
+因此本次发布不再复用该版本族。
 
 ## 主要用户可见变化
 
@@ -25,6 +25,7 @@
   显式审批、practice tooling、CI failure classification 和 finish safety gates。
 - 面向外部用户的中英文全聊天演练、onboarding、troubleshooting、architecture、
   contribution 与 release maintainer 文档。
+- 完成最终发布文档/Pages 审计：当前指南与已实现架构对齐、历史 v0.2/v0.3 页面明确标记、CI 检查渲染后内部链接，并在双语站点展示 v0.5.0 架构/验证基线。
 
 ## 已观察到的端到端验收
 
@@ -50,21 +51,27 @@
   不代表已实现 GitHub target task adapter。
 - Git worktree 与 worker subprocess control 不是 OS security sandbox。
 - native Git trust/destination policy 与 Python API/MCP TLS 仍是不同边界。
-- Bridge Preview MCP 权限高于 read-oriented GitLab MCP，应明确启用。
+- Bridge Preview MCP 权限高于 read-oriented GitLab MCP，应明确启用；其 write-capable
+  工具能否通过 ChatGPT 使用取决于所连接客户端/workspace，终端 ActualCoder 仍是通用执行兜底。
 - macOS launchd 不会自动继承交互 shell 的 proxy 环境；需要时使用文档化的
   session-scoped sync helper。
 - 最终 merge 仍由人决定，ReasonFirst 不自动 merge。
 - 外部 coding tools 使用各自认证、quota 与 billing；ReasonFirst 不直接调用模型推理 API。
 
-## Release Candidate 验证要求
+## 发布验证
 
-正式发布 0.5.0 前：
+v0.5.0 发布门要求最终 exact HEAD 通过：
 
-1. release candidate exact HEAD 的 GitHub CI 必须全绿；
-2. build wheel + sdist，并检查 archive member names；
-3. 在干净 virtual environment 安装构建出的 wheel，验证 package version 与 CLI entry points；
-4. 执行 tracked-file/full-history secret scan；
-5. 另行检查公共 repository surfaces 与 GitHub security settings；
-6. 创建 tag / GitHub Release / 外部包上传前再次获得维护者明确批准。
+- `validate`（完整 Python 单元/集成测试）；
+- Ubuntu、macOS、Windows 跨平台 job；
+- Ubuntu、macOS Bridge 回归 job；
+- `package-release-candidate`（wheel + sdist 构建、archive path 检查、
+  干净 wheel 安装/版本/CLI 检查，以及源码/完整历史 secret scan）；
+- 文档有变化时的 documentation-site build/deploy。
+
+预发布审计基线 `7d16061061f6337604bd3135c9e4a693ad1fd68a`
+的七个 CI job 与 Docs site 均成功；`validate` 共运行 **445 个测试**。
+最终 GitHub Release 记录准确 tag SHA，只有最终文档提交在相同 exact-head
+门槛下通过后才应发布。
 
 完整维护者清单见 `docs/PUBLIC_RELEASE_CHECKLIST_CN.md`。

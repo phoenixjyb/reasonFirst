@@ -4,7 +4,7 @@
 
 <!-- Paired with docs/README.md in this change; base 61f464ebbb8906817e32802be22df4012881ece5. -->
 
-这些指南描述包含它们的源码修订，不一定对应最近发布 tag。参见[项目说明](../README_CN.md)和 [Unreleased 更新](../CHANGELOG.md)。
+这些指南描述包含它们的源码修订，不一定对应最近发布 tag。参见[项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md)和 [Unreleased 更新](../CHANGELOG.md)。
 
 ## 从推理优先主流程开始
 
@@ -17,7 +17,7 @@
 | 主题 | 简体中文 | English |
 | --- | --- | --- |
 | 完整首次接入与第一条普通 ChatGPT 提示词 | **[从这里开始](GETTING_STARTED_CN.md)** | **[First-time setup](GETTING_STARTED.md)** |
-| 产品与能力 | [项目说明](../README_CN.md) | [ReasonFirst](../README.md) |
+| 产品与能力 | [项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md) | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) |
 | 启动必需服务与生命周期管理 | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) |
 | 使用新提出的 GitLab 项目之前 | [项目预检与用户授权](PROJECT_ACCESS_CN.md) | [Project access](PROJECT_ACCESS.md) |
 | 演练 ChatGPT、Codex 与同一 MR 的三轮审查 | [实战演练](PRACTICE_LAB_CN.md) | [Practice lab](PRACTICE_LAB.md) |
@@ -34,7 +34,7 @@
 | 不弱化控制的诊断 | [故障排查](TROUBLESHOOTING_CN.md) | [Troubleshooting](TROUBLESHOOTING.md) |
 | 贡献流程 | [贡献指南](../CONTRIBUTING_CN.md) | [Contributing](../CONTRIBUTING.md) |
 | 安全报告与限制 | [安全策略](../SECURITY_CN.md) | [Security](../SECURITY.md) |
-| 0.5.0 release candidate 说明 | [0.5.0 release notes](RELEASE_NOTES_0.5.0.md) | [0.5.0 中文 release notes](RELEASE_NOTES_0.5.0_CN.md) |
+| v0.5.0 发布说明 | [0.5.0 release notes](RELEASE_NOTES_0.5.0.md) | [0.5.0 中文 release notes](RELEASE_NOTES_0.5.0_CN.md) |
 | 公开发布之前 | [维护者清单](PUBLIC_RELEASE_CHECKLIST_CN.md) | [Release checklist](PUBLIC_RELEASE_CHECKLIST.md) |
 
 ## 第一次 ChatGPT 对话之前的必需步骤
@@ -67,7 +67,7 @@ Keychain 是 Mac 指南推荐的 runtime-key 来源，不是所有平台强制�
 
 [V0.2 设计](V0.2_WRITE_ACCESS_DESIGN.md)、[V0.2 Codex 指南](V0.2_CODEX_QUICKSTART.md)、[CodingAgent 兼容指南](CODINGAGENT_QUICKSTART.md)、[V0.3 路线图](V0.3_ROADMAP_CN.md)、[V0.3 审计](V0.3_RELEASE_AUDIT_CN.md)保留历史背景。
 
-专项实现说明包括[发布安全](V0.3.1_PUBLICATION_SAFETY_CN.md)、[退出状态](V0.3.1_COMMAND_EXIT_CN.md)、[历史扫描](V0.3.1_SECRET_HISTORY_CN.md)、[日志证据](V0.3.1_SHARED_LOG_EVIDENCE_CN.md)。文件名不代表 v0.3.1 已发布。[Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) 现跟踪已合并 core 之外更丰富的 TaskSpec/EvidencePack 生命周期与跨界面工作；[Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) 跟踪剩余的原生 Git trust/destination-policy 工作。
+历史专项实现说明包括[发布安全](V0.3.1_PUBLICATION_SAFETY_CN.md)、[退出状态](V0.3.1_COMMAND_EXIT_CN.md)、[历史扫描](V0.3.1_SECRET_HISTORY_CN.md)、[日志证据](V0.3.1_SHARED_LOG_EVIDENCE_CN.md)。这些文件名记录开发增量，不代表当前发布状态。v0.5.0 已实现持久 TaskSpec/attempt 与 bounded EvidencePack；[Issue #6](https://github.com/phoenixjyb/reasonFirst/issues/6) 保留为历史/路线 umbrella，[Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10) 跟踪剩余原生 Git trust/destination-policy 工作。
 
 ## 全聊天闭环演练
 

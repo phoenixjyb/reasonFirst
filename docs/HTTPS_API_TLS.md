@@ -2,7 +2,7 @@
 
 [中文](HTTPS_API_TLS_CN.md) · [Quickstart](ACTUAL_CODER_QUICKSTART.md) · [Migration](HTTPS_MIGRATION.md) · [Security](../SECURITY.md)
 
-ReasonFirst's synchronous GitLab API client and asynchronous read-only MCP client share a verified TLS context and credential-destination checks. This is available in source containing PR #13; a package reporting `0.3.0` alone does not establish that it contains the change. Record the source commit when diagnosing an installation.
+ReasonFirst's synchronous GitLab API client and asynchronous read-only MCP client share a verified TLS context and credential-destination checks. This behavior is included in v0.5.0. For editable/source installations that may move ahead of a release tag, record the exact source commit when diagnosing an installation.
 
 ## Know which client you are configuring
 
@@ -92,4 +92,4 @@ uv run python -m unittest discover -s tests -v
 
 Native Git trust/destination integration and layered API-versus-Git diagnostics remain in [Issue #10](https://github.com/phoenixjyb/reasonFirst/issues/10). The migration lock is not general workspace locking. Provider eligibility, code-execution isolation, token scopes, and release approval are separate concerns.
 
-Implementation reference: [`tls.py`](../src/gitlab_agent/tls.py). Primary library references: [HTTPX SSL](https://www.python-httpx.org/advanced/ssl/), [HTTPX environment variables](https://www.python-httpx.org/environment_variables/), and [Git configuration](https://git-scm.com/docs/git-config).
+Implementation reference: [`tls.py`](https://github.com/phoenixjyb/reasonFirst/blob/main/src/gitlab_agent/tls.py). Primary library references: [HTTPX SSL](https://www.python-httpx.org/advanced/ssl/), [HTTPX environment variables](https://www.python-httpx.org/environment_variables/), and [Git configuration](https://git-scm.com/docs/git-config).

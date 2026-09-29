@@ -1,6 +1,6 @@
 # ReasonFirst 中文教程：让 ChatGPT 直接读取私有 / 自建 GitLab
 
-> 本文只讲 ReasonFirst **Reasoning Plane 的 ChatGPT 只读 GitLab MCP bridge**。团队日常真实 coding（ActualCoder + Codex/Copilot + GitLab MR）请优先阅读 [ONBOARDING_GUIDE_CN.md](ONBOARDING_GUIDE_CN.md)；整体设计理念见 [ReasonFirst Design Philosophy](DESIGN_PHILOSOPHY.md)。
+> 本文只讲 ReasonFirst **Reasoning Plane 的 ChatGPT 只读 GitLab MCP bridge**。v0.5.0 日常 coding（ActualCoder + `codex-cli` / `copilot-cli` / `codex-desktop` + GitLab MR）请优先阅读[快速上手](QUICKSTART_CN.md)；权限更高的 Bridge Preview 是独立可选编排面，不属于本文只读接入流程。整体设计理念见 [ReasonFirst Design Philosophy](DESIGN_PHILOSOPHY.md)。
 
 这套方案适合 **GitLab 部署在公司内网、VPN 或本机网络中，无法直接被公网访问** 的场景。
 

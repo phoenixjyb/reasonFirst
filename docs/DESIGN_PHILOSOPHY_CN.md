@@ -265,7 +265,7 @@ ReasonFirst 当前与 GitLab 深度集成，因为系统最初在那里完成验
 
 但产品不应被这一点定义。
 
-同样，Codex 和 Copilot 是当前执行后端，不是永久的架构前提。
+同样，Codex CLI、GitHub Copilot CLI 和 Codex Desktop/App Server 是当前执行表面，不是永久的架构前提。
 
 抽象应始终是：
 
@@ -287,8 +287,9 @@ ChatGPT
 ReasonFirst
    ↓
 ActualCoder
-   ├── Codex
-   └── Copilot
+   ├── Codex CLI
+   ├── Copilot CLI
+   └── Codex Desktop / App Server
    ↓
 GitLab
 ```
@@ -360,11 +361,11 @@ ReasonFirst 不应依赖编程代理记得自己正在使用哪个分支、MR �
 因此可以实现：
 
 ```text
-Codex
+Codex CLI
   ↓
-同一个工作区
+同一个工作区 / TaskSpec
   ↓
-Copilot
+Copilot CLI 或 Codex Desktop
   ↓
 同一分支 / HEAD / MR
 ```

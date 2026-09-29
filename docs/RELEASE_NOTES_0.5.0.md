@@ -1,8 +1,8 @@
-# ReasonFirst 0.5.0 release candidate
+# ReasonFirst 0.5.0 release notes
 
-This document summarizes the prepared post-v0.3.0 release candidate. It is **not**
-a release announcement: no tag, GitHub Release, or external package publication
-is authorized by this file.
+This document summarizes ReasonFirst v0.5.0. The GitHub release/tag identifies
+the exact released commit; source checkouts can move ahead, so use the exact
+commit SHA when reporting reproducibility evidence.
 
 ## Why 0.5.0
 
@@ -12,7 +12,7 @@ reasoning first, replaceable coding workers second—while making the complete
 chat-only path reproducible for external users.
 
 The 0.5.0 version line is intentional: prior development had already used the
-0.4 line, so this candidate avoids reusing that version family.
+0.4 line, so this release avoids reusing that version family.
 
 ## Main user-visible changes
 
@@ -32,6 +32,7 @@ The 0.5.0 version line is intentional: prior development had already used the
   classification, and safer finish gates accumulated since v0.3.0.
 - Public bilingual chat-only rehearsal, onboarding, troubleshooting,
   architecture, contribution, and release-maintainer documentation.
+- Final release documentation/Pages audit: current guides are reconciled with the implemented architecture, historical v0.2/v0.3 notes are labeled, rendered internal links are CI-checked, and the bilingual site exposes the v0.5.0 architecture/validation baseline.
 
 ## Observed end-to-end acceptance
 
@@ -60,24 +61,29 @@ This acceptance proves the exercised path, not every deployment topology.
 - Native Git trust/destination policy remains distinct from Python API/MCP TLS
   handling.
 - The Bridge Preview MCP is more privileged than the read-oriented GitLab MCP
-  and should be enabled deliberately.
+  and should be enabled deliberately. Whether its write-capable tools are
+  available through ChatGPT depends on the connected client/workspace; terminal
+  ActualCoder remains the portable execution fallback.
 - macOS launchd does not automatically inherit an interactive shell's proxy
   environment; use the documented session-scoped sync helper when required.
 - Final merge remains a human decision. ReasonFirst does not auto-merge.
 - External coding tools use their own authentication, quotas, and billing;
   ReasonFirst makes no direct model-inference API calls.
 
-## Release-candidate verification
+## Release validation
 
-Before publishing 0.5.0:
+The v0.5.0 release gate requires exact-head success for:
 
-1. require green exact-head GitHub CI on the release candidate;
-2. build wheel and sdist and inspect archive member names;
-3. install the built wheel in a clean virtual environment and verify package
-   version plus CLI entry points;
-4. run tracked-file/full-history secret scanning;
-5. review public repository surfaces and repository security settings separately;
-6. obtain explicit maintainer approval before creating a tag, GitHub Release, or
-   external package upload.
+- `validate` (full Python unit/integration suite);
+- Ubuntu, macOS, and Windows cross-platform jobs;
+- Ubuntu and macOS Bridge regression jobs;
+- `package-release-candidate` (wheel + sdist build, archive-path inspection,
+  clean-wheel install/version/CLI checks, and source/full-history secret scan);
+- the documentation-site build/deploy when documentation changes are present.
+
+At the pre-release audit baseline `7d16061061f6337604bd3135c9e4a693ad1fd68a`,
+all seven CI jobs and the Docs site passed; `validate` ran **445 tests**.
+The final GitHub Release records the exact tagged SHA and must be published only
+after the same exact-head gate passes on the final documentation commit.
 
 See `docs/PUBLIC_RELEASE_CHECKLIST.md` for the full maintainer checklist.

@@ -4,7 +4,7 @@
 
 本文描述已合入的 Python API/MCP 运行时部分（PR #13）。与 PR #12 的本地
 URL/workspace 迁移工具独立；升级代码不会自动更改用户 `.env`、工作区或
-Git 远端。包版本仍为 `0.3.0`，排障时还需记录源码 commit SHA。
+Git 远端。该运行时 TLS 行为已包含在 v0.5.0；对可能领先于 release tag 的 editable/源码安装，排障时仍需记录准确源码 commit SHA。
 
 ## 配置
 
