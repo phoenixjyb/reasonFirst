@@ -2,14 +2,17 @@
 
 ## Unreleased
 
-No user-facing changes have been recorded after the 0.3.1 release-candidate cut.
+No user-facing changes have been recorded after the 0.5.0 release-candidate cut.
 
-## 0.3.1 - 2026-09-29
+## 0.5.0 - 2026-09-29
 
-This section is the prepared 0.3.1 release note set. The source/package version is
-0.3.1 on the release-candidate branch, but no tag, GitHub Release, or external
+This section is the prepared 0.5.0 release note set. The source/package version is
+0.5.0 on the release-candidate branch, but no tag, GitHub Release, or external
 package upload is authorized merely by this changelog entry. Identify test
 evidence by exact commit SHA until a maintainer explicitly publishes the release.
+
+Versioning note: 0.5.0 is intentional. The 0.4 development line was already
+used previously, so this release candidate does not reuse that version family.
 
 ### Correctness and deployment compatibility
 
