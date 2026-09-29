@@ -11,6 +11,7 @@ from typing import Any, Callable
 from mcp import Client
 
 from .bridge_mcp import build_server
+from .codex_app_server import managed_app_server_socket, resolve_codex_binary
 from .setup_state import DEFAULT_SETUP_STATE_PATH, SetupState, load_setup_state, save_setup_state
 from .setup_tunnel import (
     DEFAULT_TUNNEL_ALIAS,
@@ -147,6 +148,30 @@ def bridge_tool_inventory() -> dict[str, Any]:
         ) from exc
 
 
+def bridge_execution_prerequisites() -> dict[str, Any]:
+    socket = managed_app_server_socket()
+    codex_bin: str | None = None
+    error: str | None = None
+    try:
+        codex_bin = resolve_codex_binary()
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    available = bool(codex_bin) or socket.exists()
+    return {
+        "ok": available,
+        "codex_app_server_capable": available,
+        "codex_bin": codex_bin,
+        "managed_socket": str(socket),
+        "managed_socket_exists": socket.exists(),
+        "error": error,
+        "note": (
+            "The current full-chat Bridge worker-control surface uses Codex App Server. "
+            "Copilot CLI remains supported through the standard terminal ActualCoder path, "
+            "not this chat-controlled worker surface."
+        ),
+    }
+
+
 def connect_bridge_runtime(
     *,
     tunnel_id: str,
@@ -164,6 +189,15 @@ def connect_bridge_runtime(
             "The privileged Bridge must use a separate tunnel ID from the read-only GitLab app."
         )
 
+    prerequisites = bridge_execution_prerequisites()
+    if not prerequisites["ok"]:
+        return {
+            "ok": False,
+            "ready": False,
+            "stage": "worker-prerequisite",
+            "prerequisites": prerequisites,
+        }
+
     inventory = bridge_tool_inventory()
     if not inventory["ok"]:
         return {
@@ -171,6 +205,7 @@ def connect_bridge_runtime(
             "ready": False,
             "stage": "inventory",
             "inventory": inventory,
+            "prerequisites": prerequisites,
         }
 
     kwargs: dict[str, Any] = {}
@@ -190,6 +225,7 @@ def connect_bridge_runtime(
     return {
         **result,
         "inventory": inventory,
+        "prerequisites": prerequisites,
         "bridge_remote_push_enabled": False,
         "chatgpt_write_capability_verified": False,
     }
@@ -271,6 +307,7 @@ def build_bridge_handoff(
         "tunnel_id": tid,
         "chatgpt_steps": [
             "Use a separate developer-mode ChatGPT app for the privileged ReasonFirst Bridge; do not replace the read-only GitLab app.",
+            "The current chat-controlled worker operations use Codex App Server; Copilot CLI remains a standard terminal ActualCoder backend.",
             "Confirm this ChatGPT workspace/client supports write/modify custom-MCP actions before continuing.",
             "In ChatGPT Plugins, create the Bridge app with Connection = Tunnel.",
             f"Select or paste Bridge tunnel ID {tid}.",
