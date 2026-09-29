@@ -18,21 +18,21 @@ from scripts.check_release_artifacts import inspect
 class ReleaseArtifactInspectionTests(unittest.TestCase):
     def test_clean_wheel_passes(self):
         with tempfile.TemporaryDirectory() as td:
-            path = Path(td) / "pkg-0.3.1-py3-none-any.whl"
+            path = Path(td) / "pkg-0.5.0-py3-none-any.whl"
             with zipfile.ZipFile(path, "w") as zf:
-                zf.writestr("gitlab_agent/__init__.py", "__version__ = '0.3.1'\n")
-                zf.writestr("pkg-0.3.1.dist-info/METADATA", "Name: pkg\n")
+                zf.writestr("gitlab_agent/__init__.py", "__version__ = '0.5.0'\n")
+                zf.writestr("pkg-0.5.0.dist-info/METADATA", "Name: pkg\n")
             self.assertEqual(inspect(path), [])
 
     def test_runtime_and_secret_named_files_are_rejected(self):
         with tempfile.TemporaryDirectory() as td:
-            path = Path(td) / "pkg-0.3.1.tar.gz"
+            path = Path(td) / "pkg-0.5.0.tar.gz"
             with tarfile.open(path, "w:gz") as tf:
                 for name in [
-                    "pkg-0.3.1/src/gitlab_agent/__init__.py",
-                    "pkg-0.3.1/.env",
-                    "pkg-0.3.1/worktrees/task/file.py",
-                    "pkg-0.3.1/debug.log",
+                    "pkg-0.5.0/src/gitlab_agent/__init__.py",
+                    "pkg-0.5.0/.env",
+                    "pkg-0.5.0/worktrees/task/file.py",
+                    "pkg-0.5.0/debug.log",
                 ]:
                     data = b"x"
                     info = tarfile.TarInfo(name)
