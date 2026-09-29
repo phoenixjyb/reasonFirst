@@ -8,7 +8,8 @@
 
 <p class="rf-lead">ReasonFirst keeps ChatGPT (or another deliberately chosen strong reasoning interface) responsible for architecture, diagnosis, scope, acceptance criteria, and review. Replaceable coding agents handle implementation inside a controlled workspace.</p>
 
-[Start in 10 minutes](first-10-minutes.md){ .md-button .md-button--primary }
+[Install ReasonFirst](docs/INSTALL.md){ .md-button .md-button--primary }
+[Start in 10 minutes](first-10-minutes.md){ .md-button }
 [See the daily workflow](docs/WORKFLOW.md){ .md-button }
 [中文](index_cn.md){ .md-button }
 
@@ -45,7 +46,7 @@ The pre-release audit baseline `7d16061061f6337604bd3135c9e4a693ad1fd68a` passed
 
 -   **I am new to ReasonFirst**
 
-    Use [First 10 minutes](first-10-minutes.md) for the shortest guided path, then run the [practice lab](docs/PRACTICE_LAB.md) when you want a complete rehearsal.
+    Start with [Install & update](docs/INSTALL.md). Choose the packaged quick route or the fully supported source/developer route; both converge on `reasonfirst setup`. Then use [First 10 minutes](first-10-minutes.md) for the shortest guided loop.
 
 -   **I already connected ChatGPT to GitLab**
 
