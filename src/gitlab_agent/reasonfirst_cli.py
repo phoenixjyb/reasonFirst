@@ -200,6 +200,10 @@ def _print_human_status(payload: dict[str, object]) -> None:
         f"{_mark(bool(readiness.get('tunnel_client_available')))} "
         "tunnel-client available"
     )
+    print(
+        f"{_mark(bool(readiness.get('tunnel_recorded')))} "
+        "managed tunnel recorded"
+    )
     print()
     print("Readiness:")
     print(
