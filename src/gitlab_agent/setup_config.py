@@ -30,6 +30,29 @@ def selected_user_config_path() -> Path:
     return DEFAULT_USER_CONFIG
 
 
+def ensure_persistent_config_target(effective_config: Path | None) -> Path:
+    """Refuse ambiguous migration from a different effective config file.
+
+    A new guided setup may create the canonical user config. Existing users whose
+    effective config is another file must opt into that exact file via
+    GITLAB_AGENT_ENV_FILE or migrate deliberately in a later setup flow.
+    """
+    target = selected_user_config_path().expanduser()
+    if effective_config is None or not effective_config.exists():
+        return target
+
+    effective = effective_config.expanduser()
+    if effective.resolve(strict=False) != target.resolve(strict=False):
+        raise ConfigMutationError(
+            "Effective GitLab config is "
+            f"{effective}, but guided persistent writes target {target}. "
+            "Refusing to create a partial higher-precedence config. Set "
+            "GITLAB_AGENT_ENV_FILE to the intended persistent file or run the "
+            "explicit config-migration flow when available."
+        )
+    return target
+
+
 def _decode_value(raw: str) -> str:
     value = raw.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
