@@ -144,7 +144,7 @@ def _persist_progress(
     previous = load_setup_state(state_path) or SetupState()
     completed = tuple(
         phase
-        for phase in ("system", "gitlab", "worker", "chatgpt-read", "bridge", "ready")
+        for phase in ("system", "gitlab", "worker", "tunnel", "chatgpt-read", "bridge", "ready")
         if phase in (set(previous.completed_phases) | phases)
     )
     state = replace(
@@ -240,6 +240,118 @@ def _print_project_plan(plan: dict[str, object]) -> None:
     print(f"Already allowed: {bool(plan.get('already_allowed'))}")
     print(f"Config: {plan.get('config_file')}")
     print("No changes have been made yet.")
+
+
+def _guided_tunnel_after_local(
+    *,
+    state_path: Path,
+    project: str,
+    ref: str,
+    input_fn: Callable[[str], str],
+    secret_fn: Callable[[str], str],
+) -> dict[str, object]:
+    if not _confirm("Configure ChatGPT read access now?", input_fn=input_fn):
+        return {
+            "attempted": False,
+            "local_tunnel_ready": False,
+            "chatgpt_ready": False,
+            "next": "Run 'reasonfirst tunnel connect' when you are ready to configure ChatGPT access.",
+        }
+
+    state = load_setup_state(state_path)
+    tunnel_client = resolve_tunnel_client(state=state)
+    if not tunnel_client:
+        if not _confirm(
+            "Official tunnel-client is missing. Download and checksum-verify it now?",
+            input_fn=input_fn,
+        ):
+            return {
+                "attempted": True,
+                "local_tunnel_ready": False,
+                "chatgpt_ready": False,
+                "next": "Install the official tunnel-client, then run 'reasonfirst tunnel connect'.",
+            }
+        installed = install_official_tunnel_client()
+        tunnel_client = str(installed["path"])
+        _save_tunnel_client_path(
+            state_path=state_path,
+            tunnel_client_path=tunnel_client,
+        )
+
+    mcp_executable = resolve_read_mcp()
+    if not mcp_executable:
+        raise RuntimeError(
+            "reasonfirst-gitlab-mcp is missing from this installation"
+        )
+
+    # The tunnel itself must already exist in the user's Platform organization.
+    # Opening this page is a browser handoff, not automatic admin provisioning.
+    browser = open_handoff_pages(open_platform=True, open_chatgpt=False)
+    state = load_setup_state(state_path)
+    default_tunnel = state.tunnel_id if state is not None else None
+    tunnel_id = _prompt(
+        "OpenAI tunnel ID",
+        default=default_tunnel,
+        input_fn=input_fn,
+    )
+    runtime_key = os.getenv(RUNTIME_KEY_ENV, "").strip()
+    if not runtime_key:
+        runtime_key = secret_fn(
+            "OpenAI tunnel runtime API key (masked; not stored by ReasonFirst): "
+        ).strip()
+    if not runtime_key:
+        raise RuntimeError("OpenAI tunnel runtime API key is required")
+
+    alias = (
+        state.tunnel_runtime
+        if state is not None and state.tunnel_runtime
+        else DEFAULT_TUNNEL_ALIAS
+    )
+    runtime = connect_runtime(
+        tunnel_id=tunnel_id,
+        runtime_key=runtime_key,
+        alias=alias,
+        tunnel_client=tunnel_client,
+        mcp_executable=mcp_executable,
+    )
+    if not bool(runtime.get("ok")) or not bool(runtime.get("ready")):
+        return {
+            "attempted": True,
+            "local_tunnel_ready": False,
+            "chatgpt_ready": False,
+            "browser": browser,
+            "runtime": runtime,
+            "next": (
+                "Inspect 'reasonfirst tunnel status' and the reported local admin UI, "
+                "then rerun 'reasonfirst tunnel connect'."
+            ),
+        }
+
+    persist_tunnel_state(
+        tunnel_id=str(runtime["tunnel_id"]),
+        alias=str(runtime["alias"]),
+        tunnel_client=tunnel_client,
+        state_path=state_path,
+    )
+    handoff = build_chatgpt_handoff(
+        tunnel_id=str(runtime["tunnel_id"]),
+        project=project,
+        ref=ref,
+    )
+    if _confirm("Open ChatGPT now to create/test the ReasonFirst app?", input_fn=input_fn):
+        browser.update(
+            open_handoff_pages(open_platform=False, open_chatgpt=True)
+        )
+
+    return {
+        "attempted": True,
+        "local_tunnel_ready": True,
+        "chatgpt_ready": False,
+        "browser": browser,
+        "runtime": runtime,
+        "handoff": handoff,
+        "next": handoff["acceptance_prompt"],
+    }
 
 
 def _run_guided_setup(
@@ -359,7 +471,7 @@ def _run_guided_setup(
         "allowed_projects_after": after_projects,
         "api_token_configured": True,
         "writes_performed": False,
-        "chatgpt_connection": "not_configured_in_slice2",
+        "chatgpt_connection": "not_verified",
     }
 
     if not args.json:
@@ -371,7 +483,7 @@ def _run_guided_setup(
         print(f"Mode: {mode}")
         print(f"Config: {plan['config_file']}")
         print("No secret value will be printed or stored in setup progress.")
-        print("Tunnel/ChatGPT setup is intentionally deferred to Slice 3.")
+        print("ChatGPT tunnel setup is optional and follows only after this local plan is approved.")
         print()
 
     if not _confirm(
@@ -404,18 +516,33 @@ def _run_guided_setup(
         phases={"system", "gitlab", "worker"},
     )
 
+    tunnel_result: dict[str, object] = {
+        "attempted": False,
+        "local_tunnel_ready": False,
+        "chatgpt_ready": False,
+        "next": "ChatGPT tunnel setup was skipped.",
+    }
+    if mode != "cli-only" and not bool(getattr(args, "skip_chatgpt", False)):
+        tunnel_result = _guided_tunnel_after_local(
+            state_path=args.state_file,
+            project=project,
+            ref=str(preflight.get("ref") or ref),
+            input_fn=input_fn,
+            secret_fn=secret_fn,
+        )
+
     return 0, {
         **plan,
-        "stage": "local-configured",
+        "stage": "tunnel-ready" if tunnel_result.get("local_tunnel_ready") else "local-configured",
         "writes_performed": bool(config_change["changed"]),
         "config_change": config_change,
         "setup_state": str(state_file),
         "local_control_configured": True,
+        "local_tunnel_ready": bool(tunnel_result.get("local_tunnel_ready")),
+        "chatgpt_ready": False,
         "ready": False,
-        "next": (
-            "Run 'reasonfirst setup --status'. ChatGPT/tunnel configuration and "
-            "end-to-end live-read acceptance are delivered in Slice 3."
-        ),
+        "tunnel": tunnel_result,
+        "next": tunnel_result.get("next"),
     }
 
 
@@ -592,6 +719,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=CANONICAL_WORKERS,
         default=None,
         help="Prefill the worker preference; secrets are never accepted on argv",
+    )
+    setup.add_argument(
+        "--skip-chatgpt",
+        action="store_true",
+        help="Configure only the local GitLab/worker control plane in this run",
     )
 
     project = sub.add_parser("project", help="Manage explicit GitLab project grants")
