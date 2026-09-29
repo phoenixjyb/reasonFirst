@@ -3,7 +3,7 @@
 **目标：**完整走一遍 ReasonFirst 主闭环，同时不丢失“推理层先定义边界”的原则。
 
 !!! note "这是最短路径"
-    本页假设 GitLab 连接和至少一个 coding worker 已经可用。如果还没有，请先完成[首次完整接入](docs/GETTING_STARTED_CN.md)。
+    本页假设已通过 `reasonfirst setup` 配置仓库连接和至少一个 coding worker。若尚未完成，请先看[安装与更新](docs/INSTALL_CN.md)。下方命令以**打包安装**形式为主；源码/开发者路径在源码目录给同一 CLI 加 `uv run` 前缀即可（例如 `actual-coder ...`）。
 
 ## 1. 先读，再写
 
@@ -37,10 +37,10 @@
 
 ## 3. 将意图持久化为 TaskSpec
 
-从 ReasonFirst 源码目录准备 workspace，但先不启动模型：
+准备 workspace，但先不启动模型：
 
 ~~~bash
-uv run actual-coder start team/project-a \
+actual-coder start team/project-a \
   --task fix-timeout \
   --goal "修复 timeout bug" \
   --acceptance "timeout 回归测试通过" \
@@ -66,9 +66,9 @@ Worker 可以查看、修改和运行允许的 validation，但不应该重定�
 
 ~~~bash
 WS="012345abcdef"
-uv run actual-coder status "$WS"
-uv run actual-coder evidence "$WS"
-uv run actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage" --dry-run
+actual-coder status "$WS"
+actual-coder evidence "$WS"
+actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage" --dry-run
 ~~~
 
 检查 diff、reviewability、validation、protected paths、secret/history coverage 和 candidate identity。Worker 说“完成了”不等于验收。
@@ -76,9 +76,9 @@ uv run actual-coder finish "$WS" --message "fix: handle timeout and add regressi
 确认 dry-run 无阻断且变更符合意图后：
 
 ~~~bash
-uv run actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage"
-uv run actual-coder ci "$WS"
-uv run actual-coder evidence "$WS" --from-ci
+actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage"
+actual-coder ci "$WS"
+actual-coder evidence "$WS" --from-ci
 ~~~
 
 ## 6. 把证据送回 ChatGPT
