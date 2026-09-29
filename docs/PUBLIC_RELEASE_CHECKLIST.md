@@ -31,7 +31,7 @@ Observed functional evidence on 2026-09-28: the synthetic chat-only path complet
 ## Version, evidence, and scope
 
 - [ ] Choose an exact release commit; verify required jobs for that SHA and post-merge integration, not just an earlier branch head. Record platform/interpreter coverage, skips and known limitations.
-- [ ] Align tag, package version, changelog and release notes. The 0.5.0 release candidate now aligns source/package version and prepared release notes; do not describe 0.5.0 as published until a maintainer explicitly creates the tag/GitHub Release.
+- [ ] Align tag, package version, changelog and release notes. For v0.5.0, keep the final tagged commit aligned with package version and release notes; later `main` commits may move ahead and should be identified by exact SHA.
 - [ ] Test documented installation/update from the intended distribution. Source editable installs and immutable release packages have different behavior; packaging success does not prove the MCP server entrypoint is bundled as a service.
 - [ ] State outstanding runtime TLS/redirect, handoff, concurrency/recovery and evidence limitations. Separate local regression tests, real API reads, Git fetch, historical CI retrieval, MCP reconnection, and an explicitly approved new push in any validation claim.
 - [ ] Authorize any release tag, package upload, visibility change or announcement separately. Do not publish other repositories merely because their names appeared in a development discussion.
