@@ -180,9 +180,11 @@ uv run python -m unittest discover -s tests -v
 uv run actual-coder-migrate-https --help
 ```
 
-本维护工具本身不修改原生 Git 的 CA/redirect policy，不修改常规 `doctor`，
-也不实现整个 workspace locking。Python API/MCP 的独立运行时加固已合入；
-Issue #10 仍跟踪原生 Git 策略与分层诊断，不代表所有 TLS 工作都已完成。
-之后回到 Issue #6 的 handoff、一致状态、TaskSpec 和 EvidencePack。
+本维护工具本身不修改原生 Git 的 CA/redirect policy，也不修改常规 `doctor`。
+它自己的 migration lock 只协调迁移流程，不能替代 v0.5.0 core 已实现的
+workspace cross-process mutation lock，更不是事务式崩溃恢复或 OS 沙箱。
+Python API/MCP 的独立运行时加固已合入；Issue #10 仍跟踪原生 Git 策略与分层诊断，
+不代表所有 TLS 工作都已完成。迁移后继续按当前[工作流程](WORKFLOW_CN.md)、
+[架构说明](ARCHITECTURE_CN.md)中的 TaskSpec / EvidencePack / finish gate 操作。
 
 主要规范参考：HTTPX SSL / environment variables 文档、Git git-config 文档。
