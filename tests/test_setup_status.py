@@ -135,7 +135,31 @@ class SetupStatusTests(unittest.TestCase):
         self.assertIn("configure-gitlab", action_ids)
         self.assertIn("configure-worker", action_ids)
         self.assertIn("install-tunnel-client", action_ids)
+        self.assertNotIn("verify-chatgpt", action_ids)
+
+    def test_recorded_tunnel_is_reported_without_live_status_guessing(self) -> None:
+        state = SetupState(
+            mode="standard",
+            selected_worker="codex-cli",
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            tunnel_client_path="/tools/tunnel-client",
+            completed_phases=("system", "gitlab", "worker", "tunnel"),
+        )
+        result = build_setup_status(
+            which=self.which,
+            settings_loader=lambda: self.settings,
+            setup_state_loader=lambda _: state,
+            system_name="Linux",
+            machine="x86_64",
+            desktop_socket=self.desktop_socket,
+        )
+        self.assertTrue(result["readiness"]["tunnel_recorded"])
+        self.assertFalse(result["readiness"]["ready"])
+        action_ids = [item["id"] for item in result["plan"]["actions"]]
+        self.assertIn("verify-tunnel-live", action_ids)
         self.assertIn("verify-chatgpt", action_ids)
+        self.assertNotIn("configure-tunnel", action_ids)
 
     def test_existing_desktop_socket_counts_as_worker(self) -> None:
         self.desktop_socket.write_text("", encoding="utf-8")
