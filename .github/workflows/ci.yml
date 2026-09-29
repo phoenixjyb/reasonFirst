@@ -30,6 +30,8 @@ jobs:
 
       - name: Verify packaged CLIs
         run: |
+          uv run reasonfirst --help
+          uv run reasonfirst setup --help
           uv run actual-coder --help
           uv run actual-coder doctor --help
           uv run codingagent --help
@@ -76,6 +78,8 @@ jobs:
 
       - name: Verify packaged CLIs
         run: |
+          uv run reasonfirst --help
+          uv run reasonfirst setup --help
           uv run actual-coder --help
           uv run actual-coder doctor --help
           uv run gitlab-agent --help
@@ -170,6 +174,8 @@ jobs:
           "$PY" -m pip install --upgrade pip
           "$PY" -m pip install dist/*.whl
           "$PY" -c 'import gitlab_agent; assert gitlab_agent.__version__ == "0.5.0", gitlab_agent.__version__'
+          "$BIN/reasonfirst" --help >/dev/null
+          "$BIN/reasonfirst" setup --help >/dev/null
           "$BIN/actual-coder" --help >/dev/null
           "$BIN/gitlab-agent" --help >/dev/null
           "$BIN/actual-coder-tunnel" --help >/dev/null
