@@ -13,6 +13,7 @@ from gitlab_agent.setup_bridge import (
     BridgeSetupError,
     EXPECTED_WRITE_TOOLS,
     bridge_tool_inventory,
+    bridge_execution_prerequisites,
     build_bridge_handoff,
     connect_bridge_runtime,
     persist_bridge_state,
@@ -168,6 +169,58 @@ class BridgeSetupTests(unittest.TestCase):
             kwargs["env"]["CONTROL_PLANE_API_KEY"],
             "bridge-runtime-secret",
         )
+
+    def test_codex_binary_must_support_app_server_not_just_exist(self) -> None:
+        def runner(argv, **kwargs):
+            self.assertEqual(argv[-2:], ["app-server", "--help"])
+            return subprocess.CompletedProcess(
+                argv,
+                2,
+                stdout="",
+                stderr="unknown command app-server",
+            )
+
+        with (
+            patch(
+                "gitlab_agent.setup_bridge.managed_app_server_socket",
+                return_value=Path("/definitely/missing/socket"),
+            ),
+            patch(
+                "gitlab_agent.setup_bridge.resolve_codex_binary",
+                return_value="/tools/codex",
+            ),
+        ):
+            result = bridge_execution_prerequisites(runner=runner)
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["codex_app_server_capable"])
+        self.assertFalse(result["authentication_verified"])
+        self.assertIn("app-server --help", result["error"])
+
+    def test_codex_app_server_capability_does_not_claim_authentication(self) -> None:
+        def runner(argv, **kwargs):
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout="Usage: codex app-server",
+                stderr="",
+            )
+
+        with (
+            patch(
+                "gitlab_agent.setup_bridge.managed_app_server_socket",
+                return_value=Path("/definitely/missing/socket"),
+            ),
+            patch(
+                "gitlab_agent.setup_bridge.resolve_codex_binary",
+                return_value="/tools/codex",
+            ),
+        ):
+            result = bridge_execution_prerequisites(runner=runner)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["codex_app_server_capable"])
+        self.assertFalse(result["authentication_verified"])
 
     def test_missing_codex_app_server_capability_prevents_connect(self) -> None:
         with (
