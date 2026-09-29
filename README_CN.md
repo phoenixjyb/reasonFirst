@@ -1,6 +1,6 @@
 # ReasonFirst
 
-[English](README.md) · **简体中文** · **[文档站点](https://phoenixjyb.github.io/reasonFirst/)** · [首次完整接入](docs/GETTING_STARTED_CN.md) · [文档索引](docs/README_CN.md)
+[English](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) · **简体中文** · **[文档站点](https://phoenixjyb.github.io/reasonFirst/)** · [首次完整接入](docs/GETTING_STARTED_CN.md) · [文档索引](docs/README_CN.md)
 
 <!-- Paired with README.md in this change; base 61f464ebbb8906817e32802be22df4012881ece5. -->
 
@@ -8,7 +8,7 @@
 > 让你最强的推理模型负责推理，让编程代理负责写代码。
 
 [![CI](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml/badge.svg)](https://github.com/phoenixjyb/reasonFirst/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/phoenixjyb/reasonFirst/blob/main/LICENSE)
 
 ReasonFirst 将**普通 ChatGPT（或用户明确选择的其他强推理界面）**放在工程闭环最前端，并让编程代理保持可替换。ChatGPT 读取证据、分析架构与根因、定义任务边界；**ActualCoder** 再把这份已批准意图转成受控 Git worktree handoff，交给 **Codex CLI**、**GitHub Copilot CLI** 或 **Codex Desktop/App Server** 执行，并把 validation、Merge Request、CI 和有界证据返回审阅。
 
@@ -137,4 +137,4 @@ API/MCP 客户端拒绝关闭 TLS 验证和所有 API 重定向，请配置最�
 
 全局 editable 命令跟随源码目录；PR 实验使用独立 worktree。欢迎贡献及中英文可复现报告：[贡献指南](CONTRIBUTING_CN.md)、[安全报告](SECURITY_CN.md)、[公开发布清单](docs/PUBLIC_RELEASE_CHECKLIST_CN.md)。不要在公共 issue 发布凭证文件、私有源码、迁移备份或未经审阅日志。
 
-采用 **Apache License 2.0**，见 [LICENSE](LICENSE)。外部工具各有许可和条款。本项目独立维护，不是 OpenAI、GitHub 或 GitLab 官方产品。
+采用 **Apache License 2.0**，见 [LICENSE](https://github.com/phoenixjyb/reasonFirst/blob/main/LICENSE)。外部工具各有许可和条款。本项目独立维护，不是 OpenAI、GitHub 或 GitLab 官方产品。
