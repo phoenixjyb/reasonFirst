@@ -34,7 +34,7 @@
 | 不弱化控制的诊断 | [故障排查](TROUBLESHOOTING_CN.md) | [Troubleshooting](TROUBLESHOOTING.md) |
 | 贡献流程 | [贡献指南](../CONTRIBUTING_CN.md) | [Contributing](../CONTRIBUTING.md) |
 | 安全报告与限制 | [安全策略](../SECURITY_CN.md) | [Security](../SECURITY.md) |
-| 0.5.0 release candidate 说明 | [0.5.0 release notes](RELEASE_NOTES_0.5.0.md) | [0.5.0 中文 release notes](RELEASE_NOTES_0.5.0_CN.md) |
+| v0.5.0 发布说明 | [0.5.0 release notes](RELEASE_NOTES_0.5.0.md) | [0.5.0 中文 release notes](RELEASE_NOTES_0.5.0_CN.md) |
 | 公开发布之前 | [维护者清单](PUBLIC_RELEASE_CHECKLIST_CN.md) | [Release checklist](PUBLIC_RELEASE_CHECKLIST.md) |
 
 ## 第一次 ChatGPT 对话之前的必需步骤
