@@ -6,7 +6,7 @@ ReasonFirst operates near repository code, host files, coding-agent sessions, an
 
 Do not disclose vulnerabilities, credentials, private endpoints, or exploit details in public issues, PRs, discussions, or logs.
 
-Use the repository's GitHub **Security -> Advisories -> Report a vulnerability** workflow when that private channel is enabled. This document does not imply that the repository setting is enabled: maintainers must verify it before promoting the project. If no private reporting option is available, request a private contact channel in a public issue **without technical details, secrets, affected private hostnames, or proof-of-concept attachments**, and wait for a private route before sharing the report. Do not invent a security email address.
+Use the repository's GitHub **Security -> Advisories -> Report a vulnerability** workflow. Private vulnerability reporting is enabled for the public ReasonFirst repository. If that UI is unavailable to you, request a private contact channel in a public issue **without technical details, secrets, affected private hostnames, or proof-of-concept attachments**, and wait for a private route before sharing the report. Do not invent a security email address.
 
 Privately include the affected commit/version, a synthetic reproduction, impact, and proposed mitigation. Revoke a real exposed credential immediately rather than waiting for a code fix. Maintainers have not committed to an incident-response SLA or long-term backport policy; confirm affected refs rather than assuming all historical tags are supported.
 
@@ -66,7 +66,7 @@ See [HTTPS migration](docs/HTTPS_MIGRATION.md) for separate local-state, certifi
 
 ## Concurrency and recovery
 
-General per-workspace locking and transactional crash recovery are not yet implemented. Do not run concurrent mutating workers against one workspace.
+ReasonFirst implements re-entrant cross-process mutation locks for managed workspace state and Bridge-managed mutation-critical paths. These locks serialize cooperating ReasonFirst writers, but they are **not** transactional crash recovery, an OS sandbox, or protection from arbitrary same-user processes. Do not deliberately run independent/unmanaged mutating tools against the same workspace.
 
 Finish fingerprints the reviewed post-validation state and rechecks it before writes. This detects certain changes; it does **not** close every race window or make commit/push/metadata persistence atomic. Normal cleanup uses fresh publication evidence rather than a historical pushed flag, but remote state can change later. Failed compare-and-delete can leave a preserved branch/metadata needing explicit worktree recovery.
 
