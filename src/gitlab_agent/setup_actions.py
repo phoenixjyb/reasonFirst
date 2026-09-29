@@ -112,7 +112,11 @@ def plan_project_add(
     required_files: list[str] | None = None,
 ) -> dict[str, Any]:
     key = assert_project_allowed(project, set())
-    config_target = ensure_persistent_config_target(settings.config_file)
+    config_target = (
+        settings.config_file
+        if key in settings.allowed_projects
+        else ensure_persistent_config_target(settings.config_file)
+    )
     preflight = preflight_project(
         settings,
         key,
