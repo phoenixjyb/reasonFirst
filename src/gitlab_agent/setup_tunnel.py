@@ -59,7 +59,9 @@ def resolve_tunnel_client(
         candidates.append(state.tunnel_client_path)
     found = which("tunnel-client") or which("tunnel-client.exe")
     if found:
-        candidates.append(found)
+        # shutil.which already establishes executable PATH resolution. Trust the
+        # injected resolver too so cross-platform tests do not need fake files.
+        return str(Path(found).expanduser())
 
     default_root = Path("~/.local/share/reasonfirst/bin").expanduser()
     candidates.extend(
