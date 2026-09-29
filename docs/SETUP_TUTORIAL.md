@@ -95,7 +95,7 @@ creation, automatic grants, implementation, publication or merging.
 
 Identity success is not project access; an empty filtered listing is not proof that no project exists. Access grants belong to the local MCP allowlist plus the independent GitLab permissions, not a tunnel recreation. Follow [PROJECT_ACCESS.md](PROJECT_ACCESS.md). Do not replace an unprepared practice project with a production application.
 
-A real successful identity/preflight/file read is read-path acceptance only, not a Git push, coding-agent login or full application build. Continue with [the workflow](WORKFLOW.md) and [manual handoff](TASK_HANDOFF_TEMPLATE.md) only after approving the task. MCP has no local task-execution endpoint today. The old `smoke_test.py` does not use the shared runtime TLS factory and is not this guide's acceptance gate.
+A real successful identity/preflight/file read is read-path acceptance only, not a Git push, coding-agent login or full application build. Continue with [the workflow](WORKFLOW.md) and [manual handoff](TASK_HANDOFF_TEMPLATE.md) only after approving the task. The **read-only GitLab MCP** documented on this page has no local task-execution endpoint; the separate Bridge Preview provides optional managed workspace/App Server orchestration when the connected client permits it. The old `smoke_test.py` does not use the shared runtime TLS factory and is not this guide's acceptance gate.
 
 ## Primary references
 
