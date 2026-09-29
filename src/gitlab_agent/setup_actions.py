@@ -112,13 +112,13 @@ def plan_project_add(
     required_files: list[str] | None = None,
 ) -> dict[str, Any]:
     key = assert_project_allowed(project, set())
+    config_target = ensure_persistent_config_target(settings.config_file)
     preflight = preflight_project(
         settings,
         key,
         ref=ref,
         required_files=required_files,
     )
-    config_target = ensure_persistent_config_target(settings.config_file)
     existing = sorted(settings.allowed_projects)
     after = sorted(set(existing) | {key})
     return {
@@ -157,7 +157,7 @@ def apply_project_add(
             "reload_required": False,
             "config_change": {
                 "changed": False,
-                "config_file": str(selected_user_config_path()),
+                "config_file": str(plan["config_file"]),
                 "backup_file": None,
                 "updated_keys": ["GITLAB_ALLOWED_PROJECTS"],
             },
