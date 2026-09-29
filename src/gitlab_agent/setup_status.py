@@ -195,6 +195,11 @@ def build_setup_status(
         },
     ]
     worker_available = any(bool(item["available"]) for item in workers)
+    bridge_worker_available = any(
+        bool(item["available"])
+        for item in workers
+        if item["name"] in {"codex-cli", "codex-desktop"}
+    )
 
     config_path = resolve_env_file().expanduser()
     config: dict[str, object] = {
@@ -345,6 +350,17 @@ def build_setup_status(
                 ),
             }
         )
+    if mode == "full-chat" and not bridge_worker_available:
+        next_actions.append(
+            {
+                "id": "configure-codex-bridge-worker",
+                "message": (
+                    "Full-chat Bridge worker control currently requires Codex App Server "
+                    "(Codex CLI/App Server or Codex Desktop). Copilot CLI remains valid "
+                    "for the standard terminal ActualCoder path."
+                ),
+            }
+        )
     if mode == "full-chat" and tunnel_recorded and not bridge_recorded:
         next_actions.append(
             {
@@ -393,6 +409,7 @@ def build_setup_status(
             "tunnel_client_available": tunnel_client_available,
             "tunnel_recorded": tunnel_recorded,
             "bridge_recorded": bridge_recorded,
+            "bridge_worker_available": bridge_worker_available,
             "chatgpt_connection": "not_verified",
             "full_chat_connection": "not_verified",
             "ready": False,
