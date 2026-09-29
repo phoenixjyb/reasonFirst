@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import __version__
-from .config import AgentSettings
+from .config import AgentSettings, resolve_env_file
 from .setup_actions import (
     CANONICAL_WORKERS,
     apply_project_add,
@@ -258,8 +258,13 @@ def _run_guided_setup(
     except Exception:
         current = None
 
-    if current is not None:
-        ensure_persistent_config_target(current.config_file)
+    effective_config = (
+        current.config_file
+        if current is not None
+        else resolve_env_file().expanduser()
+    )
+    if effective_config.exists():
+        ensure_persistent_config_target(effective_config)
 
     state = load_setup_state(args.state_file)
     mode = args.mode or (state.mode if state is not None else "standard")
@@ -519,14 +524,15 @@ def main(argv: list[str] | None = None) -> int:
             )
             if args.json and not args.yes:
                 _print_json(plan)
-            elif not args.json:
+                return 0 if bool(plan.get("ok")) else 1
+            if not args.json:
                 _print_project_plan(plan)
             if not bool(plan.get("ok")):
-                if args.json and args.yes:
+                if args.json:
                     _print_json(plan)
                 return 1
             if bool(plan.get("already_allowed")):
-                if args.json and args.yes:
+                if args.json:
                     _print_json(plan)
                 return 0
 
@@ -571,8 +577,13 @@ def main(argv: list[str] | None = None) -> int:
                 current_settings = _load_settings_clean()
             except Exception:
                 current_settings = None
-            if current_settings is not None:
-                ensure_persistent_config_target(current_settings.config_file)
+            effective_config = (
+                current_settings.config_file
+                if current_settings is not None
+                else resolve_env_file().expanduser()
+            )
+            if effective_config.exists():
+                ensure_persistent_config_target(effective_config)
 
             plan = plan_worker_use(args.backend)
             if not bool(plan.get("ok")):
