@@ -11,6 +11,7 @@ import httpx
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
+from gitlab_agent import __version__
 from gitlab_agent.log_evidence import aread_trace_tail
 from gitlab_agent.project_access import (
     ProjectAccessError, assert_project_allowed, check_project_access as probe_project_access,
@@ -159,7 +160,7 @@ class GitLabClient:
         return {
             "PRIVATE-TOKEN": self.token,
             "Accept": "application/json",
-            "User-Agent": "reasonfirst-gitlab-mcp/0.3",
+            "User-Agent": f"reasonfirst-gitlab-mcp/{__version__}",
         }
 
     def _client(self) -> httpx.AsyncClient:
