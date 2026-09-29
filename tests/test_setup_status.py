@@ -161,6 +161,58 @@ class SetupStatusTests(unittest.TestCase):
         self.assertIn("verify-chatgpt", action_ids)
         self.assertNotIn("configure-tunnel", action_ids)
 
+    def test_full_chat_recorded_bridge_requires_live_and_chatgpt_verification(self) -> None:
+        state = SetupState(
+            mode="full-chat",
+            selected_worker="codex-cli",
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            tunnel_client_path="/tools/tunnel-client",
+            bridge_tunnel_id="tunnel_" + "b" * 32,
+            bridge_runtime="reasonfirst-bridge",
+            completed_phases=("system", "gitlab", "worker", "tunnel", "bridge"),
+        )
+        result = build_setup_status(
+            which=self.which,
+            settings_loader=lambda: self.settings,
+            setup_state_loader=lambda _: state,
+            system_name="Linux",
+            machine="x86_64",
+            desktop_socket=self.desktop_socket,
+        )
+        self.assertTrue(result["readiness"]["tunnel_recorded"])
+        self.assertTrue(result["readiness"]["bridge_recorded"])
+        self.assertFalse(result["readiness"]["ready"])
+        self.assertEqual(
+            result["readiness"]["full_chat_connection"],
+            "not_verified",
+        )
+        action_ids = [item["id"] for item in result["plan"]["actions"]]
+        self.assertIn("verify-bridge-live", action_ids)
+        self.assertIn("verify-full-chat", action_ids)
+        self.assertNotIn("configure-bridge", action_ids)
+
+    def test_full_chat_without_bridge_points_to_bridge_configuration(self) -> None:
+        state = SetupState(
+            mode="full-chat",
+            selected_worker="codex-cli",
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            tunnel_client_path="/tools/tunnel-client",
+            completed_phases=("system", "gitlab", "worker", "tunnel"),
+        )
+        result = build_setup_status(
+            which=self.which,
+            settings_loader=lambda: self.settings,
+            setup_state_loader=lambda _: state,
+            system_name="Windows",
+            machine="AMD64",
+            desktop_socket=self.desktop_socket,
+        )
+        action_ids = [item["id"] for item in result["plan"]["actions"]]
+        self.assertIn("configure-bridge", action_ids)
+        self.assertFalse(result["readiness"]["bridge_recorded"])
+
     def test_existing_desktop_socket_counts_as_worker(self) -> None:
         self.desktop_socket.write_text("", encoding="utf-8")
 
