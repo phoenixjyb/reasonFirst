@@ -9,9 +9,6 @@ import re
 import tomllib
 
 
-TAG_RE = re.compile(
-    r"v(?P<version>(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*))\\Z"
-)
 INIT_VERSION_RE = re.compile(r'^__version__\s*=\s*"(?P<version>[^"]+)"\s*$', re.MULTILINE)
 
 
@@ -31,11 +28,24 @@ def runtime_version(root: Path) -> str:
     return match.group("version")
 
 
-def verify(tag: str, root: Path) -> dict[str, str]:
-    match = TAG_RE.fullmatch(tag.strip())
-    if match is None:
+def stable_tag_version(tag: str) -> str:
+    value = tag.strip()
+    if not value.startswith("v"):
         raise ValueError("release tag must use stable semver form vX.Y.Z")
-    requested = match.group("version")
+    version = value[1:]
+    parts = version.split(".")
+    if len(parts) != 3:
+        raise ValueError("release tag must use stable semver form vX.Y.Z")
+    for part in parts:
+        if not part.isdigit():
+            raise ValueError("release tag must use stable semver form vX.Y.Z")
+        if len(part) > 1 and part.startswith("0"):
+            raise ValueError("release tag must use stable semver form vX.Y.Z")
+    return version
+
+
+def verify(tag: str, root: Path) -> dict[str, str]:
+    requested = stable_tag_version(tag)
     package = package_version(root)
     runtime = runtime_version(root)
     if package != runtime:
