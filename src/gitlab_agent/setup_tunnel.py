@@ -63,17 +63,35 @@ def resolve_tunnel_client(
         # injected resolver too so cross-platform tests do not need fake files.
         return str(Path(found).expanduser())
 
-    default_root = Path("~/.local/share/reasonfirst/bin").expanduser()
+    # Current verified installer uses versioned bundle directories so the
+    # pinned cloudflared companion stays adjacent. Retain the historical bin
+    # lookup for older previews.
+    bundle_root = Path("~/.local/share/reasonfirst/tunnel-client").expanduser()
+    if bundle_root.is_dir() and not bundle_root.is_symlink():
+        bundle_candidates = sorted(
+            [
+                path
+                for name in ("tunnel-client", "tunnel-client.exe")
+                for path in bundle_root.glob(f"*/{name}")
+                if path.is_file() and not path.is_symlink() and os.access(path, os.X_OK)
+            ],
+            key=lambda path: path.parent.name,
+            reverse=True,
+        )
+        if bundle_candidates:
+            return str(bundle_candidates[0].resolve())
+
+    legacy_root = Path("~/.local/share/reasonfirst/bin").expanduser()
     candidates.extend(
         [
-            str(default_root / "tunnel-client"),
-            str(default_root / "tunnel-client.exe"),
+            str(legacy_root / "tunnel-client"),
+            str(legacy_root / "tunnel-client.exe"),
         ]
     )
 
     for raw in candidates:
         path = Path(raw).expanduser()
-        if path.is_file() and os.access(path, os.X_OK):
+        if path.is_file() and not path.is_symlink() and os.access(path, os.X_OK):
             return str(path.resolve())
     return None
 
