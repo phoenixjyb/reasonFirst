@@ -139,6 +139,54 @@ class TunnelInstallTests(unittest.TestCase):
             self.assertTrue(second["reused"])
             self.assertEqual(first["path"], second["path"])
 
+    def test_tampered_existing_bundle_is_not_reused(self) -> None:
+        archive = zip_bundle(
+            {
+                "tunnel-client": b"client",
+                "cloudflared": b"companion",
+                "cloudflared-manifest.json": b"{}",
+            }
+        )
+        digest = hashlib.sha256(archive).hexdigest()
+        tag = "v2.1.0"
+        asset = f"tunnel-client-{tag}-linux-amd64.zip"
+        release = {
+            "tag_name": tag,
+            "assets": [
+                {"name": asset, "browser_download_url": "https://example.test/client.zip"},
+                {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.test/sums"},
+            ],
+        }
+        payloads = {
+            LATEST_RELEASE_API: json.dumps(release).encode(),
+            "https://example.test/client.zip": archive,
+            "https://example.test/sums": f"{digest}  {asset}\n".encode(),
+        }
+
+        def runner(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout="v2", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            first = install_official_tunnel_client(
+                install_dir=Path(td),
+                fetch=lambda url: payloads[url],
+                runner=runner,
+                system_name="Linux",
+                machine="amd64",
+            )
+            Path(str(first["companion_path"])).write_bytes(b"tampered")
+            with self.assertRaisesRegex(
+                TunnelInstallError,
+                "differs from the verified official archive",
+            ):
+                install_official_tunnel_client(
+                    install_dir=Path(td),
+                    fetch=lambda url: payloads[url],
+                    runner=runner,
+                    system_name="Linux",
+                    machine="amd64",
+                )
+
     def test_windows_asset_uses_exe_and_adjacent_companion(self) -> None:
         archive = zip_bundle(
             {
