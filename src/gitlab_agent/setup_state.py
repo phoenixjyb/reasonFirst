@@ -17,6 +17,7 @@ SETUP_PHASES = {
     "system",
     "gitlab",
     "worker",
+    "tunnel",
     "chatgpt-read",
     "bridge",
     "ready",
@@ -55,6 +56,7 @@ class SetupState:
     config_file: str | None = None
     tunnel_id: str | None = None
     tunnel_runtime: str | None = None
+    tunnel_client_path: str | None = None
     completed_phases: tuple[str, ...] = ()
     installed_version: str | None = None
     last_verified_at: str | None = None
@@ -99,6 +101,9 @@ class SetupState:
             tunnel_runtime=_optional_text(
                 data.get("tunnel_runtime"), field="tunnel_runtime"
             ),
+            tunnel_client_path=_optional_text(
+                data.get("tunnel_client_path"), field="tunnel_client_path"
+            ),
             completed_phases=phases,
             installed_version=_optional_text(
                 data.get("installed_version"), field="installed_version"
@@ -116,6 +121,7 @@ class SetupState:
             "config_file": self.config_file,
             "tunnel_id": self.tunnel_id,
             "tunnel_runtime": self.tunnel_runtime,
+            "tunnel_client_path": self.tunnel_client_path,
             "completed_phases": list(self.completed_phases),
             "installed_version": self.installed_version,
             "last_verified_at": self.last_verified_at,
