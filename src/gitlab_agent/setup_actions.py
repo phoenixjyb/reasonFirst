@@ -261,11 +261,16 @@ def candidate_settings(
         raise ValueError("Unsupported worker backend")
 
     if current is not None:
+        git_token = (
+            token
+            if not current.git_token or current.git_token == current.api_token
+            else current.git_token
+        )
         return replace(
             current,
             gitlab_base_url=endpoint,
             api_token=token,
-            git_token=current.git_token or token,
+            git_token=git_token,
             allowed_projects=set(current.allowed_projects) | {key},
             require_write_allowlist=True,
             default_backend=default_backend,
