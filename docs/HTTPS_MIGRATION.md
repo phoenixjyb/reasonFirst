@@ -2,7 +2,7 @@
 
 [中文指南](HTTPS_MIGRATION_CN.md) · [Quickstart](ACTUAL_CODER_QUICKSTART.md) · [Security](../SECURITY.md)
 
-The merged `actual-coder-migrate-https` command upgrades **local** configuration, cached Git URLs, and matching saved MR links. It does not configure GitLab's server, change token scopes, or install trust material. Python API/MCP private-CA support and redirect protection are described separately in [runtime TLS](HTTPS_API_TLS.md); native Git retains its own configuration. Use a source revision that includes the command; `v0.3.0` by itself does not include this later addition.
+The `actual-coder-migrate-https` command upgrades **local** configuration, cached Git URLs, and matching saved MR links. It does not configure GitLab's server, change token scopes, or install trust material. Python API/MCP private-CA support and redirect protection are described separately in [runtime TLS](HTTPS_API_TLS.md); native Git retains its own configuration. This command is included in v0.5.0; for editable/source installs that may move ahead, record the exact source commit.
 
 ## Supported scope
 
