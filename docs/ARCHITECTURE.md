@@ -73,6 +73,8 @@ It can:
 
 Remote publication is intentionally more conservative: it is hidden and disabled by default and requires explicit `RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH=true`.
 
+Bridge Preview is an implemented ReasonFirst surface, but exposing its write-capable tools through ChatGPT depends on the connected client/workspace supporting those custom MCP actions. The baseline portable workflow is therefore read-only GitLab evidence in the reasoning client plus terminal ActualCoder execution; both paths use the same managed task/workspace/review model.
+
 ## 3. Worker backend model
 
 The user owns the backend selection.
