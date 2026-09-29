@@ -25,6 +25,7 @@
   显式审批、practice tooling、CI failure classification 和 finish safety gates。
 - 面向外部用户的中英文全聊天演练、onboarding、troubleshooting、architecture、
   contribution 与 release maintainer 文档。
+- 完成最终发布文档/Pages 审计：当前指南与已实现架构对齐、历史 v0.2/v0.3 页面明确标记、CI 检查渲染后内部链接，并在双语站点展示 v0.5.0 架构/验证基线。
 
 ## 已观察到的端到端验收
 
