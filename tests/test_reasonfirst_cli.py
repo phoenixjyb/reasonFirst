@@ -596,6 +596,106 @@ class ReasonFirstCLITests(unittest.TestCase):
         self.assertFalse(payload["chatgpt_ready"])
         self.assertIn("gitlab_whoami", payload["acceptance_prompt"])
 
+    def test_bridge_inventory_command_is_nonmutating(self) -> None:
+        payload = {
+            "ok": True,
+            "tool_count": 22,
+            "remote_push_exposed": False,
+        }
+        out = io.StringIO()
+        with (
+            patch.object(reasonfirst_cli, "bridge_tool_inventory", return_value=payload),
+            contextlib.redirect_stdout(out),
+        ):
+            code = reasonfirst_cli.main(["bridge", "inventory", "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue()), payload)
+
+    def test_bridge_connect_rejects_reusing_read_tunnel(self) -> None:
+        read_tunnel = "tunnel_" + "a" * 32
+        state = SetupState(
+            mode="full-chat",
+            tunnel_id=read_tunnel,
+            tunnel_runtime="reasonfirst-gitlab",
+            tunnel_client_path="/tools/tunnel-client",
+            completed_phases=("system", "gitlab", "worker", "tunnel"),
+        )
+        args = argparse.Namespace(
+            state_file=Path("/tmp/setup.yaml"),
+            eligible_workspace=True,
+            install=False,
+            tunnel_id=read_tunnel,
+            alias="reasonfirst-bridge",
+            open_platform=False,
+            json=True,
+        )
+        with (
+            patch.object(reasonfirst_cli.sys.stdin, "isatty", return_value=False),
+            patch.object(reasonfirst_cli, "load_setup_state", return_value=state),
+            patch.object(
+                reasonfirst_cli,
+                "_resolve_or_install_tunnel_client",
+                return_value="/tools/tunnel-client",
+            ),
+            patch.object(
+                reasonfirst_cli,
+                "resolve_bridge_mcp",
+                return_value="/tools/reasonfirst-bridge-mcp",
+            ),
+            patch.dict(
+                reasonfirst_cli.os.environ,
+                {reasonfirst_cli.RUNTIME_KEY_ENV: "runtime-secret"},
+                clear=False,
+            ),
+            patch.object(reasonfirst_cli, "connect_bridge_runtime") as connect,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "separate tunnel ID"):
+                reasonfirst_cli._connect_bridge_from_args(args)
+        connect.assert_not_called()
+
+    def test_bridge_connect_requires_explicit_noninteractive_eligibility_ack(self) -> None:
+        state = SetupState(
+            mode="full-chat",
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            completed_phases=("tunnel",),
+        )
+        args = argparse.Namespace(
+            state_file=Path("/tmp/setup.yaml"),
+            eligible_workspace=False,
+            install=False,
+            tunnel_id="tunnel_" + "b" * 32,
+            alias="reasonfirst-bridge",
+            open_platform=False,
+            json=True,
+        )
+        with (
+            patch.object(reasonfirst_cli.sys.stdin, "isatty", return_value=False),
+            patch.object(reasonfirst_cli, "load_setup_state", return_value=state),
+        ):
+            with self.assertRaisesRegex(Exception, "explicit acknowledgement"):
+                reasonfirst_cli._connect_bridge_from_args(args)
+
+    def test_bridge_handoff_never_claims_full_chat_ready(self) -> None:
+        state = SetupState(
+            mode="full-chat",
+            tunnel_id="tunnel_" + "a" * 32,
+            tunnel_runtime="reasonfirst-gitlab",
+            bridge_tunnel_id="tunnel_" + "b" * 32,
+            bridge_runtime="reasonfirst-bridge",
+            completed_phases=("tunnel", "bridge"),
+        )
+        out = io.StringIO()
+        with (
+            patch.object(reasonfirst_cli, "load_setup_state", return_value=state),
+            contextlib.redirect_stdout(out),
+        ):
+            code = reasonfirst_cli.main(["bridge", "handoff", "--json"])
+        self.assertEqual(code, 0)
+        payload = json.loads(out.getvalue())
+        self.assertFalse(payload["full_chat_ready"])
+        self.assertIn("reasonfirst_dispatch", payload["acceptance_prompt"])
+
     def test_version(self) -> None:
         out = io.StringIO()
         with self.assertRaises(SystemExit) as raised, contextlib.redirect_stdout(out):
