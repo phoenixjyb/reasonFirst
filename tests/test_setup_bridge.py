@@ -133,6 +133,9 @@ class BridgeSetupTests(unittest.TestCase):
                 bridge.chmod(0o700)
 
             with patch(
+                "gitlab_agent.setup_bridge.bridge_execution_prerequisites",
+                return_value={"ok": True, "codex_app_server_capable": True},
+            ), patch(
                 "gitlab_agent.setup_bridge.bridge_tool_inventory",
                 return_value={
                     "ok": True,
@@ -166,8 +169,33 @@ class BridgeSetupTests(unittest.TestCase):
             "bridge-runtime-secret",
         )
 
+    def test_missing_codex_app_server_capability_prevents_connect(self) -> None:
+        with (
+            patch(
+                "gitlab_agent.setup_bridge.bridge_execution_prerequisites",
+                return_value={
+                    "ok": False,
+                    "codex_app_server_capable": False,
+                    "note": "Codex required",
+                },
+            ),
+            patch("gitlab_agent.setup_bridge.bridge_tool_inventory") as inventory,
+        ):
+            result = connect_bridge_runtime(
+                tunnel_id=TUNNEL_ID,
+                runtime_key="secret",
+                tunnel_client="/tools/tunnel-client",
+                bridge_executable="/does/not/matter",
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stage"], "worker-prerequisite")
+        inventory.assert_not_called()
+
     def test_failed_inventory_prevents_tunnel_connect(self) -> None:
         with patch(
+            "gitlab_agent.setup_bridge.bridge_execution_prerequisites",
+            return_value={"ok": True, "codex_app_server_capable": True},
+        ), patch(
             "gitlab_agent.setup_bridge.bridge_tool_inventory",
             return_value={
                 "ok": False,
@@ -216,7 +244,8 @@ class BridgeSetupTests(unittest.TestCase):
         self.assertFalse(payload["full_chat_ready"])
         self.assertIn("reasonfirst_dispatch", payload["acceptance_prompt"])
         self.assertIn("reasonfirst_authorize_push", payload["acceptance_prompt"])
-        self.assertIn(TUNNEL_ID, payload["chatgpt_steps"][3])
+        self.assertTrue(any(TUNNEL_ID in step for step in payload["chatgpt_steps"]))
+        self.assertTrue(any("Codex App Server" in step for step in payload["chatgpt_steps"]))
 
 
 if __name__ == "__main__":
