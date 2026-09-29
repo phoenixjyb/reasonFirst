@@ -5,6 +5,7 @@ import io
 import json
 import os
 import platform
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -15,7 +16,7 @@ from typing import Callable
 
 
 LATEST_RELEASE_API = "https://api.github.com/repos/openai/tunnel-client/releases/latest"
-DEFAULT_INSTALL_DIR = Path("~/.local/share/reasonfirst/bin").expanduser()
+DEFAULT_INSTALL_DIR = Path("~/.local/share/reasonfirst/tunnel-client").expanduser()
 
 
 class TunnelInstallError(RuntimeError):
@@ -86,19 +87,27 @@ def _checksum_for(checksums: bytes, asset_name: str) -> str:
         digest, filename = parts
         filename = filename.lstrip("*")
         if filename == asset_name:
-            if len(digest) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in digest):
+            if len(digest) != 64 or any(
+                ch not in "0123456789abcdefABCDEF" for ch in digest
+            ):
                 raise TunnelInstallError("Invalid SHA256 digest in release checksum file")
             return digest.lower()
     raise TunnelInstallError(f"Checksum missing for release asset: {asset_name}")
 
 
-def _binary_member(archive: zipfile.ZipFile, *, windows: bool) -> zipfile.ZipInfo:
-    expected = "tunnel-client.exe" if windows else "tunnel-client"
+def _member_by_basename(
+    archive: zipfile.ZipFile,
+    expected: str,
+    *,
+    required: bool = True,
+) -> zipfile.ZipInfo | None:
     candidates = [
         item
         for item in archive.infolist()
         if not item.is_dir() and Path(item.filename).name == expected
     ]
+    if not candidates and not required:
+        return None
     if len(candidates) != 1:
         raise TunnelInstallError(
             f"Expected exactly one {expected} in official release archive"
@@ -106,7 +115,11 @@ def _binary_member(archive: zipfile.ZipFile, *, windows: bool) -> zipfile.ZipInf
     return candidates[0]
 
 
-def _verify_binary(path: Path, *, runner: Callable[..., subprocess.CompletedProcess[str]]) -> str:
+def _verify_binary(
+    path: Path,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> str:
     try:
         proc = runner(
             [str(path), "--version"],
@@ -124,6 +137,37 @@ def _verify_binary(path: Path, *, runner: Callable[..., subprocess.CompletedProc
     return (proc.stdout or proc.stderr or "").strip()
 
 
+def _write_bundle_member(path: Path, raw: bytes, *, executable: bool) -> None:
+    path.write_bytes(raw)
+    if os.name != "nt":
+        path.chmod(
+            stat.S_IRUSR
+            | stat.S_IWUSR
+            | (stat.S_IXUSR if executable else 0)
+        )
+
+
+def _validate_existing_bundle(
+    bundle_dir: Path,
+    *,
+    client_name: str,
+    companion_name: str,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> str:
+    if bundle_dir.is_symlink():
+        raise TunnelInstallError(f"Refusing symlinked tunnel-client bundle: {bundle_dir}")
+    expected = [
+        bundle_dir / client_name,
+        bundle_dir / companion_name,
+        bundle_dir / "cloudflared-manifest.json",
+    ]
+    if not all(path.is_file() and not path.is_symlink() for path in expected):
+        raise TunnelInstallError(
+            f"Existing tunnel-client bundle is incomplete: {bundle_dir}"
+        )
+    return _verify_binary(bundle_dir / client_name, runner=runner)
+
+
 def install_official_tunnel_client(
     *,
     install_dir: Path = DEFAULT_INSTALL_DIR,
@@ -132,13 +176,21 @@ def install_official_tunnel_client(
     system_name: str | None = None,
     machine: str | None = None,
 ) -> dict[str, object]:
-    """Download the latest official tunnel-client and verify its SHA256 before install."""
+    """Install a checksum-verified official client bundle without in-place upgrades.
+
+    The supported upstream ZIP intentionally keeps tunnel-client, its pinned
+    cloudflared companion, and cloudflared-manifest.json adjacent. ReasonFirst
+    preserves that runtime contract in a versioned bundle directory.
+    """
+
     goos, goarch = _platform_tag(system_name=system_name, machine=machine)
     release_raw = fetch(LATEST_RELEASE_API)
     try:
         release = json.loads(release_raw)
     except (TypeError, ValueError) as exc:
-        raise TunnelInstallError("Could not parse latest tunnel-client release metadata") from exc
+        raise TunnelInstallError(
+            "Could not parse latest tunnel-client release metadata"
+        ) from exc
     if not isinstance(release, dict):
         raise TunnelInstallError("Latest tunnel-client release metadata is invalid")
 
@@ -160,47 +212,88 @@ def install_official_tunnel_client(
             f"tunnel-client checksum mismatch for {asset_name}"
         )
 
-    target_dir = install_dir.expanduser()
-    if target_dir.exists() and target_dir.is_symlink():
-        raise TunnelInstallError(f"Refusing symlinked install directory: {target_dir}")
-    target_dir.mkdir(parents=True, exist_ok=True)
+    root = install_dir.expanduser()
+    if root.exists() and root.is_symlink():
+        raise TunnelInstallError(f"Refusing symlinked install directory: {root}")
+    root.mkdir(parents=True, exist_ok=True)
     if os.name != "nt":
-        target_dir.chmod(0o700)
+        root.chmod(0o700)
 
-    target = target_dir / ("tunnel-client.exe" if goos == "windows" else "tunnel-client")
-    if target.exists() and target.is_symlink():
-        raise TunnelInstallError(f"Refusing symlinked tunnel-client target: {target}")
+    client_name = "tunnel-client.exe" if goos == "windows" else "tunnel-client"
+    companion_name = "cloudflared.exe" if goos == "windows" else "cloudflared"
+    bundle_name = f"{tag}-{goos}-{goarch}-{actual[:12]}"
+    bundle_dir = root / bundle_name
+    target = bundle_dir / client_name
 
-    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-        member = _binary_member(archive, windows=goos == "windows")
-        binary = archive.read(member)
+    if bundle_dir.exists():
+        version = _validate_existing_bundle(
+            bundle_dir,
+            client_name=client_name,
+            companion_name=companion_name,
+            runner=runner,
+        )
+        return {
+            "ok": True,
+            "installed": False,
+            "reused": True,
+            "version": version,
+            "release_tag": tag,
+            "platform": f"{goos}-{goarch}",
+            "path": str(target),
+            "bundle_dir": str(bundle_dir),
+            "companion_path": str(bundle_dir / companion_name),
+            "manifest_path": str(bundle_dir / "cloudflared-manifest.json"),
+            "asset": asset_name,
+            "sha256": actual,
+            "source_url": asset_url,
+            "checksums_url": checksums_url,
+        }
 
-    suffix = ".exe" if goos == "windows" else ".bin"
-    fd, temp_name = tempfile.mkstemp(prefix=".tunnel-client.", suffix=suffix, dir=target_dir)
-    temp = Path(temp_name)
+    stage = Path(tempfile.mkdtemp(prefix=".bundle.", dir=root))
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(binary)
-            handle.flush()
-            os.fsync(handle.fileno())
         if os.name != "nt":
-            temp.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+            stage.chmod(0o700)
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            required = {
+                client_name: True,
+                companion_name: True,
+                "cloudflared-manifest.json": False,
+            }
+            for name, executable in required.items():
+                member = _member_by_basename(archive, name)
+                assert member is not None
+                _write_bundle_member(
+                    stage / name,
+                    archive.read(member),
+                    executable=executable,
+                )
+            for optional in ("LICENSE", "NOTICE"):
+                member = _member_by_basename(archive, optional, required=False)
+                if member is not None:
+                    _write_bundle_member(
+                        stage / optional,
+                        archive.read(member),
+                        executable=False,
+                    )
 
-        version = _verify_binary(temp, runner=runner)
-        os.replace(temp, target)
-        if os.name != "nt":
-            target.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-    finally:
-        if temp.exists():
-            temp.unlink()
+        version = _verify_binary(stage / client_name, runner=runner)
+        os.replace(stage, bundle_dir)
+    except Exception:
+        if stage.exists():
+            shutil.rmtree(stage, ignore_errors=True)
+        raise
 
     return {
         "ok": True,
         "installed": True,
+        "reused": False,
         "version": version,
         "release_tag": tag,
         "platform": f"{goos}-{goarch}",
         "path": str(target),
+        "bundle_dir": str(bundle_dir),
+        "companion_path": str(bundle_dir / companion_name),
+        "manifest_path": str(bundle_dir / "cloudflared-manifest.json"),
         "asset": asset_name,
         "sha256": actual,
         "source_url": asset_url,
