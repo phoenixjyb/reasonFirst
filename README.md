@@ -109,7 +109,7 @@ Tests use temporary repositories, mocked services and loopback fixtures, not pro
 
 ## What is available on main
 
-The last documented release is **v0.3.0**; merged source changes need not be in that tag, and package metadata still reads `0.3.0`. Record the commit SHA as well as version in bug reports. See [CHANGELOG.md](CHANGELOG.md).
+The source/package version prepared by this release candidate is **0.3.1**. Until a maintainer explicitly creates the tag/GitHub Release, **v0.3.0 remains the last published tag**. Record the exact commit SHA as well as the package version in bug reports. See [0.3.1 release notes](docs/RELEASE_NOTES_0.3.1.md) and [CHANGELOG.md](CHANGELOG.md).
 
 | Capability | Current scope |
 | --- | --- |
