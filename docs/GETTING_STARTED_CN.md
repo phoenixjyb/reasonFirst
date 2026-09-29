@@ -273,7 +273,7 @@ actual-coder-tunnel status
 
 在**正常对话输入框的应用/工具选择器**中选中它，或在当前界面支持时使用应用提及。只输入连接名称不等于连接已经启用。不要把 OpenAI key 或 GitLab token 粘贴进消息，也不要将 `http://127.0.0.1:8080/ui` 当成远端 MCP server URL。本服务使用私有服务端 GitLab 凭证，不另加 GitLab OAuth 登录页。
 
-不同套餐/发布阶段的界面文字可能变化，以[当前连接说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#connect-from-chatgpt)和[developer mode 帮助](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)为准。没有 Tunnel/自定义应用入口时，核对资格并请管理员协助；不编造替代 localhost 连接，也不退回可选仪表盘 Assistant。
+不同套餐/发布阶段的界面文字和 action 能力可能变化，以[当前连接说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels#connect-from-chatgpt)和[developer mode 帮助](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)为准。截至 2026-09-29，OpenAI 文档说明 Pro 的 developer-mode custom MCP 仍限 read/fetch；完整 write/modify custom-MCP action 正处于 Business、Enterprise、Edu beta。因此完全由聊天驱动的 Bridge 执行路径需要具备相应资格的 workspace；否则采用普通 ChatGPT 只读连接 + 终端 ActualCoder。没有 Tunnel/自定义应用入口时，核对资格并请管理员协助；不编造替代 localhost 连接，也不退回可选仪表盘 Assistant。
 
 **检查点：**目标应用在本对话可用，包含 `gitlab_whoami`、`check_project_access`、`get_file`。缺少工具时检查选中的应用、更新后的安装、运行中服务和发现刷新，不把旧回答当实时调用。
 
