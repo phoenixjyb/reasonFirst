@@ -2,8 +2,17 @@
 
 ## Unreleased
 
-These are source changes after v0.3.0, not a new release tag. Package metadata
-still reports 0.3.0; identify installations and test evidence by commit SHA.
+No user-facing changes have been recorded after the 0.5.0 release-candidate cut.
+
+## 0.5.0 - 2026-09-29
+
+This section is the prepared 0.5.0 release note set. The source/package version is
+0.5.0 on the release-candidate branch, but no tag, GitHub Release, or external
+package upload is authorized merely by this changelog entry. Identify test
+evidence by exact commit SHA until a maintainer explicitly publishes the release.
+
+Versioning note: 0.5.0 is intentional. The 0.4 development line was already
+used previously, so this release candidate does not reuse that version family.
 
 ### Correctness and deployment compatibility
 
