@@ -1,6 +1,6 @@
 # ReasonFirst architecture
 
-[简体中文](ARCHITECTURE_CN.md) · [Project README](../README.md) · [Workflow](WORKFLOW.md) · [CLI quickstart](ACTUAL_CODER_QUICKSTART.md)
+[简体中文](ARCHITECTURE_CN.md) · [Project README](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) · [Workflow](WORKFLOW.md) · [CLI quickstart](ACTUAL_CODER_QUICKSTART.md)
 
 ReasonFirst is a **ChatGPT-first reasoning, worker-execution coding orchestration system**. Normal ChatGPT is the default reasoning surface: architecture, diagnosis, scope, acceptance criteria and final review stay there. Implementation is delegated to a user-selected coding backend under explicit workspace, policy, validation and publication controls.
 
