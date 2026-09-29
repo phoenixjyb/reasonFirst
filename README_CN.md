@@ -111,7 +111,7 @@ uv run python scripts/check_repo_secrets.py --history
 
 ## main 上已有的能力
 
-当前 release candidate 已把源码/包版本准备为 **0.5.0**。在维护者明确创建 tag / GitHub Release 之前，**v0.3.0 仍是最后一个已发布 tag**。报告问题时请同时记录准确 commit SHA 与包版本。参见 [0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md) 和 [CHANGELOG.md](CHANGELOG.md)。
+当前源码/包版本为 **0.5.0**。**v0.5.0** 发布由对应 release tag 标识；源码检出可能继续领先于已发布 tag，因此报告问题时请同时记录准确 commit SHA 与包版本。参见 [0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md) 和 [CHANGELOG.md](CHANGELOG.md)。
 
 | 能力 | 当前范围 |
 | --- | --- |
