@@ -1354,7 +1354,6 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if payload.get("ok") else 1
 
             state = load_setup_state(args.state_file)
-            tunnel_client = resolve_tunnel_client(state=state)
 
             if args.bridge_command == "connect":
                 result = _connect_bridge_from_args(args)
@@ -1375,6 +1374,32 @@ def main(argv: list[str] | None = None) -> int:
                 raise RuntimeError(
                     "No Bridge tunnel is recorded; run 'reasonfirst bridge connect' first"
                 )
+
+            if args.bridge_command == "handoff":
+                payload = build_bridge_handoff(tunnel_id=state.bridge_tunnel_id)
+                if args.open:
+                    payload["browser"] = open_handoff_pages(
+                        open_platform=True,
+                        open_chatgpt=True,
+                    )
+                if args.json:
+                    _print_json(payload)
+                else:
+                    print("Full-chat Bridge handoff")
+                    print(f"Bridge tunnel ID: {payload['tunnel_id']}")
+                    for index, step in enumerate(payload["chatgpt_steps"], 1):
+                        print(f"  {index}. {step}")
+                    print()
+                    print("Acceptance prompt:")
+                    print(payload["acceptance_prompt"])
+                    print()
+                    print(
+                        "FULL_CHAT_READY remains false until ChatGPT accepts the "
+                        "write-capable Bridge tool catalog in the eligible workspace."
+                    )
+                return 0
+
+            tunnel_client = resolve_tunnel_client(state=state)
             if not tunnel_client:
                 raise RuntimeError(
                     "tunnel-client is unavailable; run 'reasonfirst tunnel install'"
@@ -1401,28 +1426,6 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Stopped: {result.get('stopped')}")
                 return 0 if result.get("ok") else 1
 
-            payload = build_bridge_handoff(tunnel_id=state.bridge_tunnel_id)
-            if args.open:
-                payload["browser"] = open_handoff_pages(
-                    open_platform=True,
-                    open_chatgpt=True,
-                )
-            if args.json:
-                _print_json(payload)
-            else:
-                print("Full-chat Bridge handoff")
-                print(f"Bridge tunnel ID: {payload['tunnel_id']}")
-                for index, step in enumerate(payload["chatgpt_steps"], 1):
-                    print(f"  {index}. {step}")
-                print()
-                print("Acceptance prompt:")
-                print(payload["acceptance_prompt"])
-                print()
-                print(
-                    "FULL_CHAT_READY remains false until ChatGPT accepts the "
-                    "write-capable Bridge tool catalog in the eligible workspace."
-                )
-            return 0
 
         if args.command == "chatgpt":
             state = load_setup_state(args.state_file)
