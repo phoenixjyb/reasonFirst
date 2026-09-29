@@ -140,6 +140,7 @@ class ReasonFirstCLITests(unittest.TestCase):
                 ref="main",
                 worker="codex-cli",
                 json=True,
+                skip_chatgpt=True,
             )
             candidate = fake_settings(root / ".env")
             preflight = {
@@ -214,6 +215,7 @@ class ReasonFirstCLITests(unittest.TestCase):
                 ref="main",
                 worker="codex-cli",
                 json=True,
+                skip_chatgpt=True,
             )
             candidate = fake_settings(root / ".env")
             with (
@@ -251,6 +253,65 @@ class ReasonFirstCLITests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(payload["stage"], "project-preflight")
             apply.assert_not_called()
+
+    def test_guided_tunnel_continuation_persists_ready_runtime_but_not_chatgpt_ready(self) -> None:
+        tunnel_id = "tunnel_" + "a" * 32
+        answers = iter(["y", tunnel_id, "n"])
+        runtime = {
+            "ok": True,
+            "ready": True,
+            "alias": "reasonfirst-gitlab",
+            "tunnel_id": tunnel_id,
+            "ui_url": "http://127.0.0.1:9000/ui",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            state_file = Path(td) / "setup.yaml"
+            state = SetupState(
+                mode="standard",
+                selected_worker="codex-cli",
+                completed_phases=("system", "gitlab", "worker"),
+            )
+            with (
+                patch.object(reasonfirst_cli, "load_setup_state", return_value=state),
+                patch.object(
+                    reasonfirst_cli,
+                    "resolve_tunnel_client",
+                    return_value="/tools/tunnel-client",
+                ),
+                patch.object(
+                    reasonfirst_cli,
+                    "resolve_read_mcp",
+                    return_value="/tools/reasonfirst-gitlab-mcp",
+                ),
+                patch.object(
+                    reasonfirst_cli,
+                    "open_handoff_pages",
+                    return_value={"platform_opened": True, "chatgpt_opened": False},
+                ),
+                patch.object(reasonfirst_cli, "connect_runtime", return_value=runtime),
+                patch.object(reasonfirst_cli, "persist_tunnel_state") as persist,
+                patch.object(
+                    reasonfirst_cli,
+                    "build_chatgpt_handoff",
+                    return_value={
+                        "chatgpt_ready": False,
+                        "acceptance_prompt": "probe now",
+                    },
+                ),
+                patch.dict(reasonfirst_cli.os.environ, {}, clear=True),
+            ):
+                result = reasonfirst_cli._guided_tunnel_after_local(
+                    state_path=state_file,
+                    project="team/project",
+                    ref="main",
+                    input_fn=lambda _: next(answers),
+                    secret_fn=lambda _: "runtime-secret",
+                )
+        self.assertTrue(result["local_tunnel_ready"])
+        self.assertFalse(result["chatgpt_ready"])
+        self.assertEqual(result["next"], "probe now")
+        self.assertNotIn("runtime-secret", repr(result))
+        persist.assert_called_once()
 
     def test_project_add_yes_json_emits_one_final_json_object(self) -> None:
         plan = {
