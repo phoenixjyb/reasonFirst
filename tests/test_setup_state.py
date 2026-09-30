@@ -25,7 +25,10 @@ class SetupStateTests(unittest.TestCase):
                 config_file="~/.config/gitlab-agent/.env",
                 tunnel_id="tunnel_example",
                 tunnel_runtime="reasonfirst",
-                completed_phases=("system", "gitlab", "worker"),
+                tunnel_client_path="/tools/tunnel-client",
+                bridge_tunnel_id="tunnel_" + "b" * 32,
+                bridge_runtime="reasonfirst-bridge",
+                completed_phases=("system", "gitlab", "worker", "tunnel", "bridge"),
                 installed_version="0.5.1.dev0",
                 last_verified_at="2026-09-29T00:00:00Z",
             )

@@ -6,7 +6,7 @@ These guides describe the source revision containing them, not necessarily the l
 
 ## Start with the reasoning-first workflow
 
-**New user:** follow **[First-time setup: prerequisites to a real ChatGPT GitLab read](GETTING_STARTED.md)**. This is the complete macOS/Keychain path, with installation, GitLab configuration, OpenAI tunnel/permissions/runtime key, local profile, startup, ChatGPT app selection and acceptance checkpoints. Its [Chinese version](GETTING_STARTED_CN.md) follows the same executable steps.
+**New user:** start with **[Install & update](INSTALL.md)**. Choose either the packaged quick route or the fully supported source/developer route; both converge on `reasonfirst setup`. Use [First-time setup](GETTING_STARTED.md) when you need the detailed/manual operator procedure or legacy lifecycle background.
 
 **Primary product loop:** normal ChatGPT reads and reasons over repository/MR/CI evidence, defines the task and acceptance criteria, ReasonFirst hands the approved task to a coding worker, and bounded implementation/CI evidence returns to ChatGPT + human review. Use the [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) as the execution-engine/operator reference inside that loop. Direct CLI-only use remains useful for testing, recovery and automation, but is secondary. The optional **Bridge Preview** is a more privileged orchestration surface; read [Architecture](ARCHITECTURE.md) before enabling it. **Already connected:** use [daily start/status/stop/restart](TUNNEL_LIFECYCLE.md). **Advanced/manual/Windows:** use [the manual guide](SETUP_TUTORIAL.md) and [Windows procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell).
 
@@ -14,7 +14,8 @@ These guides describe the source revision containing them, not necessarily the l
 
 | Topic | English | 简体中文 |
 | --- | --- | --- |
-| Complete first-time setup and first normal ChatGPT prompt | **[Start here](GETTING_STARTED.md)** | **[首次完整接入](GETTING_STARTED_CN.md)** |
+| Install/update: packaged or source route | **[Install & update](INSTALL.md)** | **[安装与更新](INSTALL_CN.md)** |
+| Detailed/manual first-time setup and first prompt | [Operator setup](GETTING_STARTED.md) | [详细首次接入](GETTING_STARTED_CN.md) |
 | Product and supported capabilities | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) | [项目说明](../README_CN.md) |
 | Start the required service and manage its lifecycle | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) |
 | Before using a newly proposed GitLab project | [Access preflight and user grants](PROJECT_ACCESS.md) | [项目预检与用户授权](PROJECT_ACCESS_CN.md) |

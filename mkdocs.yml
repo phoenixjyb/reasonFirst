@@ -63,9 +63,10 @@ extra:
 nav:
   - Home: index.md
   - Start here:
+      - Install & update: docs/INSTALL.md
       - First 10 minutes: first-10-minutes.md
       - Mental model: concepts.md
-      - First-time setup: docs/GETTING_STARTED.md
+      - Detailed/manual setup: docs/GETTING_STARTED.md
       - Practice lab: docs/PRACTICE_LAB.md
       - Fully chat-based E2E: docs/CHAT_ONLY_PRACTICE.md
       - FAQ: faq.md
@@ -86,6 +87,7 @@ nav:
       - Local PR review: docs/LOCAL_PR_REVIEW.md
   - 中文:
       - 中文首页: index_cn.md
+      - 安装与更新: docs/INSTALL_CN.md
       - 十分钟上手: first-10-minutes_cn.md
       - 与 ChatGPT 协作: chatgpt-workflow_cn.md
       - 证据与审查: evidence-review_cn.md

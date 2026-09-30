@@ -15,6 +15,7 @@ from .setup_state import (
     SetupState,
     load_setup_state,
 )
+from .setup_tunnel import resolve_tunnel_client
 
 
 def _platform_name(system_name: str) -> str:
@@ -137,7 +138,11 @@ def build_setup_status(
         ("codex", False),
         ("copilot", False),
     ):
-        path = resolve(executable)
+        path = (
+            resolve_tunnel_client(which=resolve)
+            if executable == "tunnel-client"
+            else resolve(executable)
+        )
         executable_paths[executable] = path
         probes.append(
             _probe(
@@ -190,6 +195,11 @@ def build_setup_status(
         },
     ]
     worker_available = any(bool(item["available"]) for item in workers)
+    bridge_worker_available = any(
+        bool(item["available"])
+        for item in workers
+        if item["name"] in {"codex-cli", "codex-desktop"}
+    )
 
     config_path = resolve_env_file().expanduser()
     config: dict[str, object] = {
@@ -250,6 +260,18 @@ def build_setup_status(
     )
     control_plane_ready = machine_ready and bool(config["valid"]) and worker_available
     tunnel_client_available = bool(executable_paths["tunnel-client"])
+    tunnel_recorded = bool(
+        state is not None
+        and state.tunnel_id
+        and state.tunnel_runtime
+        and "tunnel" in state.completed_phases
+    )
+    bridge_recorded = bool(
+        state is not None
+        and state.bridge_tunnel_id
+        and state.bridge_runtime
+        and "bridge" in state.completed_phases
+    )
 
     next_actions: list[dict[str, str]] = []
     if not python_ok:
@@ -299,13 +321,73 @@ def build_setup_status(
                 ),
             }
         )
-    if mode != "cli-only":
+    if mode != "cli-only" and tunnel_client_available and not tunnel_recorded:
+        next_actions.append(
+            {
+                "id": "configure-tunnel",
+                "message": (
+                    "Attach the packaged ReasonFirst read MCP to an approved OpenAI "
+                    "tunnel with 'reasonfirst tunnel connect'."
+                ),
+            }
+        )
+    if mode != "cli-only" and tunnel_recorded:
+        next_actions.append(
+            {
+                "id": "verify-tunnel-live",
+                "message": (
+                    "A tunnel runtime is recorded; run 'reasonfirst tunnel status' "
+                    "for live process/health/readiness evidence."
+                ),
+            }
+        )
         next_actions.append(
             {
                 "id": "verify-chatgpt",
                 "message": (
-                    "ChatGPT app/tunnel authorization is not verified by local "
-                    "status; guided setup must complete that browser-side step."
+                    "ChatGPT app authorization/live repository read is still not "
+                    "proven by local setup state; run 'reasonfirst chatgpt handoff'."
+                ),
+            }
+        )
+    if mode == "full-chat" and not bridge_worker_available:
+        next_actions.append(
+            {
+                "id": "configure-codex-bridge-worker",
+                "message": (
+                    "Full-chat Bridge worker control currently requires Codex App Server "
+                    "(Codex CLI/App Server or Codex Desktop). Copilot CLI remains valid "
+                    "for the standard terminal ActualCoder path."
+                ),
+            }
+        )
+    if mode == "full-chat" and tunnel_recorded and not bridge_recorded:
+        next_actions.append(
+            {
+                "id": "configure-bridge",
+                "message": (
+                    "Full-chat mode is selected but the privileged Bridge is not "
+                    "recorded; run 'reasonfirst bridge connect' only from an eligible "
+                    "write-capable custom-MCP ChatGPT workspace."
+                ),
+            }
+        )
+    if mode == "full-chat" and bridge_recorded:
+        next_actions.append(
+            {
+                "id": "verify-bridge-live",
+                "message": (
+                    "A privileged Bridge runtime is recorded; run 'reasonfirst bridge status' "
+                    "for live process/health/readiness evidence."
+                ),
+            }
+        )
+        next_actions.append(
+            {
+                "id": "verify-full-chat",
+                "message": (
+                    "Full-chat ChatGPT acceptance is not proven by local setup state; "
+                    "run 'reasonfirst bridge handoff'."
                 ),
             }
         )
@@ -325,7 +407,11 @@ def build_setup_status(
             "machine_prerequisites": machine_ready,
             "control_plane_prerequisites": control_plane_ready,
             "tunnel_client_available": tunnel_client_available,
+            "tunnel_recorded": tunnel_recorded,
+            "bridge_recorded": bridge_recorded,
+            "bridge_worker_available": bridge_worker_available,
             "chatgpt_connection": "not_verified",
+            "full_chat_connection": "not_verified",
             "ready": False,
             "ready_reason": (
                 "setup --status is detect-only and never claims full readiness "

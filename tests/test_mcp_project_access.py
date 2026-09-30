@@ -43,6 +43,25 @@ class MCPProjectAccessTests(unittest.IsolatedAsyncioTestCase):
         # A successfully delivered diagnostic is not a successfully read file.
         return result.structured_content, "\n".join(getattr(x, "text", "") for x in result.content)
 
+    async def test_read_mcp_main_scrubs_unneeded_openai_credentials(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "CONTROL_PLANE_API_KEY": "runtime-secret",
+                    "OPENAI_ADMIN_KEY": "admin-secret",
+                    "OPENAI_API_KEY": "model-secret",
+                },
+                clear=False,
+            ),
+            patch.object(self.server.mcp, "run") as run,
+        ):
+            self.server.main()
+            self.assertNotIn("CONTROL_PLANE_API_KEY", os.environ)
+            self.assertNotIn("OPENAI_ADMIN_KEY", os.environ)
+            self.assertNotIn("OPENAI_API_KEY", os.environ)
+            run.assert_called_once_with(transport="stdio")
+
     async def test_local_denial_is_visible_for_all_project_tools_without_network(self):
         calls = {
             "check_project_access": {"project": "other/project", "ref": "main"},
