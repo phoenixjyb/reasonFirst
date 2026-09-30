@@ -50,7 +50,6 @@ EXPECTED_WRITE_TOOLS = {
     "reasonfirst_codex_start",
     "reasonfirst_codex_continue",
     "reasonfirst_codex_steer",
-    "reasonfirst_codex_interrupt",
     "reasonfirst_approve",
     "reasonfirst_decline",
     "reasonfirst_finish",
@@ -164,7 +163,7 @@ def bridge_execution_prerequisites(
             proc = runner(
                 [codex_bin, "app-server", "--help"],
                 capture_output=True,
-                text=True,
+                text=False,  # Only the exit status is used; avoid locale decoding.
                 timeout=15,
                 check=False,
                 env=os.environ.copy(),

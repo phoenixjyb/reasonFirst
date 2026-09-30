@@ -11,6 +11,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable
 
+from .secret_scan import redact_sensitive_text
 from .setup_state import DEFAULT_SETUP_STATE_PATH, SetupState, load_setup_state, save_setup_state
 
 
@@ -113,46 +114,123 @@ def resolve_read_mcp(
 
 
 def _command_string(executable: str) -> str:
-    if os.name == "nt":
-        return subprocess.list2cmdline([executable])
+    """Serialize for tunnel-client's parseCommandArgv, NOT cmd.exe/MSVCRT.
+
+    The upstream parser uses single/double quotes and backslash escapes on all
+    platforms. Windows list2cmdline therefore loses path separators. shlex.join
+    protects backslashes, spaces and embedded apostrophes for that parser. The
+    outer subprocess still receives an argv list; no shell is introduced.
+    """
+    if not executable or any(char in executable for char in ("\x00", "\r", "\n")):
+        raise TunnelSetupError("MCP executable must be a nonempty single-line path")
     return shlex.join([executable])
 
 
 def _sanitize(text: str, secret: str | None) -> str:
     if secret:
-        return text.replace(secret, "<redacted>")
-    return text
+        text = text.replace(secret, "<redacted>")
+    return redact_sensitive_text(text)[0]
 
 
 def _redact_payload(value: Any, secret: str | None) -> Any:
-    if not secret:
-        return value
     if isinstance(value, str):
-        return value.replace(secret, "<redacted>")
+        return _sanitize(value, secret)
     if isinstance(value, list):
         return [_redact_payload(item, secret) for item in value]
     if isinstance(value, dict):
         return {
-            str(key): _redact_payload(item, secret)
+            _sanitize(str(key), secret): (
+                "<redacted>"
+                if re.search(r"(?i)(token|secret|password|api[_-]?key)", str(key))
+                else _redact_payload(item, secret)
+            )
             for key, item in value.items()
         }
     return value
 
 
-def _parse_json_output(stdout: str, stderr: str, *, secret: str | None = None) -> dict[str, Any]:
-    safe_stdout = _sanitize(stdout, secret).strip()
-    safe_stderr = _sanitize(stderr, secret).strip()
-    if safe_stdout:
-        try:
-            payload = json.loads(safe_stdout)
-        except ValueError:
-            payload = None
-        if isinstance(payload, dict):
-            return _redact_payload(payload, secret)
-    return {
-        "ok": False,
-        "error": safe_stderr or safe_stdout or "tunnel-client produced no JSON output",
-    }
+def _diagnostic_text(value: str | bytes | None, secret: str | None) -> str:
+    # Replacement is allowed ONLY for diagnostics, never protocol/identity data.
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    if not isinstance(value, str):
+        return ""
+    # Redact before truncation so cutting a token cannot evade redaction.
+    return _sanitize(value, secret).strip()[-2000:]
+
+
+def _json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON field")
+        result[key] = value
+    return result
+
+
+def _reject_constant(value: str) -> None:
+    raise ValueError("Non-finite JSON value")
+
+
+def _parse_json_output(
+    stdout: str | bytes | None, stderr: str | bytes | None, *, secret: str | None = None,
+) -> dict[str, Any]:
+    try:
+        # Go emits UTF-8 JSON regardless of the host's locale. Capture bytes to
+        # avoid Python's Windows reader thread decoding them as GBK/cp1252.
+        text = stdout.decode("utf-8", errors="strict") if isinstance(stdout, bytes) else stdout
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("Missing JSON output")
+        payload = json.loads(text, object_pairs_hook=_json_object, parse_constant=_reject_constant)
+        if not isinstance(payload, dict):
+            raise ValueError("JSON output is not an object")
+        for field in ("ok", "ready", "healthy", "process_running", "stopped", "already_stopped"):
+            if field in payload and not isinstance(payload[field], bool):
+                raise ValueError("Invalid JSON boolean")
+    except (ValueError, UnicodeError, RecursionError):
+        # Do not expose decoder exception strings, raw bytes, or a partially
+        # decoded object; invalid protocol output must never count as readiness.
+        return {
+            "ok": False,
+            "protocol_error": True,
+            "error": "tunnel-client returned missing or invalid UTF-8 JSON",
+            "diagnostic": _diagnostic_text(stderr, secret) or _diagnostic_text(stdout, secret),
+        }
+    return _redact_payload(payload, secret)
+
+
+def runtime_diagnostics(payload: dict[str, Any]) -> list[str]:
+    """Bounded, scrubbed failure explanation; never execute suggested repairs."""
+    messages: list[str] = []
+
+    def add(value: Any) -> None:
+        if not isinstance(value, str) or not value.strip():
+            return
+        text = _sanitize(value, None)
+        text = re.sub(r"[\x00-\x1f\x7f]", " ", text).strip()
+        text = text[:600]
+        if text and text not in messages and len(messages) < 5:
+            messages.append(text)
+
+    add(payload.get("error"))
+    add(payload.get("diagnostic"))
+    local = payload.get("local")
+    if isinstance(local, dict):
+        log = local.get("log")
+        tail = log.get("tail") if isinstance(log, dict) else None
+        if isinstance(tail, str):
+            for line in reversed(tail.splitlines()[-40:]):
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict) and str(event.get("level", "")).upper() in {"ERROR", "FATAL"}:
+                    add(event.get("error") or event.get("msg"))
+        issues = local.get("issues")
+        if isinstance(issues, list):
+            for issue in issues:
+                add(issue)
+    return messages
 
 
 def _run_tunnel_json(
@@ -160,7 +238,7 @@ def _run_tunnel_json(
     args: list[str],
     *,
     runtime_key: str | None = None,
-    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
     timeout: int = 60,
 ) -> tuple[int, dict[str, Any]]:
     env = os.environ.copy()
@@ -172,7 +250,7 @@ def _run_tunnel_json(
         proc = runner(
             [tunnel_client, *args],
             capture_output=True,
-            text=True,
+            text=False,
             env=env,
             timeout=timeout,
             check=False,
@@ -180,16 +258,23 @@ def _run_tunnel_json(
     except (OSError, subprocess.SubprocessError) as exc:
         raise TunnelSetupError(f"Failed to run tunnel-client: {type(exc).__name__}") from exc
 
-    payload = _parse_json_output(proc.stdout, proc.stderr, secret=runtime_key)
-    payload.setdefault("returncode", proc.returncode)
-    return proc.returncode, payload
+    payload = _parse_json_output(
+        proc.stdout, proc.stderr, secret=runtime_key or env.get(RUNTIME_KEY_ENV),
+    )
+    payload["returncode"] = proc.returncode
+    # Keep the real exit status in evidence, but reject malformed output even
+    # when the native process returned zero.
+    code = proc.returncode or (1 if payload.get("protocol_error") else 0)
+    return code, payload
 
 
 def runtime_ready(payload: dict[str, Any]) -> bool:
     return (
-        bool(payload.get("process_running"))
-        and bool(payload.get("healthy"))
-        and bool(payload.get("ready"))
+        payload.get("ok") is not False
+        and not payload.get("protocol_error")
+        and payload.get("process_running") is True
+        and payload.get("healthy") is True
+        and payload.get("ready") is True
     )
 
 
@@ -197,7 +282,7 @@ def runtime_status(
     *,
     alias: str,
     tunnel_client: str,
-    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> dict[str, Any]:
     name = validate_alias(alias)
     code, payload = _run_tunnel_json(
@@ -207,14 +292,17 @@ def runtime_status(
         timeout=30,
     )
     return {
-        "ok": code == 0 and bool(payload.get("process_running")) and bool(payload.get("healthy")),
-        "ready": runtime_ready(payload),
+        "ok": code == 0 and payload.get("ok") is not False
+        and payload.get("process_running") is True and payload.get("healthy") is True,
+        "ready": code == 0 and runtime_ready(payload),
+        "status_query_ok": code == 0 and payload.get("ok") is not False,
+        "diagnostics": runtime_diagnostics(payload),
         "alias": name,
         "tunnel_id": payload.get("tunnel_id"),
         "runtime_state": payload.get("runtime_state"),
         "process_running": bool(payload.get("process_running")),
         "healthy": bool(payload.get("healthy")),
-        "native_ready": bool(payload.get("ready")),
+        "native_ready": code == 0 and runtime_ready(payload),
         "ui_url": payload.get("ui_url"),
         "health_url": payload.get("health_url"),
         "repair_actions": payload.get("repair_actions") or [],
@@ -229,7 +317,7 @@ def connect_runtime(
     alias: str = DEFAULT_TUNNEL_ALIAS,
     tunnel_client: str,
     mcp_executable: str,
-    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
     sleep: Callable[[float], None] = time.sleep,
     ready_timeout_seconds: int = 30,
 ) -> dict[str, Any]:
@@ -261,13 +349,14 @@ def connect_runtime(
         runner=runner,
         timeout=90,
     )
-    if code != 0:
+    if code != 0 or native.get("ok") is False:
         return {
             "ok": False,
             "ready": False,
             "alias": name,
             "tunnel_id": tid,
             "stage": "connect",
+            "diagnostics": runtime_diagnostics(native),
             "native": native,
         }
 
@@ -310,6 +399,7 @@ def connect_runtime(
         "ui_url": (status or {}).get("ui_url"),
         "health_url": (status or {}).get("health_url"),
         "native": status or native,
+        "diagnostics": runtime_diagnostics(status or native),
         "message": "Managed tunnel runtime did not reach process_running + healthy + ready before timeout.",
     }
 
@@ -318,7 +408,7 @@ def stop_runtime(
     *,
     alias: str,
     tunnel_client: str,
-    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> dict[str, Any]:
     name = validate_alias(alias)
     code, payload = _run_tunnel_json(
