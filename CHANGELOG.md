@@ -2,7 +2,38 @@
 
 ## Unreleased
 
-No post-v0.5.0 user-facing changes are recorded yet.
+No additional changes beyond the 0.5.1 source preparation are recorded yet.
+
+## 0.5.1
+
+This section records the integrated 0.5.1 source changes. Publication is a separate
+maintainer action: the release tag identifies the released commit, and the wheel
+installation route is available only after the Release assets workflow succeeds.
+See [English release notes](docs/RELEASE_NOTES_0.5.1.md) and
+[中文发布说明](docs/RELEASE_NOTES_0.5.1_CN.md).
+
+### Guided setup and packaged services
+
+- Add the canonical `reasonfirst` CLI, non-secret SetupState, and detect-only `setup --status` without claiming provider or ChatGPT readiness (#81).
+- Add guided GitLab/project/worker configuration, verification before explicit project grants, masked credential input, private atomic configuration updates, and standalone project/worker management (#82).
+- Package `reasonfirst-gitlab-mcp`, add checksum-verified official tunnel-client installation and managed runtime commands, and produce browser-side ChatGPT acceptance handoffs (#83).
+- Package the optional `reasonfirst-bridge-mcp` and authoritative Bridge implementation, with legacy module aliases, separate read/Bridge tunnel identities, explicit eligible-workspace acknowledgement, inventory validation, and local Codex App Server capability checks (#84).
+- Keep the normal packaged Bridge free of the legacy HTTP control-token route and experimental remote-push authorization tool. Preserve Copilot CLI support in the terminal ActualCoder path without claiming it is controlled by the App Server-based full-chat Bridge.
+
+### Installation, repair and distribution
+
+- Support both reviewed GitHub Release wheel installation via `uv tool install` and source/developer installation via `uv sync` / `uv run` or editable installation; both use the same setup/state model (#85).
+- Reuse healthy recorded read-tunnel and Bridge runtimes during setup. Add `setup --repair` for recorded local runtime state only; do not recreate GitLab projects, OpenAI tunnels or ChatGPT apps, or persist runtime API keys.
+- Add real packaged/source install E2E on Ubuntu, macOS and Windows, including packaged execution outside the source checkout. Distinguish installation/inventory tests from live provider and browser authorization.
+- Add a human-Release-triggered asset workflow with tag/package/runtime alignment, wheel/sdist inspection, installation checks, source/history scanning and checksum-pinned Homebrew formula generation. Do not require PyPI or advertise a Homebrew tap that does not exist.
+- Add bilingual Install & update entry points while preserving the detailed/manual guides as supported, non-deprecated references.
+
+### Release preparation
+
+- Align package and runtime metadata at 0.5.1 after feature integration.
+- Compare clean-installed distribution/runtime versions against source metadata rather than a stale hard-coded 0.5.0 assertion; make CLI and current-release documentation tests version-aware and add mismatch/missing-version regressions.
+- Update bilingual README/site entry points and release-note navigation. Preserve the historical v0.5.0 release notes and all earlier changelog sections.
+- Require fresh validation of the version-bumped PR and resulting main commit before separately approved v0.5.1 publication. No new runtime feature, dependency upgrade, credential migration or repository-protection change is part of release preparation.
 
 ## 0.5.0 - 2026-09-29
 

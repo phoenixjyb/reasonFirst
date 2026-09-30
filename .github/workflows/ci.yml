@@ -212,7 +212,8 @@ jobs:
           BIN=/tmp/reasonfirst-release-check/bin
           "$PY" -m pip install --upgrade pip
           "$PY" -m pip install dist/*.whl
-          "$PY" -c 'import gitlab_agent; assert gitlab_agent.__version__ == "0.5.0", gitlab_agent.__version__'
+          SOURCE_VERSION="$(python -c 'from pathlib import Path; from scripts.check_release_tag import package_version; print(package_version(Path.cwd()))')"
+          "$PY" -I -c 'import sys; from importlib.metadata import version; import gitlab_agent; expected = sys.argv[1]; installed = version("chatgpt-selfhosted-gitlab-mcp"); assert installed == gitlab_agent.__version__ == expected, (expected, installed, gitlab_agent.__version__)' "$SOURCE_VERSION"
           "$BIN/reasonfirst" --help >/dev/null
           "$BIN/reasonfirst" setup --help >/dev/null
           test -x "$BIN/reasonfirst-gitlab-mcp"

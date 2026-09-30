@@ -54,7 +54,7 @@ ChatGPT-first 主链路已经在合成 GitLab 演练仓库上完成端到端验�
 
 两条路径都是正式支持入口，并最终进入同一个 setup/state 模型。
 
-**普通用户打包路径（v0.5.1 发布后）：**
+**普通用户打包路径（v0.5.1 发布且 release 附件生成成功后）：**
 
 ```bash
 uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
@@ -135,10 +135,13 @@ uv run python scripts/check_repo_secrets.py --history
 
 ## main 上已有的能力
 
-当前源码/包版本为 **0.5.0**。**v0.5.0** 发布由对应 release tag 标识；源码检出可能继续领先于已发布 tag，因此报告问题时请同时记录准确 commit SHA 与包版本。参见 [0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md) 和 [CHANGELOG.md](CHANGELOG.md)。
+当前源码/包版本为 **0.5.1**。这标识源码版本，不代表 Release 已发布或附件已可下载。维护者发布后，**v0.5.1** tag 才标识准确发布提交；报告问题时请同时记录准确 commit SHA 与包版本。参见 [0.5.1 发布说明](docs/RELEASE_NOTES_0.5.1_CN.md) 和 [CHANGELOG.md](CHANGELOG.md)。已发布的 v0.5.0 tag 及其[历史发布说明](docs/RELEASE_NOTES_0.5.0_CN.md)继续保留为冻结的较早基线。
 
 | 能力 | 当前范围 |
 | --- | --- |
+| 引导式配置 | 统一 `reasonfirst setup`、先验证的项目配置、明确授权与 worker 选择；只检测的 `setup --status` |
+| 打包受管服务 | 打包只读 MCP 与可选合资格 workspace Bridge；原生 tunnel-client 监督、分离的 tunnel identity 与明确实时验收 |
+| 修复/恢复 | 复用健康的已记录 runtime；`setup --repair` 只重连已记录的本地状态，不重建账号资源或持久保存 runtime key |
 | 受管工作区 | 本地 Git cache/worktree + 用户配置的 SSH workspace；功能分支、恢复与跨进程 mutation lock |
 | 受控 finish | 本地/远端共用 review gates：validation、reviewability、protected path、candidate/history secret scan 与准确 candidate identity |
 | 发布安全 | 本地 reviewed finish 为正式默认路径；SSH 发布绑定准确 tree/destination，实验性且默认关闭 |
@@ -147,7 +150,7 @@ uv run python scripts/check_repo_secrets.py --history
 | Worker 策略 | 用户默认后端 + model/effort/sandbox/network/permission；Codex Desktop 校验解析后的策略并记录 reroute |
 | 审批 | Codex Desktop 通过本地终端或 MCP pending/approve/decline 显式审批；超时默认拒绝 |
 | 项目访问预检 | 本地 allowlist -> GitLab 项目/ref/文件；明确诊断和固定修订；不自动授权 |
-| 隧道生命周期 | macOS/Linux 已有 profile 的 configure/start/status/stop/restart、可选准确 Keychain 读取、所属进程清理；仅前台 |
+| 旧版隧道生命周期 | macOS/Linux 已有 profile 的 configure/start/status/stop/restart、可选准确 Keychain 读取、所属进程清理；仅前台 |
 | HTTPS 迁移 | 离线预览、确认后本地 URL 更新、私有备份、向前恢复 |
 | MCP 表面 | 只读 GitLab MCP + 可选本地 Bridge Preview 编排 MCP；信任边界见架构文档 |
 
@@ -157,7 +160,7 @@ API/MCP 客户端拒绝关闭 TLS 验证和所有 API 重定向，请配置最�
 
 ## 名称、兼容性与贡献
 
-**ReasonFirst** 是项目；**ActualCoder**（`actual-coder`）是高层 CLI。`gitlab-agent` 是低层，`codingagent` 为兼容别名。分发名 `chatgpt-selfhosted-gitlab-mcp`、Python 包 `gitlab_agent`、私有配置 `~/.config/gitlab-agent/.env` 与已有工作区路径有意保留，更新时不要重命名受管目录。
+**ReasonFirst** 是项目；`reasonfirst` 是统一配置/管理 CLI，**ActualCoder**（`actual-coder`）是高层执行 CLI。`gitlab-agent` 是低层，`codingagent` 为兼容别名。分发名 `chatgpt-selfhosted-gitlab-mcp`、Python 包 `gitlab_agent`、私有配置 `~/.config/gitlab-agent/.env` 与已有工作区路径有意保留，更新时不要重命名受管目录。
 
 全局 editable 命令跟随源码目录；PR 实验使用独立 worktree。欢迎贡献及中英文可复现报告：[贡献指南](CONTRIBUTING_CN.md)、[安全报告](SECURITY_CN.md)、[公开发布清单](docs/PUBLIC_RELEASE_CHECKLIST_CN.md)。不要在公共 issue 发布凭证文件、私有源码、迁移备份或未经审阅日志。
 

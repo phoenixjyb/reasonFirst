@@ -27,6 +27,32 @@ class DistributionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tag/package version mismatch"):
             verify(mismatch, ROOT)
 
+    def test_package_runtime_version_mismatch_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "src/gitlab_agent").mkdir(parents=True)
+            (root / "pyproject.toml").write_text(
+                '[project]\nversion = "0.5.1"\n', encoding="utf-8"
+            )
+            (root / "src/gitlab_agent/__init__.py").write_text(
+                '__version__ = "0.5.0"\n', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "package/runtime version mismatch"):
+                verify("v0.5.1", root)
+
+    def test_missing_runtime_version_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "src/gitlab_agent").mkdir(parents=True)
+            (root / "pyproject.toml").write_text(
+                '[project]\nversion = "0.5.1"\n', encoding="utf-8"
+            )
+            (root / "src/gitlab_agent/__init__.py").write_text(
+                '# No version declaration.\n', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "version__ is missing"):
+                verify("v0.5.1", root)
+
     def test_homebrew_formula_renderer_pins_source_and_hash(self) -> None:
         template = (ROOT / "packaging/homebrew/reasonfirst.rb.in").read_text(
             encoding="utf-8"

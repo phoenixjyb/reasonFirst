@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gitlab_agent import reasonfirst_cli
+from gitlab_agent import __version__, reasonfirst_cli
 from gitlab_agent.config import AgentSettings
 from gitlab_agent.setup_state import SetupState
 
@@ -18,7 +18,7 @@ STATUS = {
     "ok": True,
     "command": "setup-status",
     "mutating": False,
-    "reasonfirst_version": "0.5.0",
+    "reasonfirst_version": __version__,
     "system": {
         "os": "linux",
         "platform_system": "Linux",
@@ -880,7 +880,7 @@ class ReasonFirstCLITests(unittest.TestCase):
         with self.assertRaises(SystemExit) as raised, contextlib.redirect_stdout(out):
             reasonfirst_cli.main(["--version"])
         self.assertEqual(raised.exception.code, 0)
-        self.assertIn("reasonfirst 0.5.0", out.getvalue())
+        self.assertEqual(f"reasonfirst {__version__}", out.getvalue().strip())
 
 
 if __name__ == "__main__":
