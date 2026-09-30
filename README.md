@@ -52,7 +52,7 @@ For external users, start with the generic [fully chat-based E2E practice](docs/
 
 Both installation routes are first-class and converge on the same setup/state model.
 
-**Normal-user packaged route (v0.5.1 release):**
+**Normal-user packaged route (after v0.5.1 publication and successful release-asset attachment):**
 
 ```bash
 uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
@@ -133,10 +133,13 @@ Tests use temporary repositories, mocked services and loopback fixtures, not pro
 
 ## What is available on main
 
-The source/package version is **0.5.0**. The **v0.5.0** release is identified by its release tag; source checkouts can move ahead of a tag, so record the exact commit SHA as well as the package version in bug reports. See [0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md) and [CHANGELOG.md](CHANGELOG.md).
+The source/package version is **0.5.1**. This identifies the source, not proof of a published release or downloadable assets. After maintainer publication, the **v0.5.1** tag identifies the released commit; record the exact commit SHA as well as the package version in bug reports. See [0.5.1 release notes](docs/RELEASE_NOTES_0.5.1.md) and [CHANGELOG.md](CHANGELOG.md). The published v0.5.0 tag and its [historical release notes](docs/RELEASE_NOTES_0.5.0.md) remain the frozen earlier baseline.
 
 | Capability | Current scope |
 | --- | --- |
+| Guided setup | Canonical `reasonfirst setup`, verified project configuration, explicit grants and worker selection; detect-only `setup --status` |
+| Managed packaged services | Packaged read MCP and optional eligible-workspace Bridge; native tunnel-client supervision with separate tunnel identities and explicit live acceptance |
+| Repair/resume | Reuse healthy recorded runtimes; `setup --repair` reconnects recorded local state only, without recreating account resources or persisting runtime keys |
 | Managed workspaces | Local Git caches/worktrees plus user-configured SSH workspaces; feature branches, recovery and cross-process mutation locking |
 | Controlled finish | Shared local/remote review gates: validation, reviewability, protected paths, candidate/history secret checks and exact candidate identity |
 | Publication safety | Local reviewed finish is the normal path; SSH publication is exact-tree/destination bound, experimental and default-off |
@@ -145,7 +148,7 @@ The source/package version is **0.5.0**. The **v0.5.0** release is identified by
 | Worker policy | User-owned default backend plus model, effort, sandbox/network and permission controls across Codex CLI, Copilot CLI and Codex Desktop/App Server; Desktop verifies resolved policy and records reroutes |
 | Approval mediation | Codex Desktop approvals are explicit: terminal prompt locally or bounded pending/approve/decline MCP flow; timeout defaults to deny |
 | Project-access preflight | Local allowlist -> GitLab project/ref/files; actionable diagnostics and pinned revision; no automatic grant |
-| Tunnel lifecycle | Existing-profile configure/start/status/stop/restart on macOS/Linux, optional exact Keychain lookup, owned process cleanup; foreground only |
+| Legacy tunnel lifecycle | Existing-profile configure/start/status/stop/restart on macOS/Linux, optional exact Keychain lookup, owned process cleanup; foreground only |
 | HTTPS migration | Offline preview and confirmed local URL updates, private backups and forward recovery |
 | MCP surfaces | Read-oriented GitLab MCP plus optional local Bridge Preview orchestration MCP; see architecture for trust boundaries |
 
@@ -155,7 +158,7 @@ API/MCP clients reject disabled TLS verification and every API redirect. Configu
 
 ## Names, compatibility and contribution
 
-**ReasonFirst** is the project; **ActualCoder** (`actual-coder`) is the high-level CLI. `gitlab-agent` is lower-level and `codingagent` is a compatibility alias. Distribution `chatgpt-selfhosted-gitlab-mcp`, Python package `gitlab_agent`, private config `~/.config/gitlab-agent/.env` and existing workspace paths are intentionally retained. Do not rename managed directories during an update.
+**ReasonFirst** is the project; `reasonfirst` is the canonical setup/management CLI, and **ActualCoder** (`actual-coder`) is the high-level execution CLI. `gitlab-agent` is lower-level and `codingagent` is a compatibility alias. Distribution `chatgpt-selfhosted-gitlab-mcp`, Python package `gitlab_agent`, private config `~/.config/gitlab-agent/.env` and existing workspace paths are intentionally retained. Do not rename managed directories during an update.
 
 Global editable commands follow their source checkout; use a separate worktree for PR experiments. Contributions and reproducible English/Chinese reports are welcome: [Contributing](CONTRIBUTING.md), [Security reporting](SECURITY.md#reporting-a-security-issue), [release checklist](docs/PUBLIC_RELEASE_CHECKLIST.md). Never publish credential files, private source, migration backups or unreviewed logs in issues.
 

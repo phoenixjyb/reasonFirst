@@ -107,6 +107,8 @@ nav:
       - HTTPS 迁移: docs/HTTPS_MIGRATION_CN.md
       - 本地 PR 审阅: docs/LOCAL_PR_REVIEW_CN.md
   - Reference:
+      - Release notes v0.5.1: docs/RELEASE_NOTES_0.5.1.md
+      - 中文发布说明 v0.5.1: docs/RELEASE_NOTES_0.5.1_CN.md
       - Release notes v0.5.0: docs/RELEASE_NOTES_0.5.0.md
       - 中文发布说明 v0.5.0: docs/RELEASE_NOTES_0.5.0_CN.md
       - Documentation index: docs/README.md

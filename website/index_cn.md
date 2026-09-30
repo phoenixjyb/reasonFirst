@@ -28,11 +28,20 @@
 !!! info "只有一条主闭环"
     ActualCoder 也可以被终端、CI、IDE 或其他客户端直接调用，适合测试、恢复和自动化；但这是次要运维能力，不是另一种并列产品模式。
 
+## v0.5.1 引导配置与安装
+
+0.5.1 源码整合了五个 setup 切片：统一 `reasonfirst setup` 向导、先验证后授权的项目配置、worker 选择、打包只读 MCP、可选打包全聊天 Bridge、受管 tunnel runtime，以及基于记录状态的修复/恢复。**打包安装和源码安装都是正式支持的路径**，共用配置与状态；详细/手工指南继续保留。
+
+功能整合基线已通过十个 CI job，包括 Ubuntu、macOS 和 Windows 上真实的打包/源码安装 E2E。发布准备提交仍需重新验证；安装测试不等于 provider 登录或浏览器侧 ChatGPT 授权。只有维护者发布 `v0.5.1`、Release assets 工作流成功附加 wheel 后，才应使用发布包。源码版本号本身不代表发布包已可下载。
+
+[阅读 v0.5.1 发布说明](docs/RELEASE_NOTES_0.5.1_CN.md){ .md-button }
+[选择安装路径](docs/INSTALL_CN.md){ .md-button }
+
 ## v0.5.0 已验证基线
 
 v0.5.0 把上面的架构组合为一套经过测试的系统：**三个 worker backend**（`codex-cli`、`copilot-cli`、`codex-desktop`）、**两个刻意分开的 MCP 面**（只读 GitLab 证据面与可选 Bridge Preview 编排面）、持久 **TaskSpec/attempt**、跨进程 workspace 变更锁、有界 **EvidencePack**、共享 finish/review gates，以及 matching-HEAD CI 反馈。
 
-预发布审计基线 `7d16061061f6337604bd3135c9e4a693ad1fd68a` 的七个 release-critical CI job 与文档部署全部通过；主验证 job 共运行 **445 个测试**。package job 构建 wheel + sdist、检查 archive path、在干净环境安装 wheel、验证版本/CLI 入口，并重新执行源码/完整历史 secret scan。最终 release tag 会在本轮文档审计也通过相同门槛后标识准确发布提交。
+预发布审计基线 `7d16061061f6337604bd3135c9e4a693ad1fd68a` 的七个 release-critical CI job 与文档部署全部通过；主验证 job 共运行 **445 个测试**。package job 构建 wheel + sdist、检查 archive path、在干净环境安装 wheel、验证版本/CLI 入口，并重新执行源码/完整历史 secret scan。冻结发布由已发布的 v0.5.0 tag 标识，而不是这里更早的审计基线；这个历史测试数量不代表当前测试集规模。
 
 [阅读 v0.5.0 发布说明](docs/RELEASE_NOTES_0.5.0_CN.md){ .md-button }
 [查看架构说明](docs/ARCHITECTURE_CN.md){ .md-button }

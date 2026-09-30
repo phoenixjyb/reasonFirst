@@ -28,11 +28,20 @@
 !!! info "One primary loop"
     ActualCoder can also run directly from a terminal, CI job, IDE, or another client. That is useful for testing, recovery, and automation, but it is a secondary operational capability—not a separate product mode.
 
+## v0.5.1 guided setup and installation
+
+The 0.5.1 source brings the five setup slices together: the canonical `reasonfirst setup` wizard, verified project grants and worker selection, packaged read MCP, optional packaged full-chat Bridge, managed tunnel runtimes, and recorded-state repair/resume. **Packaged and source installation remain first-class routes** to the same configuration and state. Detailed/manual guides are still supported.
+
+The integrated feature baseline passed all ten CI jobs, including real packaged/source install E2E on Ubuntu, macOS and Windows. Release preparation needs its own fresh validation; installation tests do not establish provider login or browser-side ChatGPT authorization. Use the release wheel only after a maintainer publishes `v0.5.1` and the Release assets workflow successfully attaches it. A source version alone does not establish release availability.
+
+[Read the v0.5.1 release notes](docs/RELEASE_NOTES_0.5.1.md){ .md-button }
+[Choose an installation route](docs/INSTALL.md){ .md-button }
+
 ## v0.5.0 validated baseline
 
 v0.5.0 brings the architecture shown above together as one tested system: **three worker backends** (`codex-cli`, `copilot-cli`, `codex-desktop`), **two deliberately different MCP surfaces** (read-only GitLab evidence vs. optional Bridge Preview orchestration), persistent **TaskSpec/attempt** state, cross-process workspace mutation locking, bounded **EvidencePack**, shared finish/review gates, and matching-HEAD CI feedback.
 
-The pre-release audit baseline `7d16061061f6337604bd3135c9e4a693ad1fd68a` passed all seven release-critical CI jobs plus the documentation deployment. The main validation job ran **445 tests**; the package job built wheel + sdist, inspected archive paths, clean-installed the wheel, verified version/CLI entry points, and reran source/full-history secret scanning. The final release tag identifies the exact released commit after this documentation audit also passes the same gates.
+The pre-release audit baseline `7d16061061f6337604bd3135c9e4a693ad1fd68a` passed all seven release-critical CI jobs plus the documentation deployment. The main validation job ran **445 tests**; the package job built wheel + sdist, inspected archive paths, clean-installed the wheel, verified version/CLI entry points, and reran source/full-history secret scanning. The published v0.5.0 tag identifies the frozen release, not this earlier audit baseline. This historical test count is not the current suite count.
 
 [Read the v0.5.0 release notes](docs/RELEASE_NOTES_0.5.0.md){ .md-button }
 [Review the architecture](docs/ARCHITECTURE.md){ .md-button }

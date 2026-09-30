@@ -4,8 +4,12 @@ from pathlib import Path
 import re
 import unittest
 
+from gitlab_agent import __version__
+from scripts.check_release_tag import package_version, verify
+
 
 ROOT = Path(__file__).resolve().parents[1]
+CURRENT_VERSION = package_version(ROOT)
 
 ACTIVE_DOCS = [
     ROOT / "README.md",
@@ -25,6 +29,8 @@ ACTIVE_DOCS = [
     ROOT / "docs/TASK_HANDOFF_TEMPLATE_CN.md",
     ROOT / "docs/RELEASE_NOTES_0.5.0.md",
     ROOT / "docs/RELEASE_NOTES_0.5.0_CN.md",
+    ROOT / f"docs/RELEASE_NOTES_{CURRENT_VERSION}.md",
+    ROOT / f"docs/RELEASE_NOTES_{CURRENT_VERSION}_CN.md",
 ]
 
 STALE_CLAIMS = [
@@ -41,18 +47,33 @@ STALE_CLAIMS = [
 
 
 class ReleaseDocumentationTests(unittest.TestCase):
-    def test_v050_package_and_release_notes_are_aligned(self):
-        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        init = (ROOT / "src/gitlab_agent/__init__.py").read_text(encoding="utf-8")
-        self.assertRegex(pyproject, r'(?m)^version = "0\.5\.0"$')
-        self.assertIn('__version__ = "0.5.0"', init)
+    def test_current_package_and_release_notes_are_aligned(self):
+        self.assertEqual(
+            verify(f"v{CURRENT_VERSION}", ROOT),
+            {"tag": f"v{CURRENT_VERSION}", "version": __version__},
+        )
+        en = (ROOT / f"docs/RELEASE_NOTES_{CURRENT_VERSION}.md").read_text(encoding="utf-8")
+        cn = (ROOT / f"docs/RELEASE_NOTES_{CURRENT_VERSION}_CN.md").read_text(encoding="utf-8")
+        self.assertIn(f"# ReasonFirst {CURRENT_VERSION} release notes", en)
+        self.assertIn(f"# ReasonFirst {CURRENT_VERSION} 发布说明", cn)
 
+    def test_historical_v050_release_notes_remain_available(self):
         en = (ROOT / "docs/RELEASE_NOTES_0.5.0.md").read_text(encoding="utf-8")
         cn = (ROOT / "docs/RELEASE_NOTES_0.5.0_CN.md").read_text(encoding="utf-8")
         self.assertIn("# ReasonFirst 0.5.0 release notes", en)
         self.assertIn("# ReasonFirst 0.5.0 发布说明", cn)
         self.assertNotIn("0.5.0 release candidate", en.lower())
         self.assertNotIn("Release Candidate", cn)
+
+    def test_current_release_is_linked_from_bilingual_entry_points(self):
+        for path, suffix in (("README.md", ""), ("README_CN.md", "_CN"),
+                             ("website/index.md", ""), ("website/index_cn.md", "_CN")):
+            with self.subTest(path=path):
+                text = (ROOT / path).read_text(encoding="utf-8")
+                self.assertIn(f"docs/RELEASE_NOTES_{CURRENT_VERSION}{suffix}.md", text)
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertRegex(changelog, rf"(?m)^## {re.escape(CURRENT_VERSION)}(?:\s|$)")
+        self.assertIn("## 0.5.0 - 2026-09-29", changelog)
 
     def test_active_docs_do_not_reintroduce_known_stale_claims(self):
         for path in ACTIVE_DOCS:
@@ -82,6 +103,8 @@ class ReleaseDocumentationTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/docs-pages.yml").read_text(encoding="utf-8")
         self.assertIn("docs/INSTALL.md", mkdocs)
         self.assertIn("docs/INSTALL_CN.md", mkdocs)
+        self.assertIn(f"docs/RELEASE_NOTES_{CURRENT_VERSION}.md", mkdocs)
+        self.assertIn(f"docs/RELEASE_NOTES_{CURRENT_VERSION}_CN.md", mkdocs)
         self.assertIn("docs/RELEASE_NOTES_0.5.0.md", mkdocs)
         self.assertIn("docs/RELEASE_NOTES_0.5.0_CN.md", mkdocs)
         self.assertIn("scripts/check_docs_site_links.py", workflow)
