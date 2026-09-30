@@ -164,7 +164,7 @@ def bridge_execution_prerequisites(
             proc = runner(
                 [codex_bin, "app-server", "--help"],
                 capture_output=True,
-                text=True,
+                text=False,  # Only the exit status is used; avoid locale decoding.
                 timeout=15,
                 check=False,
                 env=os.environ.copy(),
