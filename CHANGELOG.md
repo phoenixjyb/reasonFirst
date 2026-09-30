@@ -2,7 +2,14 @@
 
 ## Unreleased
 
-No additional changes beyond the 0.5.1 source preparation are recorded yet.
+- Isolate credentials for authenticated managed Git operations from inherited
+  credential helpers and URL-specific usernames. Keep credential-source precedence,
+  temporary askpass, and noninteractive behavior without changing global Git config.
+- Add real Git credential-selection and loopback authenticated clone/fetch
+  regressions, including host-helper non-invocation and persistent-config checks.
+  Git reference access remains distinct from clone, worker, and write acceptance.
+  See [recovery guidance](docs/GIT_CREDENTIAL_RECOVERY.md) /
+  [中文](docs/GIT_CREDENTIAL_RECOVERY_CN.md).
 
 ## 0.5.1
 

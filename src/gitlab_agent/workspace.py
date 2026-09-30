@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterator
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from .config import AgentSettings
 from .locking import file_lock
@@ -327,6 +327,14 @@ class WorkspaceManager:
                 env.pop(key, None)
 
         env["GIT_TERMINAL_PROMPT"] = "0"
+        if require_token:
+            # Managed credentials must not open host credential-manager dialogs
+            # or inherit credential-bearing trace destinations. Change only this
+            # child environment, not the caller or any persistent Git settings.
+            env["GCM_INTERACTIVE"] = "never"
+            for key in list(env):
+                if key.upper().startswith("GIT_TRACE") or key.upper() == "GIT_CURL_VERBOSE":
+                    env.pop(key, None)
 
         token = self.settings.git_token
         if require_token and not token:
@@ -383,6 +391,36 @@ class WorkspaceManager:
                 pass
             script.unlink(missing_ok=True)
 
+    def _git_credential_config(self, remote_url: str | None) -> list[str]:
+        """Select the configured credential for one native Git invocation.
+
+        GIT_ASKPASS alone does not override credential helpers. An empty helper
+        resets their list, including matching URL-specific helpers. Pin the
+        username for the exact remote as well as the generic credential context;
+        otherwise a more-specific host configuration can select another user.
+        No credential value is included in argv or written to Git configuration.
+        """
+        if not remote_url or any(char in remote_url for char in ("\x00", "\r", "\n")):
+            raise RuntimeError("Authenticated Git requires an explicit remote URL")
+        parsed = urlsplit(remote_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise RuntimeError("Authenticated Git requires a credential-free HTTP(S) remote URL")
+        return [
+            "-c", "credential.helper=",
+            "-c", f"credential.{remote_url}.helper=",
+            "-c", f"credential.username={self.settings.git_username}",
+            "-c", f"credential.{remote_url}.username={self.settings.git_username}",
+            # Permit our askpass while terminal prompting remains disabled.
+            "-c", "credential.interactive=true",
+        ]
+
     def _run_git(
         self,
         args: list[str],
@@ -390,6 +428,7 @@ class WorkspaceManager:
         cwd: Path | None = None,
         input_text: str | None = None,
         auth: bool = False,
+        auth_url: str | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         with self._git_auth_env(require_token=auth) as env:
@@ -401,6 +440,8 @@ class WorkspaceManager:
                 env["GIT_COMMITTER_EMAIL"] = self.settings.git_author_email
 
             git_argv = ["git"]
+            if auth:
+                git_argv.extend(self._git_credential_config(auth_url))
             if not self.settings.git_trust_env:
                 # Also override any proxy configured in ~/.gitconfig.
                 git_argv.extend(["-c", "http.proxy="])
@@ -459,6 +500,7 @@ class WorkspaceManager:
                     f"refs/heads/{state.branch}:{probe_ref}",
                 ],
                 auth=self._remote_needs_auth(remote_url),
+                auth_url=remote_url,
             )
             return self._run_git(
                 ["--git-dir", str(repo_path), "rev-parse", "--verify", f"{probe_ref}^{{commit}}"]
@@ -504,6 +546,7 @@ class WorkspaceManager:
             self._run_git(
                 ["clone", "--bare", remote_url, str(repo_path)],
                 auth=auth,
+                auth_url=remote_url,
             )
             self._progress(f"repository cache ready: {repo_path}")
             self._run_git(
@@ -529,6 +572,7 @@ class WorkspaceManager:
         self._run_git(
             ["--git-dir", str(repo_path), "fetch", "--prune", "--tags", "origin"],
             auth=auth,
+            auth_url=remote_url,
         )
         self._progress(f"fetch complete for {project}")
         return repo_path
@@ -1283,6 +1327,7 @@ class WorkspaceManager:
             ["push", "--set-upstream", "origin", state.branch],
             cwd=worktree,
             auth=auth,
+            auth_url=remote_url,
         )
         state.pushed = True
         state.remote_branch = state.branch
@@ -1347,7 +1392,7 @@ class WorkspaceManager:
             args.extend(["-o", f"merge_request.description={safe_description}"])
         args.extend(["origin", state.branch])
 
-        proc = self._run_git(args, cwd=worktree, auth=auth)
+        proc = self._run_git(args, cwd=worktree, auth=auth, auth_url=remote_url)
         combined = proc.stdout + "\n" + proc.stderr
         match = _MR_URL_RE.search(combined)
 
