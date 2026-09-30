@@ -33,6 +33,7 @@ jobs:
           uv run reasonfirst --help
           uv run reasonfirst setup --help
           uv run python -c "import shutil; assert shutil.which('reasonfirst-gitlab-mcp')"
+          uv run python -c "import shutil; assert shutil.which('reasonfirst-bridge-mcp')"
           uv run actual-coder --help
           uv run actual-coder doctor --help
           uv run codingagent --help
@@ -143,6 +144,43 @@ jobs:
           bash "$ROOT/tests/test_first_run_config.sh"
 
 
+  install-e2e:
+    name: install-e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Build wheel
+        run: uv build --wheel
+
+      - name: Verify packaged and source install routes
+        run: python scripts/install_e2e.py --dist-dir dist --source-root .
+
+      - name: Validate Homebrew formula renderer
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/render_homebrew_formula.py \
+            --version 0.5.1 \
+            --source-url https://github.com/phoenixjyb/reasonFirst/archive/refs/tags/v0.5.1.tar.gz \
+            --sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --output /tmp/reasonfirst.rb
+          ruby -c /tmp/reasonfirst.rb
+
   package-release-candidate:
     runs-on: ubuntu-latest
     steps:
@@ -178,6 +216,7 @@ jobs:
           "$BIN/reasonfirst" --help >/dev/null
           "$BIN/reasonfirst" setup --help >/dev/null
           test -x "$BIN/reasonfirst-gitlab-mcp"
+          test -x "$BIN/reasonfirst-bridge-mcp"
           "$BIN/actual-coder" --help >/dev/null
           "$BIN/gitlab-agent" --help >/dev/null
           "$BIN/actual-coder-tunnel" --help >/dev/null

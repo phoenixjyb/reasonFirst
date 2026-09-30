@@ -50,11 +50,35 @@ ChatGPT-first 主链路已经在合成 GitLab 演练仓库上完成端到端验�
 
 外部用户建议从通用化后的[全聊天闭环 E2E 演练](docs/CHAT_ONLY_PRACTICE_CN.md)开始，使用自己的 GitLab host/project 占位值，并始终把最终 merge 决定保留给人。若 macOS 网络必须通过 HTTP(S) 代理访问外部服务，应使用文档中的 launchd 会话级代理同步，不要把代理凭证写进 plist。
 
+## 安装——打包路径与源码路径并行支持
+
+两条路径都是正式支持入口，并最终进入同一个 setup/state 模型。
+
+**普通用户打包路径（v0.5.1 发布后）：**
+
+```bash
+uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+reasonfirst setup
+```
+
+**源码/开发者路径：**
+
+```bash
+git clone https://github.com/phoenixjyb/reasonFirst.git
+cd reasonFirst
+uv sync --python 3.12
+uv run reasonfirst setup
+```
+
+打包路径不要求长期保留 ReasonFirst 源码目录；源码路径继续正式支持贡献、审计、私有 patch 与 editable 安装。两条路径共用同一私有配置、SetupState、项目授权与 tunnel identity；切换路径不需要重新创建账号侧资源。详见 **[安装与更新](docs/INSTALL_CN.md)** · **[English](docs/INSTALL.md)**。
+
+
 ## 按任务选择指南
 
 | 目标 | 指南 |
 | --- | --- |
-| 从前置条件到第一条 ChatGPT 工作提示词 | **[完整首次接入](docs/GETTING_STARTED_CN.md)** · **[English](docs/GETTING_STARTED.md)** |
+| 安装/更新：打包路径或源码路径 | **[安装与更新](docs/INSTALL_CN.md)** · **[English](docs/INSTALL.md)** |
+| 从前置条件到第一条 ChatGPT 工作提示词 | [详细/手工首次接入](docs/GETTING_STARTED_CN.md) · [English](docs/GETTING_STARTED.md) |
 | 已配置后的启动/状态/停止/重启 | [隧道生命周期](docs/TUNNEL_LIFECYCLE_CN.md) · [English](docs/TUNNEL_LIFECYCLE.md) |
 | 确认新项目存在/可访问并明确授权 | [项目访问](docs/PROJECT_ACCESS_CN.md) · [English](docs/PROJECT_ACCESS.md) |
 | 演练推理、worker 和 MR 迭代 | [实战演练](docs/PRACTICE_LAB_CN.md) · [English](docs/PRACTICE_LAB.md) |

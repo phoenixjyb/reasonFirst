@@ -23,6 +23,17 @@ from .setup_actions import (
     plan_worker_use,
     preflight_project,
 )
+from .setup_bridge import (
+    DEFAULT_BRIDGE_ALIAS,
+    bridge_runtime_status,
+    bridge_tool_inventory,
+    build_bridge_handoff,
+    connect_bridge_runtime,
+    persist_bridge_state,
+    require_eligibility_acknowledgement,
+    resolve_bridge_mcp,
+    stop_bridge_runtime,
+)
 from .setup_config import (
     apply_env_updates,
     assert_no_effective_env_override,
@@ -202,8 +213,17 @@ def _print_human_status(payload: dict[str, object]) -> None:
     )
     print(
         f"{_mark(bool(readiness.get('tunnel_recorded')))} "
-        "managed tunnel recorded"
+        "managed read tunnel recorded"
     )
+    if payload.get("mode") == "full-chat":
+        print(
+            f"{_mark(bool(readiness.get('bridge_worker_available')))} "
+            "Codex App Server-capable Bridge worker available"
+        )
+        print(
+            f"{_mark(bool(readiness.get('bridge_recorded')))} "
+            "managed privileged Bridge recorded"
+        )
     print()
     print("Readiness:")
     print(
@@ -254,6 +274,35 @@ def _guided_tunnel_after_local(
     input_fn: Callable[[str], str],
     secret_fn: Callable[[str], str],
 ) -> dict[str, object]:
+    existing_state = load_setup_state(state_path)
+    existing_client = resolve_tunnel_client(state=existing_state)
+    if (
+        existing_state is not None
+        and existing_state.tunnel_id
+        and existing_state.tunnel_runtime
+        and "tunnel" in existing_state.completed_phases
+        and existing_client
+    ):
+        existing_status = runtime_status(
+            alias=existing_state.tunnel_runtime,
+            tunnel_client=existing_client,
+        )
+        if bool(existing_status.get("ok")) and bool(existing_status.get("ready")):
+            handoff = build_chatgpt_handoff(
+                tunnel_id=existing_state.tunnel_id,
+                project=project,
+                ref=ref,
+            )
+            return {
+                "attempted": False,
+                "reused": True,
+                "local_tunnel_ready": True,
+                "chatgpt_ready": False,
+                "runtime": existing_status,
+                "handoff": handoff,
+                "next": handoff["acceptance_prompt"],
+            }
+
     if not _confirm("Configure ChatGPT read access now?", input_fn=input_fn):
         return {
             "attempted": False,
@@ -351,6 +400,152 @@ def _guided_tunnel_after_local(
         "attempted": True,
         "local_tunnel_ready": True,
         "chatgpt_ready": False,
+        "browser": browser,
+        "runtime": runtime,
+        "handoff": handoff,
+        "next": handoff["acceptance_prompt"],
+    }
+
+
+def _guided_bridge_after_read(
+    *,
+    state_path: Path,
+    input_fn: Callable[[str], str],
+    secret_fn: Callable[[str], str],
+) -> dict[str, object]:
+    existing_state = load_setup_state(state_path)
+    existing_client = resolve_tunnel_client(state=existing_state)
+    if (
+        existing_state is not None
+        and existing_state.bridge_tunnel_id
+        and existing_state.bridge_runtime
+        and "bridge" in existing_state.completed_phases
+        and existing_client
+    ):
+        existing_status = bridge_runtime_status(
+            alias=existing_state.bridge_runtime,
+            tunnel_client=existing_client,
+        )
+        if bool(existing_status.get("ok")) and bool(existing_status.get("ready")):
+            handoff = build_bridge_handoff(
+                tunnel_id=existing_state.bridge_tunnel_id
+            )
+            return {
+                "attempted": False,
+                "reused": True,
+                "local_bridge_ready": True,
+                "full_chat_ready": False,
+                "runtime": existing_status,
+                "handoff": handoff,
+                "next": handoff["acceptance_prompt"],
+            }
+
+    if not _confirm(
+        "Configure the optional full-chat Bridge now? This requires a ChatGPT workspace/client with write-capable custom MCP actions.",
+        input_fn=input_fn,
+    ):
+        return {
+            "attempted": False,
+            "local_bridge_ready": False,
+            "full_chat_ready": False,
+            "next": "Run 'reasonfirst bridge connect' later if this workspace becomes eligible.",
+        }
+
+    require_eligibility_acknowledgement(acknowledged=True)
+    state = load_setup_state(state_path)
+    if state is None or not state.tunnel_id or "tunnel" not in state.completed_phases:
+        raise RuntimeError(
+            "Configure the standard read-only ReasonFirst tunnel before the full-chat Bridge."
+        )
+
+    tunnel_client = resolve_tunnel_client(state=state)
+    if not tunnel_client:
+        raise RuntimeError(
+            "tunnel-client is unavailable; the standard tunnel setup must complete first"
+        )
+
+    bridge_executable = resolve_bridge_mcp()
+    if not bridge_executable:
+        raise RuntimeError(
+            "reasonfirst-bridge-mcp is missing from this installation"
+        )
+
+    inventory = bridge_tool_inventory()
+    if not bool(inventory.get("ok")):
+        return {
+            "attempted": True,
+            "local_bridge_ready": False,
+            "full_chat_ready": False,
+            "stage": "inventory",
+            "inventory": inventory,
+            "next": "Repair the packaged Bridge tool inventory before connecting a privileged tunnel.",
+        }
+
+    browser = open_handoff_pages(open_platform=True, open_chatgpt=False)
+    state = load_setup_state(state_path)
+    default_bridge_tunnel = state.bridge_tunnel_id if state is not None else None
+    bridge_tunnel_id = _prompt(
+        "Separate OpenAI tunnel ID for the privileged Bridge",
+        default=default_bridge_tunnel,
+        input_fn=input_fn,
+    )
+    if state is not None and state.tunnel_id and bridge_tunnel_id == state.tunnel_id:
+        raise RuntimeError(
+            "The privileged Bridge must use a separate tunnel ID from the read-only GitLab app."
+        )
+
+    runtime_key = os.getenv(RUNTIME_KEY_ENV, "").strip()
+    if not runtime_key:
+        runtime_key = secret_fn(
+            "OpenAI runtime API key for the Bridge tunnel (masked; not stored by ReasonFirst): "
+        ).strip()
+    if not runtime_key:
+        raise RuntimeError("OpenAI tunnel runtime API key is required")
+
+    alias = (
+        state.bridge_runtime
+        if state is not None and state.bridge_runtime
+        else DEFAULT_BRIDGE_ALIAS
+    )
+    runtime = connect_bridge_runtime(
+        tunnel_id=bridge_tunnel_id,
+        runtime_key=runtime_key,
+        tunnel_client=tunnel_client,
+        bridge_executable=bridge_executable,
+        alias=alias,
+        read_tunnel_id=state.tunnel_id if state is not None else None,
+    )
+    if not bool(runtime.get("ok")) or not bool(runtime.get("ready")):
+        return {
+            "attempted": True,
+            "local_bridge_ready": False,
+            "full_chat_ready": False,
+            "browser": browser,
+            "runtime": runtime,
+            "next": (
+                "Inspect 'reasonfirst bridge status' and repair the local Bridge "
+                "before attempting ChatGPT full-chat acceptance."
+            ),
+        }
+
+    persist_bridge_state(
+        tunnel_id=str(runtime["tunnel_id"]),
+        alias=str(runtime["alias"]),
+        state_path=state_path,
+    )
+    handoff = build_bridge_handoff(tunnel_id=str(runtime["tunnel_id"]))
+    if _confirm(
+        "Open ChatGPT now to create/test the separate ReasonFirst Bridge app?",
+        input_fn=input_fn,
+    ):
+        browser.update(
+            open_handoff_pages(open_platform=False, open_chatgpt=True)
+        )
+
+    return {
+        "attempted": True,
+        "local_bridge_ready": True,
+        "full_chat_ready": False,
         "browser": browser,
         "runtime": runtime,
         "handoff": handoff,
@@ -535,18 +730,45 @@ def _run_guided_setup(
             secret_fn=secret_fn,
         )
 
+    bridge_result: dict[str, object] = {
+        "attempted": False,
+        "local_bridge_ready": False,
+        "full_chat_ready": False,
+        "next": "Full-chat Bridge setup was not requested.",
+    }
+    if mode == "full-chat" and bool(tunnel_result.get("local_tunnel_ready")):
+        bridge_result = _guided_bridge_after_read(
+            state_path=args.state_file,
+            input_fn=input_fn,
+            secret_fn=secret_fn,
+        )
+    elif mode == "full-chat" and not bool(tunnel_result.get("local_tunnel_ready")):
+        bridge_result["next"] = (
+            "Complete the standard read-only tunnel first; then run "
+            "'reasonfirst bridge connect'."
+        )
+
+    stage = "local-configured"
+    if bool(tunnel_result.get("local_tunnel_ready")):
+        stage = "tunnel-ready"
+    if bool(bridge_result.get("local_bridge_ready")):
+        stage = "bridge-tunnel-ready"
+
     return 0, {
         **plan,
-        "stage": "tunnel-ready" if tunnel_result.get("local_tunnel_ready") else "local-configured",
+        "stage": stage,
         "writes_performed": bool(config_change["changed"]),
         "config_change": config_change,
         "setup_state": str(state_file),
         "local_control_configured": True,
         "local_tunnel_ready": bool(tunnel_result.get("local_tunnel_ready")),
         "chatgpt_ready": False,
+        "local_bridge_ready": bool(bridge_result.get("local_bridge_ready")),
+        "full_chat_ready": False,
         "ready": False,
         "tunnel": tunnel_result,
-        "next": tunnel_result.get("next"),
+        "bridge": bridge_result,
+        "next": bridge_result.get("next") if mode == "full-chat" else tunnel_result.get("next"),
     }
 
 
@@ -676,6 +898,321 @@ def _connect_tunnel_from_args(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def _connect_bridge_from_args(args: argparse.Namespace) -> dict[str, object]:
+    interactive = sys.stdin.isatty()
+    state = load_setup_state(args.state_file)
+    if state is None or not state.tunnel_id or "tunnel" not in state.completed_phases:
+        raise RuntimeError(
+            "Configure the standard read-only tunnel first with 'reasonfirst tunnel connect'."
+        )
+
+    acknowledged = bool(args.eligible_workspace)
+    if not acknowledged and interactive:
+        acknowledged = _confirm(
+            "I confirm this ChatGPT workspace/client supports write-capable custom MCP actions"
+        )
+    require_eligibility_acknowledgement(acknowledged=acknowledged)
+
+    tunnel_client = _resolve_or_install_tunnel_client(
+        state_path=args.state_file,
+        install=bool(args.install),
+        interactive=interactive,
+    )
+    bridge_executable = resolve_bridge_mcp()
+    if not bridge_executable:
+        raise RuntimeError(
+            "reasonfirst-bridge-mcp is not available from this installation"
+        )
+
+    bridge_tunnel_id = args.tunnel_id or state.bridge_tunnel_id
+    if not bridge_tunnel_id:
+        if not interactive:
+            raise RuntimeError(
+                "A separate Bridge tunnel ID is required in non-interactive mode; pass --tunnel-id"
+            )
+        if args.open_platform:
+            open_handoff_pages(open_platform=True, open_chatgpt=False)
+        bridge_tunnel_id = _prompt("Separate OpenAI tunnel ID for the privileged Bridge")
+
+    if bridge_tunnel_id == state.tunnel_id:
+        raise RuntimeError(
+            "The privileged Bridge must use a separate tunnel ID from the read-only GitLab app."
+        )
+
+    runtime_key = os.getenv(RUNTIME_KEY_ENV, "").strip()
+    if not runtime_key:
+        if not interactive:
+            raise RuntimeError(
+                f"{RUNTIME_KEY_ENV} is not set; runtime keys are never accepted on argv"
+            )
+        runtime_key = getpass.getpass(
+            "OpenAI runtime API key for the Bridge tunnel (masked; not stored by ReasonFirst): "
+        ).strip()
+    if not runtime_key:
+        raise RuntimeError("OpenAI tunnel runtime API key is required")
+
+    alias = args.alias or state.bridge_runtime or DEFAULT_BRIDGE_ALIAS
+    result = connect_bridge_runtime(
+        tunnel_id=bridge_tunnel_id,
+        runtime_key=runtime_key,
+        tunnel_client=tunnel_client,
+        bridge_executable=bridge_executable,
+        alias=alias,
+        read_tunnel_id=state.tunnel_id,
+    )
+    if bool(result.get("ok")) and bool(result.get("ready")):
+        persist_bridge_state(
+            tunnel_id=str(result["tunnel_id"]),
+            alias=str(result["alias"]),
+            state_path=args.state_file,
+        )
+    return {
+        **result,
+        "tunnel_client": tunnel_client,
+        "bridge_executable": bridge_executable,
+        "runtime_key_stored": False,
+        "local_bridge_ready": bool(result.get("ok")) and bool(result.get("ready")),
+        "full_chat_ready": False,
+    }
+
+
+def _runtime_key_for_repair(
+    *,
+    interactive: bool,
+    label: str,
+) -> str | None:
+    value = os.getenv(RUNTIME_KEY_ENV, "").strip()
+    if value:
+        return value
+    if not interactive:
+        return None
+    value = getpass.getpass(label).strip()
+    return value or None
+
+
+def _run_setup_repair(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Repair recorded local runtimes without recreating account resources.
+
+    Repair is intentionally narrower than initial setup:
+    - it never creates a GitLab project, OpenAI tunnel, or ChatGPT app;
+    - it only uses tunnel IDs already persisted in non-secret SetupState;
+    - runtime credentials remain env/masked-prompt only and are never persisted;
+    - ChatGPT/FULL_CHAT readiness remains unverified locally.
+    """
+
+    state = load_setup_state(args.state_file)
+    if state is None:
+        return 1, {
+            "ok": False,
+            "command": "setup-repair",
+            "error": "No ReasonFirst setup state exists; run 'reasonfirst setup' first.",
+            "writes_performed": False,
+            "ready": False,
+        }
+
+    interactive = sys.stdin.isatty()
+    result: dict[str, object] = {
+        "ok": True,
+        "command": "setup-repair",
+        "mode": state.mode,
+        "state_file": str(args.state_file),
+        "writes_performed": False,
+        "read_tunnel": None,
+        "bridge": None,
+        "chatgpt_ready": False,
+        "full_chat_ready": False,
+        "ready": False,
+        "actions": [],
+    }
+    actions = result["actions"]
+    assert isinstance(actions, list)
+
+    tunnel_client = resolve_tunnel_client(state=state)
+    if not tunnel_client and bool(args.install):
+        installed = install_official_tunnel_client()
+        tunnel_client = str(installed["path"])
+        _save_tunnel_client_path(
+            state_path=args.state_file,
+            tunnel_client_path=tunnel_client,
+        )
+        state = load_setup_state(args.state_file) or state
+        result["writes_performed"] = True
+    elif not tunnel_client:
+        actions.append(
+            "tunnel-client is missing; rerun with --install or run 'reasonfirst tunnel install'."
+        )
+
+    read_ready = False
+    if state.tunnel_id and state.tunnel_runtime and tunnel_client:
+        current = runtime_status(
+            alias=state.tunnel_runtime,
+            tunnel_client=tunnel_client,
+        )
+        if bool(current.get("ok")) and bool(current.get("ready")):
+            result["read_tunnel"] = {
+                **current,
+                "repaired": False,
+            }
+            read_ready = True
+        else:
+            runtime_key = _runtime_key_for_repair(
+                interactive=interactive,
+                label=(
+                    "OpenAI runtime API key for the recorded read tunnel "
+                    "(masked; not stored by ReasonFirst): "
+                ),
+            )
+            if runtime_key is None:
+                result["ok"] = False
+                result["read_tunnel"] = {
+                    **current,
+                    "repaired": False,
+                    "action_required": True,
+                }
+                actions.append(
+                    f"Set {RUNTIME_KEY_ENV} or rerun interactively to repair the recorded read tunnel."
+                )
+            else:
+                mcp_executable = resolve_read_mcp()
+                if not mcp_executable:
+                    raise RuntimeError(
+                        "reasonfirst-gitlab-mcp is missing from this installation"
+                    )
+                repaired = connect_runtime(
+                    tunnel_id=state.tunnel_id,
+                    runtime_key=runtime_key,
+                    alias=state.tunnel_runtime,
+                    tunnel_client=tunnel_client,
+                    mcp_executable=mcp_executable,
+                )
+                read_ready = bool(repaired.get("ok")) and bool(repaired.get("ready"))
+                result["read_tunnel"] = {
+                    **repaired,
+                    "repaired": read_ready,
+                }
+                if read_ready:
+                    persist_tunnel_state(
+                        tunnel_id=state.tunnel_id,
+                        alias=state.tunnel_runtime,
+                        tunnel_client=tunnel_client,
+                        state_path=args.state_file,
+                    )
+                    result["writes_performed"] = True
+                    state = load_setup_state(args.state_file) or state
+                else:
+                    result["ok"] = False
+                    actions.append(
+                        "Recorded read tunnel did not become healthy/ready after reconnect."
+                    )
+    elif state.mode != "cli-only":
+        result["ok"] = False
+        actions.append(
+            "No recorded read tunnel is available to repair; run 'reasonfirst tunnel connect'."
+        )
+
+    if state.mode == "full-chat":
+        if not state.bridge_tunnel_id or not state.bridge_runtime:
+            result["ok"] = False
+            actions.append(
+                "Full-chat mode has no recorded Bridge tunnel; run 'reasonfirst bridge connect'."
+            )
+        elif not tunnel_client:
+            result["ok"] = False
+        elif not read_ready:
+            result["ok"] = False
+            actions.append(
+                "Bridge repair is deferred until the standard read tunnel is healthy."
+            )
+        else:
+            current_bridge = bridge_runtime_status(
+                alias=state.bridge_runtime,
+                tunnel_client=tunnel_client,
+            )
+            if bool(current_bridge.get("ok")) and bool(current_bridge.get("ready")):
+                result["bridge"] = {
+                    **current_bridge,
+                    "repaired": False,
+                }
+            else:
+                acknowledged = bool(args.eligible_workspace)
+                if not acknowledged and interactive:
+                    acknowledged = _confirm(
+                        "Repair the privileged Bridge? Confirm this ChatGPT workspace/client still supports write-capable custom MCP actions."
+                    )
+                if not acknowledged:
+                    result["ok"] = False
+                    result["bridge"] = {
+                        **current_bridge,
+                        "repaired": False,
+                        "action_required": True,
+                    }
+                    actions.append(
+                        "Bridge repair requires explicit eligible-workspace acknowledgement."
+                    )
+                else:
+                    require_eligibility_acknowledgement(acknowledged=True)
+                    runtime_key = _runtime_key_for_repair(
+                        interactive=interactive,
+                        label=(
+                            "OpenAI runtime API key for the recorded Bridge tunnel "
+                            "(masked; not stored by ReasonFirst): "
+                        ),
+                    )
+                    if runtime_key is None:
+                        result["ok"] = False
+                        result["bridge"] = {
+                            **current_bridge,
+                            "repaired": False,
+                            "action_required": True,
+                        }
+                        actions.append(
+                            f"Set {RUNTIME_KEY_ENV} or rerun interactively to repair the Bridge."
+                        )
+                    else:
+                        bridge_executable = resolve_bridge_mcp()
+                        if not bridge_executable:
+                            raise RuntimeError(
+                                "reasonfirst-bridge-mcp is missing from this installation"
+                            )
+                        repaired_bridge = connect_bridge_runtime(
+                            tunnel_id=state.bridge_tunnel_id,
+                            runtime_key=runtime_key,
+                            tunnel_client=tunnel_client,
+                            bridge_executable=bridge_executable,
+                            alias=state.bridge_runtime,
+                            read_tunnel_id=state.tunnel_id,
+                        )
+                        bridge_ready = bool(repaired_bridge.get("ok")) and bool(
+                            repaired_bridge.get("ready")
+                        )
+                        result["bridge"] = {
+                            **repaired_bridge,
+                            "repaired": bridge_ready,
+                        }
+                        if bridge_ready:
+                            persist_bridge_state(
+                                tunnel_id=state.bridge_tunnel_id,
+                                alias=state.bridge_runtime,
+                                state_path=args.state_file,
+                            )
+                            result["writes_performed"] = True
+                        else:
+                            result["ok"] = False
+                            actions.append(
+                                "Recorded Bridge did not become healthy/ready after reconnect."
+                            )
+
+    result["local_control_configured"] = bool(state.config_file)
+    result["local_tunnel_ready"] = read_ready if state.mode != "cli-only" else False
+    result["next"] = (
+        "Local recorded runtimes are healthy. Browser-side ChatGPT acceptance is still "
+        "authoritative; run the relevant handoff command."
+        if bool(result["ok"])
+        else "Follow the listed repair actions, then rerun 'reasonfirst setup --repair'."
+    )
+    return (0 if bool(result["ok"]) else 1), result
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="reasonfirst",
@@ -697,6 +1234,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "--status",
         action="store_true",
         help="Detect local setup state without making changes",
+    )
+    setup.add_argument(
+        "--repair",
+        action="store_true",
+        help="Repair only recorded local runtimes; never recreate account resources",
+    )
+    setup.add_argument(
+        "--install",
+        action="store_true",
+        help="Allow repair to install the verified official tunnel-client if missing",
+    )
+    setup.add_argument(
+        "--eligible-workspace",
+        action="store_true",
+        help="Acknowledge write-capable custom MCP eligibility when repairing full-chat Bridge",
     )
     setup.add_argument(
         "--json",
@@ -810,6 +1362,79 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SETUP_STATE_PATH,
     )
 
+    bridge = sub.add_parser("bridge", help="Manage the optional privileged full-chat Bridge")
+    bridge_sub = bridge.add_subparsers(dest="bridge_command", required=True)
+
+    bridge_inventory = bridge_sub.add_parser(
+        "inventory",
+        help="Verify the packaged Bridge tool surface without connecting ChatGPT",
+    )
+    bridge_inventory.add_argument("--json", action="store_true")
+
+    bridge_connect = bridge_sub.add_parser(
+        "connect",
+        help="Attach the packaged privileged Bridge MCP to a separate OpenAI tunnel",
+    )
+    bridge_connect.add_argument("--tunnel-id", default=None)
+    bridge_connect.add_argument("--alias", default=None)
+    bridge_connect.add_argument(
+        "--eligible-workspace",
+        action="store_true",
+        help="Acknowledge that the selected ChatGPT workspace/client supports write-capable custom MCP actions",
+    )
+    bridge_connect.add_argument(
+        "--install",
+        action="store_true",
+        help="Install the official tunnel-client if it is missing",
+    )
+    bridge_connect.add_argument(
+        "--open-platform",
+        action="store_true",
+        help="Open Platform tunnel settings before prompting for the separate Bridge tunnel ID",
+    )
+    bridge_connect.add_argument("--json", action="store_true")
+    bridge_connect.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
+    bridge_status = bridge_sub.add_parser(
+        "status",
+        help="Inspect the local privileged Bridge runtime health",
+    )
+    bridge_status.add_argument("--alias", default=None)
+    bridge_status.add_argument("--json", action="store_true")
+    bridge_status.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
+    bridge_stop = bridge_sub.add_parser(
+        "stop",
+        help="Stop the managed privileged Bridge runtime",
+    )
+    bridge_stop.add_argument("--alias", default=None)
+    bridge_stop.add_argument("--json", action="store_true")
+    bridge_stop.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
+    bridge_handoff = bridge_sub.add_parser(
+        "handoff",
+        help="Show the eligible-workspace ChatGPT Bridge app acceptance steps",
+    )
+    bridge_handoff.add_argument("--open", action="store_true")
+    bridge_handoff.add_argument("--json", action="store_true")
+    bridge_handoff.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_SETUP_STATE_PATH,
+    )
+
     chatgpt = sub.add_parser("chatgpt", help="Prepare the ChatGPT-side acceptance handoff")
     chatgpt_sub = chatgpt.add_subparsers(dest="chatgpt_command", required=True)
     handoff = chatgpt_sub.add_parser(
@@ -839,6 +1464,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "setup":
+            if args.status and args.repair:
+                raise RuntimeError("--status and --repair are mutually exclusive")
             if args.status:
                 payload = build_setup_status(state_path=args.state_file)
                 if args.json:
@@ -846,6 +1473,16 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     _print_human_status(payload)
                 return 0
+            if args.repair:
+                code, payload = _run_setup_repair(args)
+                if args.json:
+                    _print_json(payload)
+                else:
+                    print("ReasonFirst repair")
+                    for action in payload.get("actions", []):
+                        print(f"  - {action}")
+                    print(str(payload.get("next") or ""))
+                return code
 
             code, payload = _run_guided_setup(args)
             if args.json:
@@ -949,7 +1586,7 @@ def main(argv: list[str] | None = None) -> int:
                 selected_worker=args.backend,
                 completed_phases=tuple(
                     phase
-                    for phase in ("system", "gitlab", "worker", "chatgpt-read", "bridge", "ready")
+                    for phase in ("system", "gitlab", "worker", "tunnel", "chatgpt-read", "bridge", "ready")
                     if phase in (set(previous.completed_phases) | {"worker"})
                 ),
                 installed_version=__version__,
@@ -1022,6 +1659,93 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(f"Stopped: {result.get('stopped')}")
             return 0 if result.get("ok") else 1
+
+        if args.command == "bridge":
+            if args.bridge_command == "inventory":
+                payload = bridge_tool_inventory()
+                if args.json:
+                    _print_json(payload)
+                else:
+                    print(f"Bridge tool inventory OK: {payload.get('ok')}")
+                    print(f"Tool count: {payload.get('tool_count')}")
+                    print(f"Remote push exposed: {payload.get('remote_push_exposed')}")
+                    if not payload.get("ok"):
+                        _print_json(payload)
+                return 0 if payload.get("ok") else 1
+
+            state = load_setup_state(args.state_file)
+
+            if args.bridge_command == "connect":
+                result = _connect_bridge_from_args(args)
+                if args.json:
+                    _print_json(result)
+                else:
+                    if result.get("local_bridge_ready"):
+                        print("ReasonFirst privileged Bridge runtime is healthy and ready.")
+                        print(f"Alias: {result.get('alias')}")
+                        print("Experimental remote push remains disabled.")
+                        print("Next: reasonfirst bridge handoff --open")
+                    else:
+                        print("Bridge runtime did not become ready.", file=sys.stderr)
+                        _print_json(result)
+                return 0 if result.get("local_bridge_ready") else 1
+
+            if state is None or not state.bridge_tunnel_id:
+                raise RuntimeError(
+                    "No Bridge tunnel is recorded; run 'reasonfirst bridge connect' first"
+                )
+
+            if args.bridge_command == "handoff":
+                payload = build_bridge_handoff(tunnel_id=state.bridge_tunnel_id)
+                if args.open:
+                    payload["browser"] = open_handoff_pages(
+                        open_platform=True,
+                        open_chatgpt=True,
+                    )
+                if args.json:
+                    _print_json(payload)
+                else:
+                    print("Full-chat Bridge handoff")
+                    print(f"Bridge tunnel ID: {payload['tunnel_id']}")
+                    for index, step in enumerate(payload["chatgpt_steps"], 1):
+                        print(f"  {index}. {step}")
+                    print()
+                    print("Acceptance prompt:")
+                    print(payload["acceptance_prompt"])
+                    print()
+                    print(
+                        "FULL_CHAT_READY remains false until ChatGPT accepts the "
+                        "write-capable Bridge tool catalog in the eligible workspace."
+                    )
+                return 0
+
+            tunnel_client = resolve_tunnel_client(state=state)
+            if not tunnel_client:
+                raise RuntimeError(
+                    "tunnel-client is unavailable; run 'reasonfirst tunnel install'"
+                )
+
+            alias = args.alias or state.bridge_runtime or DEFAULT_BRIDGE_ALIAS
+            if args.bridge_command == "status":
+                result = bridge_runtime_status(alias=alias, tunnel_client=tunnel_client)
+                if args.json:
+                    _print_json(result)
+                else:
+                    print(f"Alias: {result.get('alias')}")
+                    print(f"Process running: {result.get('process_running')}")
+                    print(f"Healthy: {result.get('healthy')}")
+                    print(f"Ready: {result.get('native_ready')}")
+                    print("ChatGPT write capability verified: false")
+                return 0 if result.get("ok") else 1
+
+            if args.bridge_command == "stop":
+                result = stop_bridge_runtime(alias=alias, tunnel_client=tunnel_client)
+                if args.json:
+                    _print_json(result)
+                else:
+                    print(f"Stopped: {result.get('stopped')}")
+                return 0 if result.get("ok") else 1
+
 
         if args.command == "chatgpt":
             state = load_setup_state(args.state_file)
