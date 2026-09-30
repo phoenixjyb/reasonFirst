@@ -48,11 +48,35 @@ The full ChatGPT-first path has now been exercised end to end against a syntheti
 
 For external users, start with the generic [fully chat-based E2E practice](docs/CHAT_ONLY_PRACTICE.md). It uses placeholders for your own GitLab host/project and keeps the human merge decision separate from automated execution. On macOS networks that require an HTTP(S) proxy, use the documented session-scoped launchd proxy sync rather than writing proxy credentials into a plist.
 
+## Install — packaged or source
+
+Both installation routes are first-class and converge on the same setup/state model.
+
+**Normal-user packaged route (v0.5.1 release):**
+
+```bash
+uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+reasonfirst setup
+```
+
+**Source/developer route:**
+
+```bash
+git clone https://github.com/phoenixjyb/reasonFirst.git
+cd reasonFirst
+uv sync --python 3.12
+uv run reasonfirst setup
+```
+
+The packaged route does not require keeping a ReasonFirst checkout. The source route remains fully supported for contributors, audits, private patches and editable installs. Both use the same private config, SetupState, project grants and tunnel identities; switching route does not require recreating account resources. See **[Install & update](docs/INSTALL.md)** · **[中文](docs/INSTALL_CN.md)**.
+
+
 ## Guides by task
 
 | Goal | Guide |
 | --- | --- |
-| First-time ChatGPT connection, from prerequisites to first prompt | **[Complete setup](docs/GETTING_STARTED.md)** · **[中文](docs/GETTING_STARTED_CN.md)** |
+| Install/update: packaged route or source route | **[Install & update](docs/INSTALL.md)** · **[中文](docs/INSTALL_CN.md)** |
+| First-time ChatGPT connection, from prerequisites to first prompt | [Detailed/manual setup](docs/GETTING_STARTED.md) · [中文](docs/GETTING_STARTED_CN.md) |
 | Already configured: start/status/stop/restart | [Tunnel lifecycle](docs/TUNNEL_LIFECYCLE.md) · [中文](docs/TUNNEL_LIFECYCLE_CN.md) |
 | Confirm a new project's existence/access and obtain an explicit grant | [Project access](docs/PROJECT_ACCESS.md) · [中文](docs/PROJECT_ACCESS_CN.md) |
 | Rehearse the reasoning/worker/MR loop | [Practice lab](docs/PRACTICE_LAB.md) · [中文](docs/PRACTICE_LAB_CN.md) |

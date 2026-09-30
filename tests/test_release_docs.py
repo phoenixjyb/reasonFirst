@@ -12,6 +12,8 @@ ACTIVE_DOCS = [
     ROOT / "README_CN.md",
     ROOT / "SECURITY.md",
     ROOT / "SECURITY_CN.md",
+    ROOT / "docs/INSTALL.md",
+    ROOT / "docs/INSTALL_CN.md",
     ROOT / "docs/GETTING_STARTED.md",
     ROOT / "docs/GETTING_STARTED_CN.md",
     ROOT / "docs/QUICKSTART_CN.md",
@@ -78,10 +80,31 @@ class ReleaseDocumentationTests(unittest.TestCase):
     def test_site_navigation_and_workflow_enforce_release_docs(self):
         mkdocs = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/docs-pages.yml").read_text(encoding="utf-8")
+        self.assertIn("docs/INSTALL.md", mkdocs)
+        self.assertIn("docs/INSTALL_CN.md", mkdocs)
         self.assertIn("docs/RELEASE_NOTES_0.5.0.md", mkdocs)
         self.assertIn("docs/RELEASE_NOTES_0.5.0_CN.md", mkdocs)
         self.assertIn("scripts/check_docs_site_links.py", workflow)
         self.assertIn("Check rendered internal links", workflow)
+
+    def test_v051_install_docs_keep_packaged_and_source_routes_first_class(self):
+        en = (ROOT / "docs/INSTALL.md").read_text(encoding="utf-8")
+        cn = (ROOT / "docs/INSTALL_CN.md").read_text(encoding="utf-8")
+        for text in (en, cn):
+            self.assertIn("uv tool install", text)
+            self.assertIn("git clone", text)
+            self.assertIn("reasonfirst setup", text)
+            self.assertIn("reasonfirst setup --repair", text)
+        self.assertIn("packaged or source", (ROOT / "README.md").read_text(encoding="utf-8"))
+
+    def test_release_asset_workflow_is_human_release_triggered(self):
+        workflow = (ROOT / ".github/workflows/release-assets.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("types: [published]", workflow)
+        self.assertIn("scripts/check_release_tag.py", workflow)
+        self.assertIn("scripts/install_e2e.py", workflow)
+        self.assertIn("gh release upload", workflow)
 
     def test_homepage_surfaces_validation_without_claiming_a_fixed_release_sha(self):
         text = (ROOT / "website/index.md").read_text(encoding="utf-8")

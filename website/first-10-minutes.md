@@ -3,7 +3,7 @@
 **Goal:** experience the ReasonFirst loop once without losing the reasoning boundary.
 
 !!! note "This is the short path"
-    This page assumes the repository connection and at least one coding worker are already available. If they are not, use the [first-time setup](docs/GETTING_STARTED.md) first.
+    This page assumes `reasonfirst setup` has already configured the repository connection and at least one coding worker. If not, start with [Install & update](docs/INSTALL.md). Commands below use the **packaged install** form. Source/developer users can run the same CLI from the checkout by prefixing `uv run` (for example, `actual-coder ...`).
 
 ## 1. Read before you code
 
@@ -37,10 +37,10 @@ A good task is small enough that a worker can execute it without making product 
 
 ## 3. Persist that intent as TaskSpec
 
-From the ReasonFirst source checkout, prepare a managed workspace without launching a model:
+Prepare a managed workspace without launching a model:
 
 ~~~bash
-uv run actual-coder start team/project-a \
+actual-coder start team/project-a \
   --task fix-timeout \
   --goal "Fix the timeout bug" \
   --acceptance "Timeout regression test passes" \
@@ -66,9 +66,9 @@ Set `WS` to the real returned workspace ID:
 
 ~~~bash
 WS="012345abcdef"
-uv run actual-coder status "$WS"
-uv run actual-coder evidence "$WS"
-uv run actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage" --dry-run
+actual-coder status "$WS"
+actual-coder evidence "$WS"
+actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage" --dry-run
 ~~~
 
 Check the diff, reviewability, validation, protected paths, secret/history coverage, and candidate identity. A worker saying “done” is not acceptance.
@@ -76,9 +76,9 @@ Check the diff, reviewability, validation, protected paths, secret/history cover
 If the dry-run is intentionally clean and unblocked:
 
 ~~~bash
-uv run actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage"
-uv run actual-coder ci "$WS"
-uv run actual-coder evidence "$WS" --from-ci
+actual-coder finish "$WS" --message "fix: handle timeout and add regression coverage"
+actual-coder ci "$WS"
+actual-coder evidence "$WS" --from-ci
 ~~~
 
 ## 6. Return the evidence to ChatGPT

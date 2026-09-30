@@ -1,0 +1,68 @@
+name: Release assets
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-attach:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Verify release tag matches package/runtime version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python scripts/check_release_tag.py "$RELEASE_TAG"
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Inspect release artifacts
+        run: python scripts/check_release_artifacts.py dist/*
+
+      - name: Exercise packaged and source install routes
+        run: python scripts/install_e2e.py --dist-dir dist --source-root .
+
+      - name: Re-run source/history secret scan
+        run: |
+          uv sync
+          uv run python scripts/check_repo_secrets.py --history
+
+      - name: Generate pinned Homebrew formula
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          SOURCE_URL="https://github.com/${REPOSITORY}/archive/refs/tags/${RELEASE_TAG}.tar.gz"
+          curl --fail --location --retry 5 --output /tmp/reasonfirst-source.tar.gz "$SOURCE_URL"
+          SHA256="$(sha256sum /tmp/reasonfirst-source.tar.gz | awk '{print $1}')"
+          python scripts/render_homebrew_formula.py \
+            --version "$VERSION" \
+            --source-url "$SOURCE_URL" \
+            --sha256 "$SHA256" \
+            --output dist/reasonfirst.rb
+          ruby -c dist/reasonfirst.rb
+
+      - name: Attach validated install artifacts to the existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber

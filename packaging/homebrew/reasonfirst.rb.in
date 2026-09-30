@@ -1,0 +1,38 @@
+class Reasonfirst < Formula
+  desc "Reasoning-first coding orchestration with controlled workers and GitLab evidence"
+  homepage "https://phoenixjyb.github.io/reasonFirst/"
+  url "__SOURCE_URL__"
+  version "__VERSION__"
+  sha256 "__SHA256__"
+  license "Apache-2.0"
+
+  depends_on "python@3.12"
+  depends_on "uv" => :build
+
+  def install
+    venv = libexec/"venv"
+    system "uv", "venv", venv, "--python", Formula["python@3.12"].opt_bin/"python3.12"
+    system "uv", "pip", "install", buildpath, "--python", venv/"bin/python"
+
+    %w[
+      reasonfirst
+      reasonfirst-gitlab-mcp
+      reasonfirst-bridge-mcp
+      actual-coder
+      gitlab-agent
+      codingagent
+      actual-coder-check-project
+      actual-coder-migrate-https
+      actual-coder-tunnel
+    ].each do |command|
+      bin.install_symlink venv/"bin"/command
+    end
+  end
+
+  test do
+    assert_match "__VERSION__", shell_output("#{bin}/reasonfirst --version")
+    output = shell_output("#{bin}/reasonfirst setup --status --json")
+    assert_match '"mutating": false', output
+    assert_match '"ready": false', output
+  end
+end
