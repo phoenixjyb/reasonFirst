@@ -65,6 +65,17 @@ repair 不创建 GitLab 项目、OpenAI tunnel 或 ChatGPT app。重新连接不
 
 安装新版包不代表已运行的进程自动加载了新版，应另外检查实际服务。新 repair 命令基于记录的状态，并非任意旧版 launchd profile 或手工服务的自动迁移工具。
 
+## 新机器测试发现的跨平台修正
+
+共享实现修正了隧道命令引号/Windows 路径及 UTF-8 JSON 解码，隔离了托管 Git
+调用继承的凭证 helper，并支持工作区显式审批的项目 Python。原受保护契约和全局
+PATH 不变；宿主固定契约校验与 worker handoff 使用同一解释器映射。正常 handoff
+内置 PowerShell 5.1/7 或 POSIX 执行配方，保留原参数、真实子进程退出码及超时/输出
+完整性证据，而不是把外层进程退出 0 当作测试通过。
+
+公开资源准备还生成 `RELEASE.json` 与 `SHA256SUMS.txt`；遇到已存在的目标文件名
+停止，不静默替换发布资源。详见[公开下载及恢复边界](RELEASE_DISTRIBUTION.md#简体中文)。
+
 ## 验证范围及限制
 
 功能整合基线 `ee1ed4564e07b52adbbadaea750d9799c43d7d56` 已通过[十个 CI job](https://github.com/phoenixjyb/reasonFirst/actions/runs/36669048813)及[文档构建/部署](https://github.com/phoenixjyb/reasonFirst/actions/runs/36669048675)。这是版本提升前的证据，不能替代最终发布准备提交的验证。

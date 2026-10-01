@@ -11,6 +11,8 @@ uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5
 reasonfirst setup
 ```
 
+公开资源包括 `SHA256SUMS.txt` 和 `RELEASE.json`，详见[下载校验与发布范围](RELEASE_DISTRIBUTION.md#简体中文)。这些文件须等发布资源流水线成功后才可用。
+
 这条路径**不要求长期保留 ReasonFirst 源码检出目录**。wheel 已包含：
 
 - `reasonfirst`；
