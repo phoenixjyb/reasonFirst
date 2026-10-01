@@ -109,3 +109,59 @@ Release，而不是聊天附件或会过期的 Actions 附件。发布人确认�
 只有最终公开下载、哈希和脱离源码目录的安装验证通过后才分享下载入口。已有进程
 不会因为磁盘上安装了新包而自动更新。已完成的 Windows 宿主/worker 验收与尚未
 完成的新 handoff 现场验收、重启恢复、Windows 全聊天写入验收分别记录，不夸大。
+
+## v0.5.1 post-publication staging recovery
+
+The normal initial-handoff Windows acceptance and host closeout have since passed,
+as recorded in #94; that supersedes the historical pending-handoff item above.
+Deferred privileged Windows write and restart/reboot checks remain unverified.
+
+The human-published `v0.5.1` tag stays frozen at
+`9b0f488ab0dc2e836c10699b2b45c4bfd8009e9b`. The first Release assets run
+`36827292184` passed build, install, scanning and formula checks, but failed the
+strict staging input-set check before upload. `uv build` creates a hidden
+`dist/.gitignore` marker by default; that marker is not a release asset. The
+synthetic bundle tests originally missed the real build-directory integration.
+
+Future normal builds use `uv build --no-create-gitignore`. The input allowlist,
+tracked-source checks, tag checks and no-replacement policy stay unchanged. Do not
+ignore arbitrary hidden files, remove the guard, move the published tag, delete the
+Release, or rerun the old publication helper. A rerun of the original tagged
+workflow still uses that frozen workflow; it does not pick up this main-branch fix.
+
+The one-version **Release staging recovery** workflow builds the unchanged source
+commit in a separate checkout and runs the original tagged staging/upload guards.
+PR and main-push runs stage a downloadable five-file bundle only, with read-only
+repository permissions and no asset attachment. A real offline-uv regression also
+reproduces the marker failure and verifies the flag resolves it without accepting
+other unexpected files. Native hosted staging tests the full real source build.
+
+After reviewing the merged recovery workflow and its staging result, the maintainer
+can select that workflow on `main` and manually supply `ATTACH v0.5.1` in its
+`confirmation` input. A blank input stages only. The attachment job is reachable
+only for that explicit manual invocation on main; it downloads this run's exact
+staged bundle, verifies provenance and the already accepted wheel hash, rereads the
+existing Release ID/tag and full asset inventory, then uploads without replacement.
+Any collision, immutable release, identity change or uncertain upload outcome stops
+for review. It does not create/edit/delete a Release, retag, mark Latest or configure
+any user's installation. Only the published release's first asset attachment is
+being recovered; do not reuse this one-version workflow for a future version.
+
+`RELEASE.json` continues identifying the frozen package source. Additional
+`release_tooling_commit` and `recovery_of_workflow_run` fields distinguish the newer
+recovery orchestration from that unchanged source; the checksum file covers the
+updated manifest. Review downloads/install after attachment before sharing or
+marking Latest. A staging success alone is not a public-download acceptance.
+
+### 发布后恢复说明
+
+`v0.5.1` 的 tag 与包源码保持不动。首次发布流水线在上传前失败，原因是 `uv build`
+默认在输出目录生成 `.gitignore`，而发布打包器只允许准确的三个输入文件。修复仅让
+构建使用 `--no-create-gitignore`，不放宽白名单，不删除未知文件，不移动 tag 或重建
+Release。旧 tag 的流水线重跑不会自动采用 main 中的新编排。
+
+专用恢复流水线从原固定提交构建，PR/main 推送只验证并保留五文件包。维护者审阅后，
+在 main 上手动输入 `ATTACH v0.5.1` 才允许向已有 Release 首次上传；空输入不上传。
+上传前复核本次包、源与编排身份、原 Release、tag 和完整附件列表，遇同名文件停止，
+不覆盖或删除。manifest 分别记录原包源码与恢复编排提交，失败记录保留。真实公开
+下载、校验和及安装仍在附件完成后验收；不改用户机器、隧道或账号授权。
