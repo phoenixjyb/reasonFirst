@@ -1,0 +1,44 @@
+name: Tunnel command boundary
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native-parser:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout reviewed upstream parser source
+        uses: actions/checkout@v4
+        with:
+          repository: openai/tunnel-client
+          ref: a390c168ff1b2d14e73a95991c186c6aba3ff5a0
+          path: .upstream-tunnel-client
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - run: python -m pip install --upgrade uv
+      - run: uv sync
+      - name: Real subprocess decoding with forced GBK text default
+        run: uv run python -m unittest discover -s tests -p test_tunnel_boundary.py -v
+      - name: Actual upstream parser and native child launch
+        run: uv run python scripts/check_native_tunnel_boundary.py --upstream .upstream-tunnel-client
