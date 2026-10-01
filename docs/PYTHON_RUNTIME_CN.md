@@ -74,3 +74,10 @@ status/plan 校验已确认的解释器身份及命令可用性，不运行项�
 运行中的隧道仍使用原安装包时，通过已审阅 wheel 的 `uv tool run --isolated --from`
 路线验证候选，不覆盖正在使用的环境。这里只隔离软件包，不隔离工作区：绑定有意
 保存在已有工作区的本地管理目录，以便下一次继续使用。
+
+## 内置 worker 执行配方
+
+解释器审批后，正常 CLI/本机 Bridge 的 handoff 会附带
+[跨平台 worker 执行配方](WORKER_EXECUTION.md#简体中文)，支持 PowerShell 5.1/7
+和 POSIX shell，不再要求用户另贴修复提示或重新选择 Python。进程成功与实际
+测试通过分别判定，仍须核查项目测试输出。
