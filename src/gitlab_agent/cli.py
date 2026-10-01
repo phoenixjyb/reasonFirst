@@ -30,6 +30,8 @@ from .practice import (
 )
 from .practice_seed import build_practice_seed_plan, execute_practice_seed
 from .runner import CommandRunner
+from .python_runtime import handoff_runtime_guidance
+from .python_runtime_cli import register_commands, handle_command
 from .worker_policy import (
     WorkerPolicy,
     build_worker_argv,
@@ -349,6 +351,12 @@ def _handoff(
         "project_context": project_context or {},
         "ci_context_included": bool(ci_context),
     }
+
+    if project_context:
+        guidance, runtime_evidence = handoff_runtime_guidance(manager, workspace_id, project_context)
+        if guidance:
+            result["agent_prompt"] = str(result["agent_prompt"]) + guidance
+            result["python_runtime_evidence"] = runtime_evidence
 
     # Alpha.1-alpha.3 compatibility for existing Codex integrations.
     if agent in {"codex", "codex-cli"}:
@@ -1574,6 +1582,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     p.add_argument("workspace_id")
     p.add_argument("--force", action="store_true")
 
+    register_commands(sub)
     return parser
 
 
@@ -1600,6 +1609,11 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
         manager = WorkspaceManager(settings)
         runner = CommandRunner(settings, manager)
         gitlab_api = GitLabAPI(settings)
+
+        if args.command in {"python", "validate"}:
+            result, code = handle_command(args, settings, manager, runner)
+            _print(result)
+            return code
 
         if args.command == "practice-seed":
             plan = build_practice_seed_plan(

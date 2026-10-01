@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .config import AgentSettings
 from .workspace import WorkspaceManager, _clip
+from .python_runtime import PythonBindings
 
 
 _SECRET_NAME_FRAGMENTS = (
@@ -83,13 +84,27 @@ class CommandRunner:
 
         try:
             with self.workspaces.mutation_lock(workspace_id):
+                resolution = PythonBindings(self.workspaces).resolve(workspace_id, argv)
+                effective_argv = resolution["resolved_argv"]
+                env = self._safe_env(workspace_id)
+                options = {}
+                if resolution["python_binding"]:
+                    # Pin the chosen interpreter, not an inherited Python home or
+                    # locale-dependent pipe encoding. Do not add flags to argv.
+                    for key in list(env):
+                        if key.upper() in {"PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"}:
+                            env.pop(key)
+                    env["PYTHONIOENCODING"] = "utf-8"
+                    env["PYTHONDONTWRITEBYTECODE"] = "1"
+                    options = {"encoding": "utf-8", "errors": "replace"}
                 proc = subprocess.run(
-                    argv,
+                    effective_argv,
                     cwd=cwd,
                     text=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    env=self._safe_env(workspace_id),
+                    env=env,
+                    **options,
                     timeout=timeout,
                     check=False,
                 )
@@ -109,6 +124,7 @@ class CommandRunner:
             return {
                 "workspace_id": workspace_id,
                 "argv": argv,
+                "execution": resolution,
                 "timed_out": True,
                 "timeout_seconds": timeout,
                 "returncode": None,
@@ -129,6 +145,7 @@ class CommandRunner:
         return {
             "workspace_id": workspace_id,
             "argv": argv,
+            "execution": resolution,
             "timed_out": False,
             "timeout_seconds": timeout,
             "returncode": proc.returncode,

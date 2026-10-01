@@ -13,6 +13,7 @@ from .project_config import (
     parse_project_config,
 )
 from .runner import CommandRunner
+from .python_runtime import PythonBindings
 from .review_gates import evaluate_review_gates
 from .history_scan import HistoryScanError, scan_history_secrets
 from .workspace import WorkspaceManager
@@ -55,27 +56,13 @@ def _load_base_contract(
     return dict(parsed.effective), metadata
 
 
-def build_finish_plan(
-    *,
+def run_project_validations(
     settings: AgentSettings,
-    manager: WorkspaceManager,
     runner: CommandRunner,
     workspace_id: str,
-    commit_message: str | None = None,
-    mr_title: str | None = None,
-    mr_description: str = "",
-    allow_protected: bool = False,
-    allow_secret_match: bool = False,
-) -> dict[str, object]:
-    """Validate a workspace and produce the controlled finish plan."""
-
-    state = manager.get_state(workspace_id)
-    project_context, project_metadata = _load_base_contract(
-        settings,
-        manager,
-        workspace_id,
-    )
-
+    project_context: dict[str, object],
+) -> tuple[list[dict[str, object]], bool]:
+    """Use the same required commands/timeouts for validation-only and finish."""
     validations: list[dict[str, object]] = []
     validation_blocked = False
     for raw_command in project_context.get("validation_commands", []):
@@ -120,6 +107,34 @@ def build_finish_plan(
                 "result": result,
             }
         )
+
+    return validations, validation_blocked
+
+
+def build_finish_plan(
+    *,
+    settings: AgentSettings,
+    manager: WorkspaceManager,
+    runner: CommandRunner,
+    workspace_id: str,
+    commit_message: str | None = None,
+    mr_title: str | None = None,
+    mr_description: str = "",
+    allow_protected: bool = False,
+    allow_secret_match: bool = False,
+) -> dict[str, object]:
+    """Validate a workspace and produce the controlled finish plan."""
+
+    state = manager.get_state(workspace_id)
+    project_context, project_metadata = _load_base_contract(
+        settings,
+        manager,
+        workspace_id,
+    )
+
+    validations, validation_blocked = run_project_validations(
+        settings, runner, workspace_id, project_context,
+    )
 
     # Re-read the exact workspace state after validations. Validation commands may
     # create/update files, so the reviewed diff and safety scan must reflect the
@@ -242,6 +257,15 @@ def build_finish_plan(
             security_diff.encode("utf-8", errors="replace")
         ).hexdigest(),
     }
+    bound_runtimes = {}
+    for validation in validations:
+        execution = validation.get("result", {}).get("execution", {})
+        binding = execution.get("python_binding")
+        if binding is not None:
+            bound_runtimes[binding["command"]] = binding
+    if bound_runtimes:
+        snapshot_payload["python_runtime_bindings"] = bound_runtimes
+
     snapshot_digest = hashlib.sha256(
         json.dumps(
             snapshot_payload,
@@ -320,6 +344,12 @@ def execute_finish(
             current_security_diff.encode("utf-8", errors="replace")
         ).hexdigest(),
     }
+    if "python_runtime_bindings" in expected_snapshot:
+        bindings = PythonBindings(manager)
+        current_payload["python_runtime_bindings"] = {
+            command: bindings.read(workspace_id, command)
+            for command in expected_snapshot["python_runtime_bindings"]
+        }
     current_digest = hashlib.sha256(
         json.dumps(
             current_payload,
