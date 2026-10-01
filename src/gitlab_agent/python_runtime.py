@@ -371,4 +371,6 @@ def handoff_runtime_guidance(manager: WorkspaceManager, workspace_id: str,
         "Local preflight is not proof of worker access or test success.\n"
         + json.dumps(evidence, ensure_ascii=True, indent=2) + "\n"
     )
+    from .worker_recipe import recipe_guidance
+    text += recipe_guidance(evidence, context, manager.settings)
     return text, evidence

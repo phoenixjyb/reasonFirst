@@ -95,3 +95,10 @@ While a tunnel uses the installed package, test a candidate with the reviewed
 `uv tool run --isolated --from` wheel route rather than overwriting its environment.
 That isolates the package, not the workspace: the binding deliberately persists for
 the existing workspace so the approved interpreter can be reused on the next run.
+
+## Built-in worker launch recipe
+
+After a binding is approved, the normal CLI/local-Bridge handoff includes a
+[portable worker-side execution recipe](WORKER_EXECUTION.md). The recipe handles
+PowerShell 5.1/7 or POSIX shells without a corrective prompt or a new interpreter.
+It reports process evidence; reviewers still check the actual project test report.
