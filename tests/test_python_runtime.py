@@ -206,12 +206,18 @@ class PythonRuntimeTests(unittest.TestCase):
         self.assertNotIn("install", argv)
 
     def test_probe_environment_does_not_inherit_credentials_or_python_overrides(self):
-        with patch.dict(os.environ, {"EXAMPLE_TOKEN": "synthetic", "PYTHONPATH": "untrusted", "VIRTUAL_ENV": "other", "GIT_ASKPASS": "unexpected"}):
+        with patch.dict(os.environ, {
+            "EXAMPLE_TOKEN": "synthetic", "PYTHONPATH": "untrusted",
+            "VIRTUAL_ENV": "other", "GIT_ASKPASS": "unexpected",
+            "PYTHONEXECUTABLE": "other", "__PYVENV_LAUNCHER__": "other",
+        }):
             env = _safe_probe_env()
         self.assertNotIn("EXAMPLE_TOKEN", env)
         self.assertNotIn("PYTHONPATH", env)
         self.assertNotIn("VIRTUAL_ENV", env)
         self.assertNotIn("GIT_ASKPASS", env)
+        self.assertNotIn("PYTHONEXECUTABLE", env)
+        self.assertNotIn("__PYVENV_LAUNCHER__", env)
 
     def test_real_execution_works_without_python3_or_launcher_on_path(self):
         self.bind()
@@ -236,6 +242,106 @@ class PythonRuntimeTests(unittest.TestCase):
         self.assertIsNone(result["returncode"])
         self.assertEqual(result["execution"]["resolved_argv"][0], sys.executable)
 
+    def make_venv(self, name: str) -> Path:
+        envdir = self.root / name
+        venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(envdir)
+        return envdir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+    def directory_alias(self, name: str, target: Path) -> Path:
+        alias = self.root / name
+        try:
+            alias.symlink_to(target, target_is_directory=True)
+        except OSError as exc:
+            if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Host does not permit unprivileged directory symlinks")
+            raise
+        return alias
+
+    def identity_text(self, executable: str | Path) -> str:
+        return json.dumps({"executable": str(executable),
+                           "version": list(sys.version_info[:3]),
+                           "implementation": sys.implementation.name})
+
+    def test_probe_accepts_canonical_parent_but_preserves_invocation(self):
+        executable = self.make_venv("Python 空间's env")
+        envdir = executable.parent.parent
+        alias = self.directory_alias("Alias 空间's env", envdir)
+        selected = alias / executable.relative_to(envdir)
+        # Model the macOS framework launcher: realpath(dirname), NOT realpath
+        # of the final python symlink. All filesystem identities are real here.
+        reported = selected.parent.resolve(strict=True) / selected.name
+        with patch("gitlab_agent.python_runtime._capture_probe",
+                   return_value=self.identity_text(reported)):
+            record = self.bind(str(selected))
+        self.assertEqual(record["runtime"]["executable"], str(selected))
+        result = self.runner.run(self.wid, ["python3", "-c", "import sys;print(sys.prefix)"])
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["execution"]["resolved_argv"][0], str(selected))
+        self.assertEqual(Path(result["stdout"].strip()).resolve(strict=True),
+                         envdir.resolve(strict=True))
+
+    def test_probe_rejects_other_venv_and_base_even_with_shared_binary(self):
+        selected = self.make_venv("first env")
+        other = self.make_venv("second env")
+        self.assertEqual(executable_fingerprint(str(selected))["sha256"],
+                         executable_fingerprint(str(other))["sha256"])
+        other_leaf = selected.with_name("python3.exe" if os.name == "nt" else "python3")
+        for reported in (other, Path(sys.executable).resolve(strict=True), other_leaf):
+            with self.subTest(reported=reported), patch(
+                "gitlab_agent.python_runtime._capture_probe",
+                return_value=self.identity_text(reported),
+            ):
+                with self.assertRaises(PythonBindingError):
+                    self.bind(str(selected))
+        self.assertFalse(self.bindings.root.exists())
+
+    def test_probe_rejects_relative_and_invalid_identity_paths(self):
+        for reported in (os.path.relpath(sys.executable), "", "python3",
+                         str(self.root / "missing" / "python"), "x" * 4097,
+                         sys.executable + "\x00"):
+            with self.subTest(reported=reported[:80]), patch(
+                "gitlab_agent.python_runtime._capture_probe",
+                return_value=self.identity_text(reported),
+            ):
+                with self.assertRaises(PythonBindingError):
+                    self.bind()
+        self.assertFalse(self.bindings.root.exists())
+
+    def test_probe_retains_isolation_no_site_and_no_bytecode_flags(self):
+        with patch("gitlab_agent.python_runtime._capture_probe",
+                   return_value=self.identity_text(sys.executable)) as capture:
+            probe_python(sys.executable)
+        self.assertEqual(capture.call_args.args[0][:5],
+                         [sys.executable, "-I", "-S", "-B", "-c"])
+
+    def test_retargeted_parent_alias_rejected_before_reprobe(self):
+        first = self.make_venv("first env")
+        second = self.make_venv("second env")
+        first_dir, second_dir = first.parent.parent, second.parent.parent
+        # Equal executable bytes AND cfg bytes must not hide a directory change.
+        (second_dir / "pyvenv.cfg").write_bytes((first_dir / "pyvenv.cfg").read_bytes())
+        alias = self.directory_alias("selected env", first_dir)
+        selected = alias / first.relative_to(first_dir)
+        self.bind(str(selected))
+        alias.unlink()
+        alias.symlink_to(second_dir, target_is_directory=True)
+        with patch("gitlab_agent.python_runtime.probe_python") as probe:
+            with self.assertRaises(PythonBindingError):
+                self.bindings.read(self.wid, "python3")
+        probe.assert_not_called()
+
+    def test_bound_execution_ignores_inherited_launcher_identity(self):
+        selected = self.make_venv("selected env")
+        self.bind(str(selected))
+        for key in ("PYTHONEXECUTABLE", "__PYVENV_LAUNCHER__"):
+            with self.subTest(key=key), patch.dict(os.environ, {key: sys.executable}):
+                result = self.runner.run(
+                    self.wid, ["python3", "-c", "import sys;print(sys.prefix)"],
+                )
+                self.assertEqual(result["returncode"], 0)
+                self.assertEqual(Path(result["stdout"].strip()).resolve(strict=True),
+                                 selected.parent.parent.resolve(strict=True))
+
     def test_real_venv_preserves_invocation_path_with_unicode_spaces_quotes(self):
         envdir = self.root / "Python 空间's env"
         venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(envdir)
@@ -243,7 +349,9 @@ class PythonRuntimeTests(unittest.TestCase):
         self.bind(str(executable))
         result = self.runner.run(self.wid, ["python3", "-c", "import sys;print(sys.prefix)"])
         self.assertEqual(result["returncode"], 0)
-        self.assertEqual(Path(result["stdout"].strip()), envdir)
+        self.assertEqual(result["execution"]["resolved_argv"][0], str(executable))
+        self.assertEqual(Path(result["stdout"].strip()).resolve(strict=True),
+                         envdir.resolve(strict=True))
         (envdir / "pyvenv.cfg").write_text("changed\n", encoding="utf-8")
         with self.assertRaises(PythonBindingError):
             self.bindings.resolve(self.wid, ["python3", "-V"])

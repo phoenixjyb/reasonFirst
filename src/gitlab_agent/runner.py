@@ -92,7 +92,10 @@ class CommandRunner:
                     # Pin the chosen interpreter, not an inherited Python home or
                     # locale-dependent pipe encoding. Do not add flags to argv.
                     for key in list(env):
-                        if key.upper() in {"PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"}:
+                        if key.upper() in {
+                            "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV",
+                            "PYTHONEXECUTABLE", "__PYVENV_LAUNCHER__",
+                        }:
                             env.pop(key)
                     env["PYTHONIOENCODING"] = "utf-8"
                     env["PYTHONDONTWRITEBYTECODE"] = "1"

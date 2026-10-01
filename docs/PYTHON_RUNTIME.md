@@ -43,6 +43,11 @@ TaskSpec, `.actualcoder.yaml`, the API-token file, Git settings, or Windows cred
 Preserve venv invocation paths: resolving a python symlink to its base binary can
 select the wrong environment. The binding detects binary, symlink-target, and
 `pyvenv.cfg` changes before probing/using it again; approve changes explicitly.
+The identity comparison accepts canonical parent-directory aliases (including
+macOS temporary-directory aliases), but never treats different venvs as equivalent
+merely because their Python symlinks share a binary. The approved invocation spelling
+is retained, and retargeting its parent directory requires re-approval. Bindings
+created by an earlier draft without the directory fingerprint also need re-approval.
 
 ## Validate the original pinned contract
 
@@ -62,7 +67,8 @@ is not a test pass. Missing/invalid resolution stops before tests; required test
 failures remain failures. This command never commits, pushes, or launches a worker,
 but project tests can write files and the usual host-runner policy still applies.
 
-For bound Python commands the runner removes inherited Python-home/path overrides,
+For bound Python commands the runner removes inherited Python-home/path and launcher
+identity overrides (`PYTHONEXECUTABLE` and `__PYVENV_LAUNCHER__`),
 uses UTF-8 pipe output, and suppresses bytecode cache writes. It does not disable
 assertions, skip tests, change arguments, or install dependencies. The shared finish
 path uses the same resolution and records the binding in its reviewed snapshot;

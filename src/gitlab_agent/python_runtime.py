@@ -53,7 +53,7 @@ def _safe_probe_env() -> dict[str, str]:
             "TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "PRIVATE_KEY",
         ))
         and not key.upper().startswith(("GIT_", "GITLAB_", "PYTHON", "UV_", "CONDA"))
-        and key.upper() not in {"SSH_AUTH_SOCK", "VIRTUAL_ENV"}
+        and key.upper() not in {"SSH_AUTH_SOCK", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"}
     }
 
 
@@ -97,6 +97,24 @@ def _invocation_path(value: str) -> Path:
     return path
 
 
+def _matches_invocation_path(reported: str, selected: Path) -> bool:
+    # macOS framework launchers canonicalize the parent directory, e.g. /var
+    # versus /private/var, but preserve the final executable symlink. Comparing
+    # fully resolved files (or samefile) could accept a different venv sharing
+    # the base binary. Keep the leaf name AND canonical invocation directory.
+    if not reported or len(reported) > 4096 or any(ord(c) < 32 for c in reported):
+        return False
+    actual = Path(reported)
+    if not actual.is_absolute():
+        return False
+    try:
+        actual = actual.parent.resolve(strict=True) / actual.name
+        expected = selected.parent.resolve(strict=True) / selected.name
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return os.path.normcase(str(actual)) == os.path.normcase(str(expected))
+
+
 def discover_python(version: str) -> str:
     if not re.fullmatch(r"3\.\d{1,2}(?:\.\d{1,3})?", version):
         raise PythonBindingError("--python requires an explicit version such as 3.12")
@@ -134,6 +152,7 @@ def executable_fingerprint(executable: str) -> dict[str, Any]:
     # pyvenv.cfg determines venv selection; its change also requires re-approval.
     cfg = path.parent.parent / "pyvenv.cfg"
     return {
+        "invocation_directory": str(path.parent.resolve(strict=True)),
         "resolved_file": str(path.resolve(strict=True)),
         "sha256": _hash_file(path, MAX_EXECUTABLE),
         "venv_config_sha256": _hash_file(cfg, MAX_RECORD) if cfg.exists() else None,
@@ -160,7 +179,7 @@ def probe_python(executable: str, expected_version: str | None = None) -> dict[s
         or not isinstance(data["implementation"], str)
         or data["implementation"] not in {"cpython", "pypy"}
         or not isinstance(data["executable"], str)
-        or os.path.normcase(os.path.abspath(data["executable"])) != os.path.normcase(str(path))
+        or not _matches_invocation_path(data["executable"], path)
     ):
         raise PythonBindingError("Python probe did not match the selected interpreter")
     if expected_version:
