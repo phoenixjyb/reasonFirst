@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add explicit workspace-scoped Python interpreter approval, offline installed-version
+  discovery, and validation-only preflight/execution. Keep the pinned project
+  command unchanged while recording requested and resolved argv; share approved
+  mappings with local worker handoffs and finish validation. Changed binaries or
+  venv configuration require re-approval, and changed bindings invalidate reviewed
+  finish snapshots. No automatic installation, PATH mutation, remote-machine mapping,
+  or new privileged MCP tool is introduced. See [Python runtime guide](docs/PYTHON_RUNTIME.md)
+  / [中文](docs/PYTHON_RUNTIME_CN.md).
+
 - Isolate credentials for authenticated managed Git operations from inherited
   credential helpers and URL-specific usernames. Keep credential-source precedence,
   temporary askpass, and noninteractive behavior without changing global Git config.
