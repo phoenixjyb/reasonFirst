@@ -1,0 +1,199 @@
+name: Release staging recovery
+
+# Frozen v0.5.1 only. PR/push runs BUILD and STAGE; they NEVER attach assets.
+# Manual attachment additionally requires the exact confirmation below on main.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release-assets.yml'
+      - '.github/workflows/release-recovery.yml'
+      - 'tests/test_release_recovery.py'
+      - 'scripts/release_bundle.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-assets.yml'
+      - '.github/workflows/release-recovery.yml'
+      - 'tests/test_release_recovery.py'
+      - 'scripts/release_bundle.py'
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Leave blank to stage only; type ATTACH v0.5.1 to attach after review'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+# Share the original publisher's lock; never cancel an in-flight upload.
+concurrency:
+  group: release-assets-400714020
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: v0.5.1
+  RELEASE_ID: '400714020'
+  EXPECTED_SOURCE_SHA: 9b0f488ab0dc2e836c10699b2b45c4bfd8009e9b
+  EXPECTED_WHEEL_SHA256: 12d5663c44a68a7b417e510028f4780dd363feaf590a609d46de8b19fd21a7e6
+  RECOVERY_TOOLING_SHA: ${{ github.sha }}
+
+jobs:
+  stage:
+    if: github.repository == 'phoenixjyb/reasonFirst' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - name: Checkout recovery tooling for regression checks only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - name: Checkout frozen release source, not recovery main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 9b0f488ab0dc2e836c10699b2b45c4bfd8009e9b
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install the originally observed build frontend
+        run: python -m pip install uv==0.12.21
+      - name: Verify frozen tag and both sets of release tests
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$EXPECTED_SOURCE_SHA"
+          python scripts/check_release_tag.py "$RELEASE_TAG"
+          python -m unittest discover -s tests -p test_release_bundle.py -v
+          (cd ../tooling && python -m unittest discover -s tests -p test_release_recovery.py -v)
+      - name: Build the frozen source without uv's output marker
+        run: uv build --no-create-gitignore
+      - name: Inspect artifacts and exercise packaged/source installation
+        run: |
+          set -euo pipefail
+          python scripts/check_release_artifacts.py dist/*
+          python scripts/install_e2e.py --dist-dir dist --source-root .
+      - name: Recheck full source/history scan
+        run: |
+          uv sync --frozen
+          uv run --frozen python scripts/check_repo_secrets.py --history
+      - name: Generate formula for the unchanged public tag
+        run: |
+          set -euo pipefail
+          SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${RELEASE_TAG}.tar.gz"
+          curl --fail --location --retry 5 --output "$RUNNER_TEMP/release-source.tar.gz" "$SOURCE_URL"
+          SOURCE_HASH="$(sha256sum "$RUNNER_TEMP/release-source.tar.gz" | awk '{print $1}')"
+          python scripts/render_homebrew_formula.py --version 0.5.1 \
+            --source-url "$SOURCE_URL" --sha256 "$SOURCE_HASH" --output dist/reasonfirst.rb
+          ruby -c dist/reasonfirst.rb
+      - name: Stage with the unchanged tagged allowlist and provenance guard
+        run: |
+          python scripts/release_bundle.py stage \
+            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" \
+            --source-sha "$EXPECTED_SOURCE_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Verify accepted wheel bytes and record separate recovery-tooling identity
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          from scripts.release_bundle import verify_bundle
+          out = Path('release-download')
+          manifest = verify_bundle(out)
+          wheel = 'chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl'
+          if manifest['files_sha256'][wheel] != os.environ['EXPECTED_WHEEL_SHA256']:
+              raise SystemExit('Rebuilt wheel differs from the accepted candidate; stop for review')
+          tooling_sha = os.environ['RECOVERY_TOOLING_SHA']
+          if not re.fullmatch('[a-f0-9]{40}', tooling_sha):
+              raise SystemExit('Invalid recovery tooling identity')
+          manifest['release_tooling_commit'] = tooling_sha
+          manifest['recovery_of_workflow_run'] = '36827292184'
+          path = out / 'RELEASE.json'
+          path.write_text(json.dumps(manifest, ensure_ascii=True, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          sums = dict(manifest['files_sha256'])
+          sums['RELEASE.json'] = hashlib.sha256(path.read_bytes()).hexdigest()
+          (out / 'SHA256SUMS.txt').write_text(''.join(f'{digest}  {name}\n' for name, digest in sorted(sums.items())), encoding='utf-8')
+          verify_bundle(out)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as stream:
+              stream.write('Frozen-source staging passed. This step does not attach assets.\n\n')
+              stream.write((out / 'SHA256SUMS.txt').read_text())
+          PY
+      - name: Retain the exact staged bundle for review and optional attachment
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v051-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: source/release-download/*
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: false
+          include-hidden-files: false
+
+  attach:
+    needs: stage
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'phoenixjyb/reasonFirst' && inputs.confirmation == 'ATTACH v0.5.1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout the original release guards
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 9b0f488ab0dc2e836c10699b2b45c4bfd8009e9b
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Download only this run's staged bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "v051-recovery-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --dir "$RUNNER_TEMP/recovery-release"
+      - name: Reverify bytes and this run's source/tooling provenance
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.release_bundle import verify_bundle
+          manifest = verify_bundle(Path(os.environ['RUNNER_TEMP']) / 'recovery-release')
+          expected = {'source_commit': os.environ['EXPECTED_SOURCE_SHA'],
+                      'release_tag': os.environ['RELEASE_TAG'],
+                      'repository': os.environ['GITHUB_REPOSITORY'],
+                      'workflow_run_id': os.environ['GITHUB_RUN_ID'],
+                      'workflow_run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+                      'release_tooling_commit': os.environ['RECOVERY_TOOLING_SHA']}
+          if any(manifest.get(key) != value for key, value in expected.items()):
+              raise SystemExit('Recovery artifact provenance mismatch')
+          if manifest['files_sha256']['chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl'] != os.environ['EXPECTED_WHEEL_SHA256']:
+              raise SystemExit('Unaccepted wheel bytes')
+          PY
+      - name: Require unchanged published release, unmoved tag and no collisions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --hostname github.com "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/release.json"
+          gh api --hostname github.com --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > "$RUNNER_TEMP/assets.json"
+          REMOTE_SHA="$(gh api --hostname github.com "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha)"
+          python scripts/release_bundle.py check-upload \
+            --directory "$RUNNER_TEMP/recovery-release" \
+            --release-json "$RUNNER_TEMP/release.json" --assets-json "$RUNNER_TEMP/assets.json" \
+            --repository "$GITHUB_REPOSITORY" --release-id "$RELEASE_ID" --remote-sha "$REMOTE_SHA"
+      - name: Attach once, never replace or mark Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/recovery-release/"* --repo "$GITHUB_REPOSITORY"

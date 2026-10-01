@@ -46,7 +46,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_release_bundle.py -v
 
       - name: Build wheel and sdist
-        run: uv build
+        run: uv build --no-create-gitignore
 
       - name: Inspect release artifacts
         run: python scripts/check_release_artifacts.py dist/*
