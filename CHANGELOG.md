@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Offer read-only reuse of existing configuration before replaying onboarding;
+  add explicit `setup --reuse-existing` and `--reconfigure` controls. Preserve all
+  existing grants, configuration bytes and exported-variable precedence on reuse;
+  never write wizard phases or start services as a side effect. Classify invalid,
+  unreadable, unsupported and missing selected configuration without echoing values.
+- Add `reasonfirst status` as the detect-only inventory alias. Separate installed
+  CLI identity from uninspected running-service identity and bounded static evidence
+  for the known macOS legacy/sidecar LaunchAgent. Missing wizard records no longer
+  recommend duplicate tunnel setup when an existing configuration/deployment is
+  present. Windows/Linux service-manager discovery remains explicitly uninspected.
+- Clarify packaged, source/editable and legacy-service upgrades in both install
+  guides. This is not service adoption, activation, rollback or a new release;
+  published v0.5.1 artifacts and running installations are unchanged.
+
 - Add explicit workspace-scoped Python interpreter approval, offline installed-version
   discovery, and validation-only preflight/execution. Keep the pinned project
   command unchanged while recording requested and resolved argv; share approved

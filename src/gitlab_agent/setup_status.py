@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import os
 import platform
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 from . import __version__
 from .codex_app_server import managed_app_server_socket
-from .config import AgentSettings, resolve_env_file
+from .config import AgentSettings
+from .deployment_inventory import build_deployment_inventory
+from .setup_inspection import inspect_configuration
 from .setup_state import (
     DEFAULT_SETUP_STATE_PATH,
     SetupState,
@@ -45,17 +46,6 @@ def _linux_distribution() -> dict[str, str] | None:
     except OSError:
         return None
     return values or None
-
-
-def _load_settings_without_env_leak(
-    loader: Callable[[], AgentSettings],
-) -> AgentSettings:
-    before = dict(os.environ)
-    try:
-        return loader()
-    finally:
-        os.environ.clear()
-        os.environ.update(before)
 
 
 def _probe(
@@ -201,31 +191,7 @@ def build_setup_status(
         if item["name"] in {"codex-cli", "codex-desktop"}
     )
 
-    config_path = resolve_env_file().expanduser()
-    config: dict[str, object] = {
-        "path": str(config_path),
-        "exists": config_path.is_file(),
-        "valid": False,
-        "error": None,
-    }
-    try:
-        settings = _load_settings_without_env_leak(load_settings)
-        config.update(
-            {
-                "path": str(settings.config_file),
-                "exists": settings.config_file.is_file(),
-                "valid": True,
-                "gitlab_base_url": settings.gitlab_base_url,
-                "has_api_token": bool(settings.api_token),
-                "has_git_credential": bool(settings.git_token),
-                "allowed_projects": sorted(settings.allowed_projects),
-                "require_write_allowlist": settings.require_write_allowlist,
-                "default_backend": settings.default_backend,
-                "workspace_root": str(settings.workspace_root),
-            }
-        )
-    except Exception as exc:
-        config["error"] = str(exc)
+    _, config = inspect_configuration(loader=load_settings)
 
     setup_state: dict[str, object]
     state: SetupState | None = None
@@ -245,20 +211,30 @@ def build_setup_status(
                 "valid": True,
                 "state": state.to_dict(),
             }
-    except Exception as exc:
+    except Exception:
         setup_state = {
             "path": str(state_path.expanduser()),
             "exists": True,
             "valid": False,
-            "error": str(exc),
+            "error": "Setup metadata is invalid or unreadable; inspect it locally without recreating configuration.",
             "state": None,
         }
+
+    deployment = build_deployment_inventory(state=state, system_name=system_value)
+    # A missing wizard ledger is not proof that an existing service is absent.
+    review_existing = (
+        (state is None and config["status"] != "missing")
+        or bool(deployment["legacy_evidence"])
+        or not setup_state["valid"]
+        or (not config["valid"] and config["status"] != "missing")
+    )
 
     mode = state.mode if state is not None else "standard"
     machine_ready = python_ok and bool(executable_paths["git"]) and bool(
         executable_paths["uv"]
     )
-    control_plane_ready = machine_ready and bool(config["valid"]) and worker_available
+    control_plane_ready = (machine_ready and bool(config["valid"])
+                           and not config.get("missing_fields") and worker_available)
     tunnel_client_available = bool(executable_paths["tunnel-client"])
     tunnel_recorded = bool(
         state is not None
@@ -292,7 +268,11 @@ def build_setup_status(
                 "message": "Install uv using a supported platform method.",
             }
         )
-    if not bool(config["valid"]):
+    if not setup_state["valid"]:
+        next_actions.append({"id": "inspect-setup-state", "message": str(setup_state["error"])})
+    if not bool(config["valid"]) and config["status"] != "missing":
+        next_actions.append({"id": "inspect-config", "message": str(config["error"])})
+    elif not bool(config["valid"]) and setup_state["valid"]:
         next_actions.append(
             {
                 "id": "configure-gitlab",
@@ -302,6 +282,12 @@ def build_setup_status(
                 ),
             }
         )
+    if config.get("missing_fields"):
+        next_actions.append({
+            "id": "complete-existing-config",
+            "message": "Existing config is preserved but lacks: " + ", ".join(config["missing_fields"])
+                       + ". Review the configuration locally; no grants or credentials were inferred.",
+        })
     if not worker_available:
         next_actions.append(
             {
@@ -311,7 +297,16 @@ def build_setup_status(
                 ),
             }
         )
-    if mode != "cli-only" and not tunnel_client_available:
+    if review_existing:
+        next_actions.append({
+            "id": "review-existing-deployment",
+            "message": (
+                "Existing configuration or legacy deployment evidence was found. Missing wizard records "
+                "do not prove a service is missing. Review 'reasonfirst status' and the upgrade guide; "
+                "do not recreate connections or restart services just to populate setup metadata."
+            ),
+        })
+    if mode != "cli-only" and not tunnel_client_available and not review_existing:
         next_actions.append(
             {
                 "id": "install-tunnel-client",
@@ -321,7 +316,7 @@ def build_setup_status(
                 ),
             }
         )
-    if mode != "cli-only" and tunnel_client_available and not tunnel_recorded:
+    if mode != "cli-only" and tunnel_client_available and not tunnel_recorded and not review_existing:
         next_actions.append(
             {
                 "id": "configure-tunnel",
@@ -361,7 +356,7 @@ def build_setup_status(
                 ),
             }
         )
-    if mode == "full-chat" and tunnel_recorded and not bridge_recorded:
+    if mode == "full-chat" and tunnel_recorded and not bridge_recorded and not review_existing:
         next_actions.append(
             {
                 "id": "configure-bridge",
@@ -401,6 +396,8 @@ def build_setup_status(
         "mode": mode,
         "probes": probes,
         "config": config,
+        "deployment": deployment,
+        "mode_source": "setup_state" if state is not None else "default_not_deployment_evidence",
         "workers": workers,
         "setup_state": setup_state,
         "readiness": {
