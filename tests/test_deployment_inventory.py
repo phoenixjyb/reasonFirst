@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager, ExitStack
 import os
 from pathlib import Path
 import plistlib
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -32,9 +34,41 @@ class DeploymentInventoryTests(unittest.TestCase):
         self.plist.write_bytes(plistlib.dumps(data))
         self.plist.chmod(0o600)
 
-    def inventory(self, system='Darwin', state=None):
-        with patch('subprocess.run', side_effect=AssertionError('No process calls')), \
-             patch('socket.socket', side_effect=AssertionError('No socket calls')):
+    @contextmanager
+    def posix_registration_metadata(self, *, mode=0o600, owner=1000, current_user=1000):
+        """Model macOS metadata, not Windows ACLs, for the selected fixture only.
+
+        Windows chmod(0600) controls the read-only attribute, not POSIX mode bits.
+        Keep the actual file kind, size, reads and exceptions. In particular, never
+        turn a symlink or directory into a trusted regular registration.
+        """
+        native_lstat = Path.lstat
+
+        def fixture_lstat(path, *args, **kwargs):
+            info = native_lstat(path, *args, **kwargs)
+            if path == self.plist and stat.S_ISREG(info.st_mode):
+                fields = list(info)
+                fields[stat.ST_MODE] = stat.S_IFREG | mode
+                fields[stat.ST_UID] = owner
+                return os.stat_result(fields)
+            return info
+
+        with patch.object(Path, 'lstat', fixture_lstat), \
+             patch('gitlab_agent.deployment_inventory.os.getuid',
+                   return_value=current_user, create=True):
+            yield
+
+    def inventory(self, system='Darwin', state=None, *, simulate_posix=None):
+        # Normal Windows inventory does not inspect launchd at all. These tests
+        # explicitly select Darwin to exercise the same parser on every runner.
+        # Real POSIX hosts retain native ownership/mode checks by default.
+        if simulate_posix is None:
+            simulate_posix = os.name == 'nt' and system.lower() in {'darwin', 'macos'}
+        with ExitStack() as stack:
+            stack.enter_context(patch('subprocess.run', side_effect=AssertionError('No process calls')))
+            stack.enter_context(patch('socket.socket', side_effect=AssertionError('No socket calls')))
+            if simulate_posix:
+                stack.enter_context(self.posix_registration_metadata())
             result = build_deployment_inventory(state=state, system_name=system, home=self.home)
         self.assertIsNone(result['running_service_version'])
         self.assertEqual(result['live_inspection'], 'not_inspected')
@@ -123,6 +157,41 @@ class DeploymentInventoryTests(unittest.TestCase):
                 result = self.inventory(system)
                 self.assertEqual(result['registration']['status'], 'not_inspected')
                 self.assertFalse(result['legacy_evidence'])
+
+    def test_nonmacos_inventory_does_not_read_or_classify_launchd_registration(self):
+        self.write_plist()
+        with patch('gitlab_agent.deployment_inventory._launch_agent',
+                   side_effect=AssertionError('NonmacOS must not use the launchd adapter')), \
+             patch.object(Path, 'open', side_effect=AssertionError('Do not read the plist')):
+            for system in ('Windows', 'Linux', 'Other'):
+                with self.subTest(system=system):
+                    self.assertEqual(self.inventory(system)['registration']['status'], 'not_inspected')
+
+    def test_darwin_layout_fixtures_use_explicit_posix_metadata_on_any_host(self):
+        self.write_plist()
+        result = self.inventory(simulate_posix=True)
+        self.assertEqual(result['registration']['status'], 'discovered_legacy')
+        self.assertTrue(result['registration']['ownership_verified'])
+        # Native filesystem mode bits are not modified by the emulation.
+        before = self.plist.stat()
+        self.inventory(simulate_posix=True)
+        self.assertEqual(self.plist.stat().st_mode, before.st_mode)
+
+    def test_posix_mode_and_owner_guards_still_reject_before_read_on_any_host(self):
+        self.write_plist()
+        for mode, owner in ((0o620, 1000), (0o602, 1000), (0o600, 1001)):
+            with self.subTest(mode=oct(mode), owner=owner), \
+                 self.posix_registration_metadata(mode=mode, owner=owner), \
+                 patch.object(Path, 'open', side_effect=AssertionError('Unsafe plist must not be read')):
+                result = self.inventory(simulate_posix=False)
+                self.assertEqual(result['registration']['status'], 'unsupported_layout')
+                self.assertFalse(result['registration']['ownership_verified'])
+
+    def test_directory_is_not_reclassified_as_regular_by_posix_fixture(self):
+        self.plist.mkdir(parents=True)
+        result = self.inventory(simulate_posix=True)
+        self.assertEqual(result['registration']['status'], 'unsupported_layout')
+        self.assertFalse(result['registration']['ownership_verified'])
 
     def test_bridge_config_is_an_existence_marker_not_live_readiness(self):
         marker = self.home / '.config/reasonfirst/bridge.yaml'
