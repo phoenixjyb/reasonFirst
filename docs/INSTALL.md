@@ -11,6 +11,8 @@ uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5
 reasonfirst setup
 ```
 
+Public assets include `SHA256SUMS.txt` and `RELEASE.json`; see [download verification and release scope](RELEASE_DISTRIBUTION.md). These files become available after the release-asset workflow succeeds.
+
 This route does **not** require keeping a ReasonFirst source checkout. The installed wheel includes:
 
 - `reasonfirst`;

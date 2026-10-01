@@ -65,6 +65,19 @@ Repair does not create GitLab projects, OpenAI tunnels or ChatGPT apps. Reconnec
 
 Installing a newer package is not proof that an already-running process has loaded it. Check the running service separately. The new state-driven repair command is not an automatic migration of arbitrary legacy launchd profiles or manually configured services.
 
+## Cross-platform fixes from clean-machine testing
+
+The shared runtime now preserves tunnel executable quoting and decodes native JSON
+as UTF-8, isolates managed Git credentials from inherited helpers, and supports an
+explicit workspace-approved project Python without changing protected contracts or
+PATH. The same interpreter mapping is used for pinned host validation and worker
+handoffs. Normal handoffs include a complete PowerShell 5.1/7 or POSIX execution
+recipe with exact arguments and truthful child/timeout/output evidence.
+
+Public asset preparation also generates `RELEASE.json` and `SHA256SUMS.txt` and
+refuses existing target filenames instead of silently replacing release assets.
+See [public downloads and recovery boundaries](RELEASE_DISTRIBUTION.md).
+
 ## Validation and its limits
 
 The integrated feature baseline `ee1ed4564e07b52adbbadaea750d9799c43d7d56` passed [all ten CI jobs](https://github.com/phoenixjyb/reasonFirst/actions/runs/36669048813) and [documentation build/deployment](https://github.com/phoenixjyb/reasonFirst/actions/runs/36669048675). This is pre-version-bump evidence, not a substitute for validation of the final release-preparation commit.
