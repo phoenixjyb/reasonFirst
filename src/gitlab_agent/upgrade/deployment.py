@@ -337,12 +337,18 @@ def adopt_deployment(*, system_name: str, expect_digest: str | None, approved: b
         unchanged = _digest(_snapshot(selected)) == expect_digest
     except DeploymentError:
         unchanged = False
-    return {**_result("deployment-adopt"), "ok": unchanged, "record_written": linked,
+    result = {**_result("deployment-adopt"), "ok": unchanged, "record_written": linked,
             "already_recorded": False, "plan_digest": expect_digest,
             "record_path": plan["record_path"],
             "registration_unchanged_at_check": unchanged,
             "message": "Registration snapshot recorded; runtime and health remain uninspected." if unchanged else
                        "Record was written but registration changed; inspect status. No service was changed."}
+    if not unchanged:
+        # The record committed before this observation. Preserve that fact in
+        # both JSON and human output; do not let a missing error field mask it.
+        result.update(error_code="changed_registration", error=result["message"],
+                      inspect_status_before_retry=True)
+    return result
 
 
 def deployment_status(*, system_name: str, home: Path | None = None) -> dict[str, object]:
