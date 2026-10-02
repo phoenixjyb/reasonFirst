@@ -1282,6 +1282,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
+    deployment = sub.add_parser("deployment", help="Review or record a known legacy registration; never activate it")
+    deployment_sub = deployment.add_subparsers(dest="deployment_command", required=True)
+    for name in ("plan", "status", "adopt"):
+        command = deployment_sub.add_parser(name)
+        command.add_argument("--json", action="store_true", help="Emit one JSON result")
+        if name == "adopt":
+            command.add_argument("--expect-digest", required=True, help="Digest from the reviewed deployment plan")
+            command.add_argument("--yes", action="store_true", help="Approve local snapshot recording only")
+
     status = sub.add_parser("status", help="Read static deployment/configuration inventory without changes")
     status.add_argument("--json", action="store_true")
     status.add_argument("--state-file", type=Path, default=DEFAULT_SETUP_STATE_PATH)
@@ -1528,6 +1537,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "deployment":
+            from .upgrade.deployment import run_command
+            payload = run_command(args.deployment_command,
+                                  expect_digest=getattr(args, "expect_digest", None),
+                                  approved=getattr(args, "yes", False))
+            if args.json:
+                _print_json(payload)
+            else:
+                print("ReasonFirst deployment registration (not service activation)")
+                if payload.get("ok"):
+                    for key in ("record_path", "record_status", "proposed_action", "plan_digest",
+                                "registration_comparison", "already_recorded", "record_written"):
+                        if key in payload:
+                            print(f"{key}: {payload[key]}")
+                    print("Runtime, health and configuration bindings are not inspected. No service changed.")
+                else:
+                    print(str(payload["error"]), file=sys.stderr)
+            return 0 if payload.get("ok") else 1
+
         if args.command == "status":
             payload = build_setup_status(state_path=args.state_file)
             payload["command"] = "status"

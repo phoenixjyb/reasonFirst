@@ -64,7 +64,11 @@ unreadable and unsupported layouts are not absence. `healthy`/`unhealthy` are no
 inferred from static files. Missing wizard records with existing config/deployment
 evidence recommend **review**, not duplicate tunnel setup. Neither `mode: standard`
 (the default without a wizard record) nor `ready: false` proves an old service is
-absent. No deployment registry is written or service adopted by this change.
+absent. These setup/status paths do not write a deployment registry or adopt a service.
+
+A separate, explicitly approved development command can [record a known macOS
+registration snapshot](DEPLOYMENTS.md). It does not install a runtime or activate
+a service and is not present in the published v0.5.1 wheel.
 
 ## Route A — packaged install (recommended for new users)
 
@@ -202,8 +206,8 @@ a different core/runtime from the CLI. Missing `setup.yaml` is not lost credenti
 Keep existing approved projects, tunnel identities, listener and read/write policy.
 Do not substitute the stdio-only packaged Bridge command for an HTTP endpoint.
 
-This source change provides **inspection and configuration reuse only**, not a
-service adopter/updater. Activation, maintenance gating, versioned runtimes,
+These source changes provide **inspection, configuration reuse and explicit
+registration-snapshot recording**, not runtime adoption or a service updater. Activation, maintenance gating, versioned runtimes,
 rollback and recovery require separate reviewed tooling and support evidence. Do
 not fabricate wizard phases or remove old/staged directories to clear status flags.
 In particular, retain any active launcher, working directory and private recovery

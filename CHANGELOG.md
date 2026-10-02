@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add explicit `deployment plan/adopt/status` for a create-only snapshot of the
+  known macOS legacy/sidecar LaunchAgent. Require reviewed digest plus `--yes`,
+  preserve existing records, classify drift separately from health, and leave
+  runtime identity/configuration bindings uninspected. No runtime installation,
+  activation, service restart, setup-state fabrication or new release is included.
+  See [deployment records](docs/DEPLOYMENTS.md) / [中文](docs/DEPLOYMENTS_CN.md).
+
 - Offer read-only reuse of existing configuration before replaying onboarding;
   add explicit `setup --reuse-existing` and `--reconfigure` controls. Preserve all
   existing grants, configuration bytes and exported-variable precedence on reuse;
