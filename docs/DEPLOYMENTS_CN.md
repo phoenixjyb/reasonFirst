@@ -76,4 +76,7 @@ reasonfirst deployment status --json
 登记快照只是需重新验证的一项输入，不赋予执行权。并行准备运行环境、打包 HTTP 入口、
 维护门控、服务切换、恢复和回滚都**不在本命令中实现**。不必为测试登记而更新或重启工作机器。
 
+另见独立的[打包 HTTP 入口](BRIDGE_HTTP_CN.md)：它仅为开发期共享核心传输包装，
+不使注册命令成为升级器；需要旧 `/control` 路由的部署仍不兼容。
+
 [English](DEPLOYMENTS.md)
