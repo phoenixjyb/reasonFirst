@@ -48,6 +48,7 @@ from .setup_state import (
     save_setup_state,
 )
 from .setup_status import build_setup_status
+from .setup_inspection import inspect_configuration
 from .setup_tunnel import (
     DEFAULT_TUNNEL_ALIAS,
     RUNTIME_KEY_ENV,
@@ -188,6 +189,8 @@ def _print_human_status(payload: dict[str, object]) -> None:
         f"| ReasonFirst {payload.get('reasonfirst_version')}"
     )
     print(f"Mode: {payload.get('mode')}")
+    if payload.get("mode_source") == "default_not_deployment_evidence":
+        print("Mode is a default, not evidence of the existing deployment's capabilities.")
     print()
     print(
         f"{_mark(bool(readiness.get('machine_prerequisites')))} "
@@ -254,6 +257,15 @@ def _print_human_status(payload: dict[str, object]) -> None:
             "before reporting READY."
         )
     print()
+    deployment = payload.get("deployment")
+    if isinstance(deployment, dict):
+        installed = deployment.get("installed_cli", {})
+        registration = deployment.get("registration", {})
+        print(f"Installed CLI package: {installed.get('version')} ({installed.get('package_directory')})")
+        print(f"Service registration (static): {registration.get('status')}")
+        if registration.get("layout"):
+            print(f"Recognized launcher layout: {registration['layout']}")
+        print("Running service version/health: not inspected (no live requests)")
     print("No changes were made.")
 
 
@@ -559,38 +571,82 @@ def _run_guided_setup(
     input_fn: Callable[[str], str] = input,
     secret_fn: Callable[[str], str] = getpass.getpass,
 ) -> tuple[int, dict[str, object]]:
-    if not sys.stdin.isatty():
+    if not sys.stdin.isatty() and not getattr(args, "reuse_existing", False):
         raise RuntimeError(
             "Guided setup requires an interactive TTY because secrets and approval "
             "must not be supplied on argv. Use setup --status for non-interactive inspection."
         )
 
-    assert_no_effective_env_override(
-        [
-            "GITLAB_BASE_URL",
-            "GITLAB_TOKEN",
-            "GITLAB_ALLOWED_PROJECTS",
-            "GITLAB_VERIFY_SSL",
-            "GITLAB_REQUIRE_WRITE_ALLOWLIST",
-            "REASONFIRST_DEFAULT_BACKEND",
-        ]
+    current, inspection = inspect_configuration(
+        path=resolve_env_file(), loader=_load_settings_clean,
     )
-
-    current: AgentSettings | None
+    if current is None and inspection["status"] != "missing":
+        return 1, {
+            "ok": False, "command": "setup", "stage": "configuration-inspection",
+            "config": inspection, "writes_performed": False, "ready": False,
+        }
     try:
-        current = _load_settings_clean()
+        state = load_setup_state(args.state_file)
     except Exception:
-        current = None
-
-    effective_config = (
-        current.config_file
-        if current is not None
-        else resolve_env_file().expanduser()
+        return 1, {
+            "ok": False, "command": "setup", "stage": "setup-state-inspection",
+            "error": "Setup metadata is invalid or unreadable. Inspect it locally; no new setup was written.",
+            "writes_performed": False, "ready": False,
+        }
+    requested_changes = bool(getattr(args, "reconfigure", False)) or any(
+        getattr(args, name, None) is not None
+        for name in ("gitlab_url", "project", "ref", "worker", "mode")
     )
+    if getattr(args, "reuse_existing", False) and requested_changes:
+        raise RuntimeError("--reuse-existing cannot be combined with reconfiguration options")
+    if getattr(args, "reuse_existing", False) and current is None:
+        return 1, {
+            "ok": False, "command": "setup", "stage": "configuration-inspection",
+            "config": inspection, "writes_performed": False, "ready": False,
+        }
+    if current is not None and not requested_changes:
+        if not getattr(args, "reuse_existing", False):
+            if not args.json:
+                print("Existing ReasonFirst configuration found.")
+                print(f"Config: {inspection['path']}")
+                print(f"GitLab: {current.gitlab_base_url}")
+                print("Approved projects: " + (", ".join(sorted(current.allowed_projects)) or "none"))
+                print(f"Worker preference: {current.default_backend}")
+                if inspection["environment_override_names"]:
+                    print("Environment overrides (names only): " + ", ".join(inspection["environment_override_names"]))
+            answer = input_fn("Reuse existing configuration without changes or service starts? [Y/n] ").strip().lower()
+            if answer not in {"", "y", "yes"}:
+                return 1, {"ok": False, "command": "setup", "cancelled": True,
+                           "writes_performed": False, "ready": False,
+                           "message": "Reuse cancelled; nothing changed. Use --reconfigure for deliberate configuration changes."}
+        # Re-inspect after approval, without persisting wizard phases or starting
+        # services. Existing settings/grants retain their original authority.
+        latest, config = inspect_configuration(path=resolve_env_file(), loader=_load_settings_clean)
+        if latest is None or latest != current:
+            return 1, {"ok": False, "command": "setup", "stage": "configuration-inspection",
+                       "config": config, "writes_performed": False, "ready": False,
+                       "error": "Configuration changed during review; inspect it again."}
+        return 0, {
+            "ok": True, "command": "setup", "stage": "configuration-reused",
+            "configuration_reused": True, "config": config,
+            "mode": state.mode if state is not None else "standard",
+            "mode_source": "setup_state" if state is not None else "default_not_deployment_evidence",
+            "setup_state_recorded": state is not None,
+            "local_control_configured": not bool(config["missing_fields"]),
+            "writes_performed": False, "service_started": False,
+            "provider_check_performed": False, "chatgpt_connection": "not_verified", "ready": False,
+            "next": "Configuration reused. Run 'reasonfirst status' for static inventory; service adoption/activation and provider acceptance remain separate. No setup metadata was created.",
+        }
+
+    # Explicit reconfiguration keeps the existing writer/preflight/approval
+    # boundaries. Exported values are never silently unset or overwritten.
+    assert_no_effective_env_override(
+        ["GITLAB_BASE_URL", "GITLAB_TOKEN", "GITLAB_ALLOWED_PROJECTS",
+         "GITLAB_VERIFY_SSL", "GITLAB_REQUIRE_WRITE_ALLOWLIST", "REASONFIRST_DEFAULT_BACKEND"]
+    )
+    effective_config = current.config_file if current is not None else resolve_env_file().expanduser()
     if effective_config.exists():
         ensure_persistent_config_target(effective_config)
-
-    state = load_setup_state(args.state_file)
     mode = args.mode or (state.mode if state is not None else "standard")
     if mode not in SETUP_MODES:
         raise ValueError("Unsupported setup mode")
@@ -1005,7 +1061,7 @@ def _run_setup_repair(args: argparse.Namespace) -> tuple[int, dict[str, object]]
         return 1, {
             "ok": False,
             "command": "setup-repair",
-            "error": "No ReasonFirst setup state exists; run 'reasonfirst setup' first.",
+            "error": "No wizard setup record exists. Run 'reasonfirst setup --status' to inspect existing configuration/deployment evidence; repair does not adopt legacy services.",
             "writes_performed": False,
             "ready": False,
         }
@@ -1226,10 +1282,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
+    status = sub.add_parser("status", help="Read static deployment/configuration inventory without changes")
+    status.add_argument("--json", action="store_true")
+    status.add_argument("--state-file", type=Path, default=DEFAULT_SETUP_STATE_PATH)
+
     setup = sub.add_parser(
         "setup",
         help="Inspect or configure the ReasonFirst installation",
     )
+    reuse = setup.add_mutually_exclusive_group()
+    reuse.add_argument("--reuse-existing", action="store_true",
+                       help="Reuse valid effective settings without prompts, writes, service starts or live checks")
+    reuse.add_argument("--reconfigure", action="store_true",
+                       help="Deliberately enter the guided configuration editor instead of read-only reuse")
     setup.add_argument(
         "--status",
         action="store_true",
@@ -1463,7 +1528,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "status":
+            payload = build_setup_status(state_path=args.state_file)
+            payload["command"] = "status"
+            if args.json:
+                _print_json(payload)
+            else:
+                _print_human_status(payload)
+            return 0
+
         if args.command == "setup":
+            if (args.status or args.repair) and (args.reuse_existing or args.reconfigure):
+                raise RuntimeError("--status/--repair cannot be combined with --reuse-existing/--reconfigure")
             if args.status and args.repair:
                 raise RuntimeError("--status and --repair are mutually exclusive")
             if args.status:
@@ -1488,12 +1564,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.json:
                 _print_json(payload)
             elif code == 0:
-                print("ReasonFirst local control setup complete.")
+                if payload.get("configuration_reused"):
+                    print("Existing configuration reused; no files or services changed.")
+                else:
+                    print("ReasonFirst local control setup complete.")
                 print(str(payload.get("next") or ""))
             elif payload.get("cancelled"):
                 print(str(payload.get("message") or "Cancelled."), file=sys.stderr)
             else:
-                print("GitLab project preflight failed; no config was changed.", file=sys.stderr)
+                print("Setup did not complete; no new configuration was written at this check.", file=sys.stderr)
                 _print_json(payload)
             return code
 

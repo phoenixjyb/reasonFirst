@@ -2,9 +2,73 @@
 
 ReasonFirst v0.5.1 supports **two first-class installation routes**. They converge on the same `reasonfirst` CLI, private GitLab config, non-secret setup state, tunnel IDs and review/publication policy.
 
-## Route A — packaged install (recommended for normal users)
+## Existing installation? Inspect before changing it
 
-After v0.5.1 is published, install the reviewed wheel attached to the GitHub Release:
+**Installing a package does not update every running service.** Keep your existing
+config, workspaces, source checkout, legacy runtime and active sidecar directories.
+Do not rerun onboarding or create a new tunnel merely because `setup.yaml` is absent.
+
+The following detect-only command works with the published v0.5.1 as well as this
+source branch. It makes no provider requests, writes, or service changes:
+
+```bash
+reasonfirst --version
+reasonfirst setup --status --json
+```
+
+Use the intended installation's executable when several are on PATH. The effective
+config still comes from `GITLAB_AGENT_ENV_FILE`, then the canonical
+`~/.config/gitlab-agent/.env`, then cwd `.env`. Existing exported values take
+precedence; never paste `.env` contents or tokens into a report.
+
+### Development-source additions (not in the published v0.5.1 wheel)
+
+On this development branch, plain `reasonfirst setup` offers one **reuse**
+confirmation for existing valid settings. Accepting does not prompt again for the
+URL/token/project/worker, narrow the allowlist, write `setup.yaml`, verify logins,
+start services or create connections. An explicit noninteractive equivalent is:
+
+```bash
+reasonfirst setup --reuse-existing --json
+reasonfirst status --json
+```
+
+These new flags/alias require a build of this branch or a future release that
+includes it. They have not been added retroactively to the v0.5.1 downloads.
+`setup --reconfigure` (or explicit configuration options such as `--project`)
+selects the deliberate editor instead; its original preflight, environment-conflict
+and approval guards still apply. Declining reuse cancels rather than falling into
+that editor. `--reuse-existing` cannot be combined with change options.
+
+Reuse includes custom/cwd config and environment-only settings without copying
+secrets into a new, higher-precedence file. Incomplete settings remain intact with
+missing fields reported. Malformed, duplicate-key, oversized, unreadable or
+symlinked selected config is classified and left untouched, not treated as new
+onboarding. This inspection uses the simple single-line assignment dialect of the
+existing loader; it does not evaluate shell syntax. The legacy low-level loader's
+behavior outside these setup/status paths is unchanged.
+
+`status` and `setup --status` share a static inventory. The installed CLI version,
+Python and module directory are separate from the **uninspected** running version.
+On macOS only the known user `com.reasonfirst.v4-mcp` LaunchAgent is inspected; its
+legacy staged and versioned HTTP-sidecar path layouts are recognized without
+executing them. No broad service search, `launchctl`, listener probe or MCP request
+runs. A recognized path declares a layout, not a verified transport or code identity.
+Windows/Linux service-manager discovery is explicitly `not_inspected` in this PR.
+A missing registration means only that the selected registration was not found.
+
+The selected plist is parsed privately and may contain environment values, but the
+output omits environment values and arbitrary arguments. The Bridge config is an
+existence marker only. Known layouts can report `discovered_legacy`; malformed,
+unreadable and unsupported layouts are not absence. `healthy`/`unhealthy` are not
+inferred from static files. Missing wizard records with existing config/deployment
+evidence recommend **review**, not duplicate tunnel setup. Neither `mode: standard`
+(the default without a wizard record) nor `ready: false` proves an old service is
+absent. No deployment registry is written or service adopted by this change.
+
+## Route A — packaged install (recommended for new users)
+
+For a new installation, install the reviewed wheel attached to the v0.5.1 GitHub Release:
 
 ```bash
 uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
@@ -95,37 +159,56 @@ Changing installation route does **not** require recreating approved projects, O
 
 Do not run two different ReasonFirst installations concurrently against the same managed workspace.
 
-After changing version or installation route:
-
-```bash
-reasonfirst setup --repair
-reasonfirst setup --status
-```
-
-`--repair` only repairs **recorded local runtime state**. It does not create GitLab projects, OpenAI tunnels or ChatGPT apps. If a runtime credential is needed, it is taken from `CONTROL_PLANE_API_KEY` or a masked interactive prompt and is not persisted by ReasonFirst.
+Before changing version or installation route, inspect the existing installation.
+`reasonfirst setup --repair` repairs only runtimes **already recorded** in valid setup metadata;
+it is not a legacy importer and may reconnect services. With no setup record,
+inspect the existing deployment instead of running a new wizard to create one.
+A credential request during an explicitly approved reconnect is separate from
+configuration reuse; ReasonFirst still never persists tunnel runtime API keys.
 
 ## Upgrade packaged installs
 
-Download/install the wheel for the new reviewed release:
+First check the effective config and which runtime any live service imports. Do not
+replace a tool environment while a service depends on it. A version-pinned sidecar
+can deliberately reject changed package bytes; updating the CLI alone is not a
+coordinated sidecar upgrade.
+
+Once the intended package replacement is safe and approved, use the reviewed
+release wheel. This example targets v0.5.1, not an unreleased future version:
 
 ```bash
 uv tool install --force https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
-reasonfirst setup --repair
+reasonfirst setup --status --json
 ```
 
-For later releases, replace both occurrences of `0.5.1` with the target reviewed release version.
+The first command replaces the tool installation; it is not a service activation
+transaction. For later releases replace both version occurrences. Reuse existing
+settings; inspect recorded runtime health and plan any restart separately. Do not
+run `setup --repair` indiscriminately on a busy machine.
 
-## Upgrade source installs
+## Upgrade source/editable installs
 
-Preserve local changes, move the checkout to the reviewed tag/commit, then:
+Keep local changes and your existing package-manager ownership. Select a reviewed
+tag/commit without resetting or discarding work, update that checkout's environment
+with the source-install route, then inspect configuration and service versions.
+Do not silently switch a developer's editable installation to a wheel or assume a
+staged daemon imports the updated checkout. Never operate two independent mutating
+installations on the same managed workspace.
 
-```bash
-uv sync --python 3.12
-bash scripts/install_user.sh
-reasonfirst setup --repair
-```
+## Adopt or upgrade a legacy background service
 
-On Windows use `scripts/install_user.ps1`.
+An older launchd/staged HTTP deployment can share the GitLab config while importing
+a different core/runtime from the CLI. Missing `setup.yaml` is not lost credentials.
+Keep existing approved projects, tunnel identities, listener and read/write policy.
+Do not substitute the stdio-only packaged Bridge command for an HTTP endpoint.
+
+This source change provides **inspection and configuration reuse only**, not a
+service adopter/updater. Activation, maintenance gating, versioned runtimes,
+rollback and recovery require separate reviewed tooling and support evidence. Do
+not fabricate wizard phases or remove old/staged directories to clear status flags.
+In particular, retain any active launcher, working directory and private recovery
+backup. A stopped/started service and its existing-client roundtrip must be verified
+separately from successful package installation; static inventory is not that test.
 
 ## Homebrew formula
 
