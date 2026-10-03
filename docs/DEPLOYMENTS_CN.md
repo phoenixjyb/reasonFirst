@@ -80,3 +80,5 @@ reasonfirst deployment status --json
 不使注册命令成为升级器；需要旧 `/control` 路由的部署仍不兼容。
 
 [English](DEPLOYMENTS.md)
+
+[与候选运行环境联合只读检查](DEPLOYMENT_PAIRING_CN.md)

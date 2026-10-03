@@ -11,13 +11,15 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
+import plistlib
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 
-from gitlab_agent.upgrade import runtime as r
+from gitlab_agent.upgrade import deployment as d, pairing, runtime as r
 
 
 
@@ -54,6 +56,60 @@ def execute(argv, cwd, *, env=None):
     return proc
 
 
+def pairing_acceptance(home, runtime_id, python):
+    """Only called with this harness's disposable HOME; no actual LaunchAgent."""
+    env = r.child_env(home)
+    def inspect(action, *, digest=None, error=None):
+        argv = [str(python), '-I', '-B', '-m', 'gitlab_agent.upgrade.runtime',
+                action, '--runtime-id', runtime_id, '--json']
+        if digest is not None:
+            argv += ['--expect-digest', digest]
+        proc = subprocess.run(argv, cwd=home, env=env, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=120, check=False)
+        out = json.loads(proc.stdout)
+        assert proc.returncode == (1 if error else 0), out
+        assert out['ok'] is (error is None), out
+        assert out['ready_for_activation'] is False and out['compatibility_verified'] is False
+        if error:
+            assert out['error_code'] == error, out
+            assert 'plan_digest' not in out
+        return out
+    if platform.system() != 'Darwin':
+        inspect('deployment-plan', error='unsupported_pairing_platform')
+        print('Deployment pairing: unsupported native platform rejected; no registry fixture created.')
+        return
+    # Intentionally create synthetic saved-registration evidence only AFTER the
+    # existing runtime harness proved it did not fabricate application state.
+    plist = home / 'Library/LaunchAgents' / (d.LABEL + '.plist')
+    plist.parent.mkdir(parents=True)
+    service = home / '.local/share/reasonfirst/v4-service'
+    data = {'Label':d.LABEL,
+            'ProgramArguments':[str(service/'tools/codex_web_bridge/run_reasonfirst.sh')],
+            'WorkingDirectory':str(service), 'KeepAlive':True}
+    with plist.open('xb') as stream:
+        stream.write(plistlib.dumps(data))
+    plist.chmod(0o600)
+    adoption = d.plan_adoption(system_name='Darwin', home=home)
+    recorded = d.adopt_deployment(system_name='Darwin', home=home,
+                                 expect_digest=adoption['plan_digest'], approved=True)
+    assert recorded['record_written'] is True
+    before = cli_snapshot(home)
+    plan = inspect('deployment-plan')
+    assert plan['pairing_verified'] is True
+    assert plan['legacy_control_requirement'] == 'unknown'
+    assert plan['proposed_actions'] == []
+    check = inspect('deployment-check', digest=plan['plan_digest'])
+    assert check['review_digest_matches'] is True
+    assert cli_snapshot(home) == before, 'Pairing changed disposable fixture files'
+    data['KeepAlive'] = False
+    plist.write_bytes(plistlib.dumps(data))
+    inspect('deployment-check', digest=plan['plan_digest'], error='registration_drifted')
+    print(json.dumps({'operation':'deployment-pairing-native-acceptance', 'ok':True,
+        'prepared_runtime_cli':True, 'read_only_pairing':True, 'registration_drift_refused':True,
+        'live_service_tested':False, 'compatibility_verified':False, 'activation_tested':False}, sort_keys=True))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--wheel', required=True)
@@ -69,6 +125,9 @@ def main():
             assert exc.code == 'unsupported_platform'
         else:
             raise AssertionError('Windows unexpectedly accepted POSIX storage')
+        result = pairing.run_command('deployment-plan', runtime_id='a' * 64)
+        assert result['error_code'] == 'unsupported_pairing_platform'
+        print('Deployment pairing: Windows unsupported boundary verified; no storage inspected.')
         print('Runtime preparation: Windows unsupported boundary verified; no storage inspected.')
         return 0
     uv = shutil.which('uv')
@@ -126,9 +185,10 @@ def main():
         assert failed['error_code'] == 'command_failed', failed
         assert r.status(runtime_id=failed['runtime_id'], home=home)['runtime_status'] == 'preparation_incomplete'
         assert r.status(runtime_id=p['runtime_id'], home=home)['prepared'] is True
+        assert not (home/'.config').exists(), 'Application/onboarding state was fabricated'
+        pairing_acceptance(home, p['runtime_id'], prepared_root/'bin/python')
         (prepared_root/'added-for-drift-test').write_text('synthetic drift')
         assert r.status(runtime_id=p['runtime_id'], home=home)['runtime_status'] == 'drifted'
-        assert not (home/'.config').exists(), 'Application/onboarding state was fabricated'
         print(json.dumps({'operation':'runtime-native-acceptance', 'ok':True,
             'offline_preparation':True, 'prepared_environment_http_tests':4,
             'repeat_refused':True, 'drift_detected':True, 'incomplete_dependencies_blocked':True, 'activation_tested':False,

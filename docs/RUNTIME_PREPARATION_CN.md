@@ -71,3 +71,5 @@ POSIX ACL/网络盘支持。命令时限及返回输出上限不是磁盘配额�
 按实际 commit/CI 分别报告，不等同维护者机器的迁移证明。
 
 [English](RUNTIME_PREPARATION.md) · [HTTP](BRIDGE_HTTP_CN.md)
+
+[与已有部署登记联合只读检查](DEPLOYMENT_PAIRING_CN.md)

@@ -126,3 +126,5 @@ behavior without skipping the existing packaged/source or HTTP tests. CI coverag
 must be reported by exact commit and separately from a maintainer-machine migration.
 
 [HTTP transport](BRIDGE_HTTP.md) · [Deployment registration](DEPLOYMENTS.md) · [中文](RUNTIME_PREPARATION_CN.md)
+
+[Read-only pairing with a saved deployment](DEPLOYMENT_PAIRING.md)
