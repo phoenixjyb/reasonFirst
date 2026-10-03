@@ -12,11 +12,37 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 
 from gitlab_agent.upgrade import runtime as r
+
+
+
+def cli_snapshot(root):
+    """Observe the disposable uv CLI fixture, including legitimate cache hardlinks.
+
+    This is not the production prepared-runtime trust validator. Never chmod,
+    unlink, copy, or relink the fixture just to obtain an acceptable snapshot.
+    """
+    rows = []
+    for base, dirs, files in os.walk(root, followlinks=False):
+        for name in sorted(dirs + files):
+            path = Path(base) / name
+            info = path.lstat()
+            rel = path.relative_to(root).as_posix()
+            if stat.S_ISLNK(info.st_mode):
+                rows.append([rel, 'link', os.readlink(path)])
+            elif stat.S_ISDIR(info.st_mode):
+                rows.append([rel, 'dir', stat.S_IMODE(info.st_mode)])
+            elif stat.S_ISREG(info.st_mode):
+                rows.append([rel, 'file', stat.S_IMODE(info.st_mode), info.st_nlink,
+                             hashlib.sha256(path.read_bytes()).hexdigest()])
+            else:
+                raise RuntimeError('Unexpected disposable CLI fixture entry')
+    return sorted(rows)
 
 
 def execute(argv, cwd, *, env=None):
@@ -49,11 +75,10 @@ def main():
     if not uv:
         raise RuntimeError('uv is required by the installation harness')
     base = sys._base_executable
-    base_input = {'path': base, 'fingerprint': r.executable_fingerprint(base)}
     cli_root = Path(sys.prefix).resolve()
     assert cli_root != Path(sys.base_prefix).resolve(), 'Use the clean wheel environment'
     # Byte-for-byte/mode/link snapshot of the already-installed CLI environment.
-    before_cli = r._tree(cli_root, base_input)
+    before_cli = cli_snapshot(cli_root)
     with tempfile.TemporaryDirectory(prefix='rf-runtime-native-') as temp:
         root = Path(temp).resolve()
         home = root / "home 空间's fixture"
@@ -108,7 +133,7 @@ def main():
             'offline_preparation':True, 'prepared_environment_http_tests':4,
             'repeat_refused':True, 'drift_detected':True, 'incomplete_dependencies_blocked':True, 'activation_tested':False,
             'packages':out['observed']['packages'], 'python':out['observed']['python_version']}, sort_keys=True))
-    assert r._tree(cli_root, base_input) == before_cli, 'CLI environment changed'
+    assert cli_snapshot(cli_root) == before_cli, 'CLI environment changed'
     print('Runtime preparation E2E: OK; CLI unchanged; no service activation.')
     return 0
 

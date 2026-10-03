@@ -299,6 +299,7 @@ def prepare(*, expect_digest, approved=False, **kwargs):
     runtime_id = reviewed['runtime_id']
     root = Path(reviewed['runtime_path'])
     created = False
+    phase = "create_destination"
     try:
         with storage._directory(home, PARTS, create=True) as parent:
             storage._check(os.fstat(parent), directory=True, private=True)
@@ -309,11 +310,13 @@ def prepare(*, expect_digest, approved=False, **kwargs):
             created = True
             os.fsync(parent)
             with storage._directory(home, PARTS + (runtime_id,)) as fd:
+                phase = "record_intent"
                 _write_new(fd, "intent.json", canonical(data))
                 for name in ("inputs", "build-home"):
                     os.mkdir(name, 0o700, dir_fd=fd)
                 # Copy only the reviewed bytes into this new private directory;
                 # uv never installs from mutable user Downloads paths.
+                phase = "copy_inputs"
                 with storage._directory(path_arg(data['wheelhouse']), ()) as source, storage._directory(root, ("inputs",)) as dest:
                     for wheel in data['wheels']:
                         raw = storage._read_at(source, wheel['filename'], limit=MAX_WHEEL)
@@ -322,6 +325,7 @@ def prepare(*, expect_digest, approved=False, **kwargs):
                         _write_new(dest, wheel['filename'], raw)
                     requirements = "\n".join(w['name'] + "==" + w['version'] + " --hash=sha256:" + w['sha256'] for w in data['wheels']) + "\n"
                     _write_new(dest, "requirements.txt", requirements.encode('ascii'))
+                phase = "probe_python"
                 python = probe_python(data['python']['path'])
                 if python['implementation'] != 'cpython' or python['version'][:2] < [3, 10] or python['fingerprint'] != data['python']['fingerprint']:
                     fail("python_identity_mismatch")
@@ -330,15 +334,19 @@ def prepare(*, expect_digest, approved=False, **kwargs):
                 build_home = root / "build-home"
                 env = child_env(build_home)
                 cmd = [data['uv']['path'], '--no-config', '--offline', '--no-cache']
+                phase = "create_venv"
                 _run(cmd + ['venv', '--no-project', '--no-python-downloads', '--python', python['executable'], str(root / 'venv')], cwd=build_home, env=env)
                 target = root / 'venv/bin/python'
                 # Hash/verify the selected interpreter before running installed code.
                 if target.resolve(strict=True) != Path(python['fingerprint']['resolved_file']):
                     fail("python_identity_mismatch")
+                phase = "install_packages"
                 _run(cmd + ['pip', 'install', '--python', str(target), '--no-python-downloads',
                     '--no-index', '--find-links', str(root / 'inputs'), '--only-binary', ':all:',
                     '--require-hashes', '--link-mode', 'copy', '-r', str(root / 'inputs/requirements.txt')], cwd=build_home, env=env)
+                phase = "check_dependencies"
                 _run(cmd + ['pip', 'check', '--python', str(target)], cwd=build_home, env=env)
+                phase = "probe_package"
                 observation = json.loads(_run([str(target), '-I', '-B', '-c', PROBE], cwd=build_home, env=env), object_pairs_hook=unique)
                 expected = {w['name']: w['version'] for w in data['wheels']}
                 if (observation['packages'] != expected or observation['version'] != expected[PACKAGE]
@@ -348,6 +356,7 @@ def prepare(*, expect_digest, approved=False, **kwargs):
                     fail("runtime_identity_mismatch")
                 if executable_fingerprint(python['executable']) != python['fingerprint']:
                     fail("changed_input")
+                phase = "record_manifest"
                 record = {"schema_version": 1, "scope": SCOPE, "runtime_id": runtime_id,
                     "input": data, "observation": observation,
                     "python": python, "tree": _tree(root / 'venv', data['python']),
@@ -358,6 +367,7 @@ def prepare(*, expect_digest, approved=False, **kwargs):
                 if len(raw) > MAX_MANIFEST:
                     fail("runtime_limit")
                 _write_new(fd, 'runtime.json', raw)
+        phase = "check_runtime"
         result = status(runtime_id=runtime_id, home=home)
         result.update(operation="runtime-prepare", mutating=True, created=True)
         if result.get('runtime_status') != 'prepared_matches_record':
@@ -366,8 +376,8 @@ def prepare(*, expect_digest, approved=False, **kwargs):
     except (Exception, KeyboardInterrupt) as exc:
         if not created:
             raise
-        code = exc.code if isinstance(exc, RuntimeErrorCode) else "preparation_failed"
-        return {"ok": False, "operation": "runtime-prepare", "error_code": code,
+        code = exc.code if isinstance(exc, RuntimeErrorCode) else ("storage_" + exc.code if isinstance(exc, storage.DeploymentError) else "preparation_failed")
+        return {"ok": False, "operation": "runtime-prepare", "error_code": code, "failure_stage": phase,
                 "created": True, "runtime_id": runtime_id, "runtime_path": str(root),
                 "runtime_status": "inspect_before_retry", "prepared": False,
                 "ready_for_activation": False, "existing_installation_changed": False,
