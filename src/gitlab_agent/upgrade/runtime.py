@@ -123,7 +123,9 @@ def wheel_metadata(name, raw):
                 fail("duplicate_wheel_path")
             for i in infos:
                 p = PurePosixPath(i.filename)
-                if (p.is_absolute() or ".." in p.parts or "\\" in i.filename
+                # ZipInfo may normalize separators or truncate at NUL before
+                # filename is exposed. Do not let that hide raw archive spelling.
+                if (i.orig_filename != i.filename or p.is_absolute() or ".." in p.parts or "\\" in i.filename
                     or ":" in i.filename or any(ord(c) < 32 for c in i.filename)
                     or stat.S_ISLNK(i.external_attr >> 16)):
                     fail("unsafe_wheel_path")
@@ -340,6 +342,12 @@ def prepare(*, expect_digest, approved=False, **kwargs):
                 # Hash/verify the selected interpreter before running installed code.
                 if target.resolve(strict=True) != Path(python['fingerprint']['resolved_file']):
                     fail("python_identity_mismatch")
+                # uv may create a world-writable .lock even with a private
+                # umask. Create it exclusively in OUR new venv before pip runs;
+                # never chmod/reuse an existing lock or exempt it from _tree.
+                phase = "prepare_package_lock"
+                with storage._directory(root, ("venv",)) as venv_fd:
+                    _write_new(venv_fd, ".lock", b"")
                 phase = "install_packages"
                 _run(cmd + ['pip', 'install', '--python', str(target), '--no-python-downloads',
                     '--no-index', '--find-links', str(root / 'inputs'), '--only-binary', ':all:',

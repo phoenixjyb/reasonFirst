@@ -29,7 +29,11 @@ def wheel(name='chatgpt_selfhosted_gitlab_mcp', version='0.5.1', *, metadata='',
     out = io.BytesIO()
     with zipfile.ZipFile(out, 'w') as z:
         for path, value in contents.items():
-            z.writestr(path, value)
+            # Preserve unsafe spellings in the archive on every host instead
+            # of letting ZipInfo sanitize the fixture before validation sees it.
+            info = zipfile.ZipInfo('fixture')
+            info.filename = info.orig_filename = path
+            z.writestr(info, value)
     return out.getvalue()
 
 
@@ -65,9 +69,11 @@ class PortableRuntimeTests(unittest.TestCase):
                    'OPENAI_ADMIN_KEY': 'synthetic', 'PYTHONPATH': '/bad', 'UV_INDEX_URL': '/bad',
                    'https_proxy': '/bad', 'SSH_AUTH_SOCK': '/bad', 'SOME_OTHER_CREDENTIAL': '/bad'}
         with patch.dict(os.environ, fixture, clear=True):
+            # Windows normalizes environment keys to uppercase on assignment.
+            before = dict(os.environ)
             value = r.child_env(Path('/disposable'))
-            self.assertEqual(dict(os.environ), fixture)
-        self.assertEqual(set(value).intersection(fixture), {'PATH'})
+            self.assertEqual(dict(os.environ), before)
+        self.assertEqual(set(value).intersection(before), {'PATH'})
         self.assertEqual(value['UV_PYTHON_DOWNLOADS'], 'never')
 
     def test_wheel_rejects_traversal_and_duplicate_paths(self):
