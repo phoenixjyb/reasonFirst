@@ -18,6 +18,7 @@ EXECUTABLES = (
     "reasonfirst-gitlab-mcp",
     "reasonfirst-bridge-mcp",
     "reasonfirst-bridge-http",
+    "reasonfirst-runtime",
     "actual-coder",
     "gitlab-agent",
 )
@@ -138,6 +139,7 @@ def verify_packaged_route(*, wheel: Path, root: Path, source_root: Path) -> None
     if inventory_payload.get("ok") is not True:
         raise RuntimeError("packaged: Bridge inventory failed")
 
+    _run([str(_exe(bin_dir, "reasonfirst-runtime")), "--help"], cwd=outside, env=child_env)
     _run([str(_exe(bin_dir, "reasonfirst-bridge-http")), "--help"], cwd=outside, env=child_env)
     inspection = _run(
         [str(_exe(bin_dir, "reasonfirst-bridge-http")), "--inspect",
@@ -163,6 +165,14 @@ def verify_packaged_route(*, wheel: Path, root: Path, source_root: Path) -> None
     )
     print(result.stdout)
     print(result.stderr)
+
+    staging = _run(
+        [str(python), "-I", "-B", str(source_root / "scripts/runtime_e2e.py"),
+         "--wheel", str(wheel.resolve()), "--source-root", str(source_root)],
+        cwd=outside, env=child_env,
+    )
+    print(staging.stdout)
+    print(staging.stderr)
 
 
 def verify_source_route(*, source_root: Path, root: Path) -> None:

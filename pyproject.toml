@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 reasonfirst = "gitlab_agent.reasonfirst_cli:main"
+reasonfirst-runtime = "gitlab_agent.upgrade.runtime:main"
 reasonfirst-gitlab-mcp = "gitlab_agent.read_mcp:main"
 reasonfirst-bridge-mcp = "gitlab_agent.bridge_mcp:main"
 reasonfirst-bridge-http = "gitlab_agent.bridge_http:main"
