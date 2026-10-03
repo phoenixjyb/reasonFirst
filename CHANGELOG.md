@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add read-only macOS `reasonfirst-runtime deployment-plan/deployment-check` to
+  bind a matching saved deployment record and unchanged prepared runtime under
+  one review digest. Reject drift, unsafe/missing metadata and cross-host inputs;
+  preserve unknown `/control`, configuration/state and loaded-service identity.
+  No activation, association write or release. Linux/Windows pairing is explicitly
+  unsupported. See [pairing preflight](docs/DEPLOYMENT_PAIRING.md) /
+  [中文](docs/DEPLOYMENT_PAIRING_CN.md).
+
 - Add explicitly approved offline side-by-side runtime preparation from reviewed,
   exact-hashed wheel inputs on macOS/Linux. Preserve the CLI and old service;
   record installed interpreter/dependency/file identity separately from health.
