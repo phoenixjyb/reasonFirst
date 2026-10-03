@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add explicitly approved offline side-by-side runtime preparation from reviewed,
+  exact-hashed wheel inputs on macOS/Linux. Preserve the CLI and old service;
+  record installed interpreter/dependency/file identity separately from health.
+  No activation, cleanup, Windows storage adapter, release, or network downloader.
+  See [runtime preparation](docs/RUNTIME_PREPARATION.md) / [中文](docs/RUNTIME_PREPARATION_CN.md).
+
 - Add explicit `deployment plan/adopt/status` for a create-only snapshot of the
   known macOS legacy/sidecar LaunchAgent. Require reviewed digest plus `--yes`,
   preserve existing records, classify drift separately from health, and leave
