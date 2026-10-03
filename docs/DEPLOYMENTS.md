@@ -111,4 +111,8 @@ revalidated. Side-by-side runtime installation, packaged HTTP compatibility,
 maintenance gating, service switching, recovery and rollback are **not implemented
 by these commands**. Do not update or restart a working machine to test recording.
 
+The separate [packaged HTTP transport](BRIDGE_HTTP.md) is a development-only
+shared-core wrapper. It does not make this registration command an updater and
+is not compatible with deployments requiring the legacy `/control` route.
+
 [中文说明](DEPLOYMENTS_CN.md)

@@ -17,6 +17,7 @@ EXECUTABLES = (
     "reasonfirst",
     "reasonfirst-gitlab-mcp",
     "reasonfirst-bridge-mcp",
+    "reasonfirst-bridge-http",
     "actual-coder",
     "gitlab-agent",
 )
@@ -60,7 +61,7 @@ def _clean_child_env(root: Path, bin_dir: Path) -> dict[str, str]:
             key.startswith("GITLAB_")
             or key.startswith("RF_")
             or key.startswith("REASONFIRST_")
-            or key in {"CONTROL_PLANE_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_API_KEY"}
+            or key in {"CONTROL_PLANE_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_API_KEY", "PYTHONPATH", "PYTHONHOME"}
         ):
             env.pop(key, None)
 
@@ -89,7 +90,7 @@ def _assert_status(payload: dict[str, object], *, route: str) -> None:
         raise RuntimeError(f"{route}: ChatGPT readiness must remain unverified")
 
 
-def verify_packaged_route(*, wheel: Path, root: Path) -> None:
+def verify_packaged_route(*, wheel: Path, root: Path, source_root: Path) -> None:
     tool_root = root / "uv-tools"
     bin_dir = root / "bin"
     cache = root / "uv-cache"
@@ -137,6 +138,32 @@ def verify_packaged_route(*, wheel: Path, root: Path) -> None:
     if inventory_payload.get("ok") is not True:
         raise RuntimeError("packaged: Bridge inventory failed")
 
+    _run([str(_exe(bin_dir, "reasonfirst-bridge-http")), "--help"], cwd=outside, env=child_env)
+    inspection = _run(
+        [str(_exe(bin_dir, "reasonfirst-bridge-http")), "--inspect",
+         "--host", "127.0.0.1", "--port", "8765", "--path", "/mcp",
+         "--mode", "read-only", "--control-policy", "disabled"],
+        cwd=outside, env=child_env,
+    )
+    described = json.loads(inspection.stdout)
+    if described.get("mutating") is not False or described.get("server_started") is not False:
+        raise RuntimeError("packaged: HTTP inspection is not static")
+
+    # Execute the native wire-level tests with the actual clean wheel runtime,
+    # outside the checkout and with isolated Python imports. This verifies the
+    # uv environment selected by this harness; not an arbitrary user's layout.
+    runtime = tool_root / "chatgpt-selfhosted-gitlab-mcp"
+    python = runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not python.is_file():
+        raise RuntimeError("packaged: installed tool interpreter not found")
+    child_env["RF_HTTP_TEST_WHEEL_ROOT"] = str(runtime)
+    result = _run(
+        [str(python), "-I", "-B", str(source_root / "tests/test_bridge_http_integration.py")],
+        cwd=outside, env=child_env,
+    )
+    print(result.stdout)
+    print(result.stderr)
+
 
 def verify_source_route(*, source_root: Path, root: Path) -> None:
     env = _clean_child_env(root / "source-child", Path(shutil.which("uv") or "").parent)
@@ -183,7 +210,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="reasonfirst-install-e2e-") as td:
         root = Path(td)
-        verify_packaged_route(wheel=wheels[0], root=root)
+        verify_packaged_route(wheel=wheels[0], root=root, source_root=source_root)
         verify_source_route(source_root=source_root, root=root)
 
     print("ReasonFirst install E2E: OK (packaged + source routes)")

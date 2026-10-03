@@ -26,14 +26,19 @@ def _doctor() -> int:
         ctrl.close()
 
 
-def build_server():
+def build_server(*, read_only_mode: bool | None = None):
     # MCP Python SDK v2 (2026-07-28 protocol line).
     from mcp.server import MCPServer
     from mcp.types import ToolAnnotations
 
-    read_only_mode = os.getenv("RF_MCP_READ_ONLY", "false").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    # Explicit transport policy wins over ambient defaults. Existing callers that
+    # omit it keep their historical stdio/inventory behavior.
+    if read_only_mode is None:
+        read_only_mode = os.getenv("RF_MCP_READ_ONLY", "false").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+    elif type(read_only_mode) is not bool:
+        raise ValueError("read_only_mode must be a boolean")
     ctrl = BridgeController()
     instructions = (
         "ReasonFirst v4 is the local code-work orchestration server. ChatGPT is the planner/reviewer; "
