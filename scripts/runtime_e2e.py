@@ -99,10 +99,13 @@ def loaded_fixture_report(raw):
              'native_job_unserializable', 'invalid_native_job'}
     flags = {'ok', 'load_attempted', 'cleanup_attempted', 'cleanup_confirmed',
              'actual_loaded_job_queried', 'saved_file_drift_detected', 'production_label_used',
-             'reasonfirst_server_started', 'public_cli_full_path_tested', 'activation_tested'}
+             'reasonfirst_server_started', 'public_cli_full_path_tested', 'activation_tested',
+             'selected_launch_fields_match', 'managed_startup_confirmation_verified',
+             'activation_authorized', 'ready_for_activation'}
     fields = {'Program', 'ProgramArguments', 'WorkingDirectory', 'EnvironmentVariables'}
     expected = flags | {'operation', 'stage', 'error_code', 'cleanup_error_code',
-                        'selected_fields', 'drift_fields'}
+                        'selected_fields', 'drift_fields', 'observation_contract',
+                        'field_coverage', 'activation_blockers'}
     try:
         if not isinstance(raw, bytes) or len(raw) > 8192:
             raise ValueError
@@ -125,16 +128,42 @@ def loaded_fixture_report(raw):
             if any(item not in {'matches', 'differs', 'not_reported'} for item in value.values()):
                 raise ValueError
         if any(report[key] for key in ('production_label_used', 'reasonfirst_server_started',
-                                        'public_cli_full_path_tested', 'activation_tested')):
+                                        'public_cli_full_path_tested', 'activation_tested',
+                                        'managed_startup_confirmation_verified',
+                                        'activation_authorized', 'ready_for_activation')):
+            raise ValueError
+        if report['observation_contract'] != 'partial-selected-fields-v1':
+            raise ValueError
+        selected = report['selected_fields']
+        missing = [name for name, value in selected.items() if value == 'not_reported']
+        coverage = ('not_observed' if not selected else 'none' if len(missing) == 4
+                    else 'partial' if missing else 'complete')
+        if report['field_coverage'] != coverage:
+            raise ValueError
+        if report['selected_launch_fields_match'] != (bool(selected) and all(v == 'matches' for v in selected.values())):
+            raise ValueError
+        blockers = report['activation_blockers']
+        permitted = {'managed_startup_confirmation_not_verified',
+                     'loaded_launch_fields_differ_or_not_reported', 'no_running_pid_reported'}
+        if (not isinstance(blockers, list) or not all(isinstance(v, str) for v in blockers)
+                or len(set(blockers)) != len(blockers) or set(blockers) - permitted
+                or 'managed_startup_confirmation_not_verified' not in blockers
+                or (selected and not report['selected_launch_fields_match']
+                    and 'loaded_launch_fields_differ_or_not_reported' not in blockers)):
             raise ValueError
         if report['ok']:
             if (report['stage'] != 'complete' or report['error_code'] is not None
                     or report['cleanup_error_code'] is not None
                     or not all(report[key] for key in ('load_attempted', 'cleanup_attempted',
                         'cleanup_confirmed', 'actual_loaded_job_queried', 'saved_file_drift_detected'))
-                    or report['selected_fields'] != {key: 'matches' for key in fields}
-                    or report['drift_fields'].get('WorkingDirectory') != 'differs'
-                    or report['drift_fields'].get('EnvironmentVariables') != 'differs'):
+                    or set(selected) != fields
+                    or selected['Program'] != 'matches' or selected['ProgramArguments'] != 'matches'
+                    or any(v == 'differs' for v in selected.values())
+                    or 'no_running_pid_reported' in blockers
+                    or report['drift_fields'] != {
+                        'Program': 'matches', 'ProgramArguments': 'differs',
+                        **{name: 'not_reported' if selected[name] == 'not_reported' else 'differs'
+                           for name in ('WorkingDirectory', 'EnvironmentVariables')}}):
                 raise ValueError
         elif report['error_code'] is None:
             raise ValueError

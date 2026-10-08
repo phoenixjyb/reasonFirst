@@ -145,9 +145,25 @@ def _run_fixture(report):
             report['stage'] = 'initial_comparison'
             initial = loaded._compare(original,job)
             report['selected_fields'] = initial['selected_fields']
-            if not initial['selected_launch_fields_match']:
+            report['field_coverage'] = initial['field_coverage']
+            report['selected_launch_fields_match'] = initial['selected_launch_fields_match']
+            report['activation_blockers'] = loaded._observation_blockers(initial)
+            # Approved narrower contract: program/argv must be observed and
+            # match. Optional native cwd/environment stay unknown if omitted;
+            # when returned they MUST match, never be ignored or filled in.
+            if (initial['selected_fields']['Program'] != 'matches'
+                    or initial['selected_fields']['ProgramArguments'] != 'matches'
+                    or not initial['reported_fields_match']
+                    or initial['selected_launch_fields_match'] != all(
+                        v == 'matches' for v in initial['selected_fields'].values())
+                    or loaded.STARTUP_BLOCKER not in report['activation_blockers']
+                    or (initial['field_coverage'] != 'complete' and
+                        'loaded_launch_fields_differ_or_not_reported' not in report['activation_blockers'])):
                 raise FixtureError('native_fields_incomplete_or_different')
-            changed = {**original, 'WorkingDirectory': str(changed_cwd),
+            # Change a field the API actually returns. Reading the new saved
+            # file as though it were loaded state must fail this negative test.
+            changed = {**original, 'ProgramArguments': ['/bin/sleep', '91'],
+                       'WorkingDirectory': str(changed_cwd),
                        'EnvironmentVariables': {'RF_SYNTHETIC_FIXTURE':'changed'}}
             changed_raw=plistlib.dumps(changed)
             plist.write_bytes(changed_raw)
@@ -158,8 +174,13 @@ def _run_fixture(report):
             report['stage'] = 'drift_comparison'
             difference=loaded._compare(changed,second)
             report['drift_fields'] = difference['selected_fields']
-            if (difference['selected_fields']['WorkingDirectory']!='differs'
-                    or difference['selected_fields']['EnvironmentVariables']!='differs'):
+            expected = {'Program': 'matches', 'ProgramArguments': 'differs'}
+            expected.update({name: 'not_reported' if initial['selected_fields'][name] == 'not_reported'
+                             else 'differs' for name in ('WorkingDirectory', 'EnvironmentVariables')})
+            if (loaded._projection(job) != loaded._projection(second)
+                    or difference['selected_fields'] != expected
+                    or difference['selected_launch_fields_match']
+                    or difference['reported_fields_match']):
                 raise FixtureError('saved_loaded_drift_not_detected')
             if plist.read_bytes()!=changed_raw:
                 raise FixtureError('saved_registration_changed')
@@ -189,6 +210,11 @@ def main(argv=None):
     parser.parse_args(argv)
     report = {
         'operation': 'loaded-job-native-fixture', 'ok': False,
+        'observation_contract': loaded.OBSERVATION_CONTRACT,
+        'field_coverage': 'not_observed', 'selected_launch_fields_match': False,
+        'activation_blockers': [loaded.STARTUP_BLOCKER],
+        'managed_startup_confirmation_verified': False,
+        'activation_authorized': False, 'ready_for_activation': False,
         'stage': 'eligibility', 'error_code': None,
         'selected_fields': {}, 'drift_fields': {},
         'load_attempted': False, 'cleanup_attempted': False,

@@ -34,7 +34,12 @@ def success_report():
     return {
         'operation': 'loaded-job-native-fixture', 'ok': True, 'stage': 'complete',
         'error_code': None, 'selected_fields': {k: 'matches' for k in FIELDS},
-        'drift_fields': {k: 'matches' if k in ('Program', 'ProgramArguments') else 'differs' for k in FIELDS},
+        'drift_fields': {k: 'matches' if k == 'Program' else 'differs' for k in FIELDS},
+        'observation_contract': 'partial-selected-fields-v1', 'field_coverage': 'complete',
+        'selected_launch_fields_match': True,
+        'activation_blockers': ['managed_startup_confirmation_not_verified'],
+        'managed_startup_confirmation_verified': False,
+        'activation_authorized': False, 'ready_for_activation': False,
         'load_attempted': True, 'cleanup_attempted': True, 'cleanup_confirmed': True,
         'cleanup_error_code': None, 'actual_loaded_job_queried': True,
         'saved_file_drift_detected': True, 'production_label_used': False,
@@ -47,13 +52,15 @@ def failure_report():
     value = success_report()
     value.update(ok=False, stage='initial_query', error_code='native_api_unavailable',
                  selected_fields={}, drift_fields={}, actual_loaded_job_queried=False,
-                 saved_file_drift_detected=False)
+                 saved_file_drift_detected=False, field_coverage='not_observed',
+                 selected_launch_fields_match=False)
     return value
 
 
 class FixtureReportingTests(unittest.TestCase):
     def invoke(self, *, native_error=None, missing=None, cleanup_failure=False,
-               collision=False, load_failure=False, drift_failure=False):
+               collision=False, load_failure=False, drift_failure=False,
+               mismatch=None, changed_native=None, retained_optional_drift=None):
         calls = []
         original = None
         query_count = 0
@@ -91,10 +98,20 @@ class FixtureReportingTests(unittest.TestCase):
                 original['PID'] = 12345
             value = copy.deepcopy(original)
             if missing:
-                value.pop(missing, None)
+                for key in ((missing,) if isinstance(missing, str) else missing):
+                    value.pop(key, None)
+            if mismatch:
+                value[mismatch] = {'OTHER': SECRET} if mismatch == 'EnvironmentVariables' else '/other'
+            if changed_native and query_count > 1:
+                value[changed_native] = 54321 if changed_native == 'PID' else SECRET
             if drift_failure and query_count > 1:
                 value = plistlib.loads((home / (label + '.plist')).read_bytes())
                 value['PID'] = 12345
+            if retained_optional_drift and query_count > 1:
+                # Simulate incorrectly filling a previously missing loaded field
+                # from the new saved registration; the fixture must reject this.
+                value[retained_optional_drift] = plistlib.loads(
+                    (home / (label + '.plist')).read_bytes())[retained_optional_drift]
             return value
 
         with ExitStack() as stack:
@@ -127,14 +144,21 @@ class FixtureReportingTests(unittest.TestCase):
         self.assertEqual(report['error_code'], 'native_api_unavailable')
         self.assertTrue(report['cleanup_confirmed'])
 
-    def test_missing_native_field_remains_failure_and_only_classifications_are_reported(self):
+    def test_unreported_config_is_partial_success_not_full_comparison_or_activation(self):
         for key in ('WorkingDirectory', 'EnvironmentVariables'):
             with self.subTest(key=key):
                 report, _ = self.invoke(missing=key)
-                self.assertFalse(report['ok'])
-                self.assertEqual(report['error_code'], 'native_fields_incomplete_or_different')
+                self.assertTrue(report['ok'])  # Revised observation-only contract.
+                self.assertEqual(report['observation_contract'], 'partial-selected-fields-v1')
+                self.assertIsNone(report['error_code'])
                 self.assertEqual(report['selected_fields'][key], 'not_reported')
-                self.assertEqual(report['stage'], 'initial_comparison')
+                self.assertEqual(report['drift_fields'][key], 'not_reported')
+                self.assertEqual(report['field_coverage'], 'partial')
+                self.assertFalse(report['selected_launch_fields_match'])  # Original gate stays false.
+                self.assertIn('loaded_launch_fields_differ_or_not_reported', report['activation_blockers'])
+                self.assertIn('managed_startup_confirmation_not_verified', report['activation_blockers'])
+                self.assertFalse(report['activation_authorized'])
+                self.assertFalse(report['ready_for_activation'])
                 self.assertTrue(report['cleanup_confirmed'])
 
     def test_failed_cleanup_cannot_follow_a_success_json(self):

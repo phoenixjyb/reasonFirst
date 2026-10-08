@@ -21,6 +21,8 @@ from typing import Any
 from . import deployment, launch_review, pairing, runtime
 
 SCOPE = "loaded-user-job-observation-v1"
+OBSERVATION_CONTRACT = "partial-selected-fields-v1"
+STARTUP_BLOCKER = "managed_startup_confirmation_not_verified"
 TIMEOUT = 8
 MAX_OUTPUT = 256 * 1024
 MAX_STDERR = 16 * 1024
@@ -202,13 +204,33 @@ def _compare(saved: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
     # response is not evidence of an empty block. A present empty block is.
     if a["EnvironmentVariables"] is None and b["EnvironmentVariables"] == {}:
         fields["EnvironmentVariables"] = "matches"
-    return {"selected_fields": fields, "selected_launch_fields_match": all(v == "matches" for v in fields.values()),
+    unreported = [name for name, value in fields.items() if value == "not_reported"]
+    reported = [value for value in fields.values() if value != "not_reported"]
+    return {"selected_fields": fields,
+            # The original four-field gate is unchanged. Partial observations
+            # must never satisfy it, even when every returned field matches.
+            "selected_launch_fields_match": all(v == "matches" for v in fields.values()),
+            "field_coverage": "none" if not reported else "partial" if unreported else "complete",
+            "unreported_fields": unreported,
+            "reported_fields_match": bool(reported) and all(v == "matches" for v in reported),
             "pid": b["PID"], "running_pid_reported": bool(b["PID"]),
             "last_exit_status": b["LastExitStatus"]}
 
 
+def _observation_blockers(comparison: dict[str, Any]) -> list[str]:
+    """No native observation, even four matching fields, permits activation."""
+    blockers = [STARTUP_BLOCKER]
+    if not comparison["selected_launch_fields_match"]:
+        blockers.append("loaded_launch_fields_differ_or_not_reported")
+    if not comparison["running_pid_reported"]:
+        blockers.append("no_running_pid_reported")
+    return blockers
+
+
 def _boundary() -> dict[str, Any]:
-    return {"operation": "loaded-inspect", "scope": SCOPE, "mutating": False,
+    return {"operation": "loaded-inspect", "scope": SCOPE,
+            "observation_contract": OBSERVATION_CONTRACT, "mutating": False,
+            "managed_startup_confirmation_verified": False,
             "native_query_requested": False, "loaded_job_observed": False,
             "service_changed": False, "service_restarted": False, "state_files_written": False,
             "application_configuration_read": False, "workspace_state_read": False,
@@ -241,17 +263,13 @@ def inspect(*, runtime_id: str, expect_pairing_digest: str, expect_digest: str,
         if saved_raw != deployment._registration_bytes(selected) or before != recheck():
             raise LoadedServiceError("review_changed")
         comparison = _compare(saved, second)
-        blockers = list(before["blockers"])
-        if not comparison["selected_launch_fields_match"]:
-            blockers.append("loaded_launch_fields_differ_or_not_reported")
-        if not comparison["running_pid_reported"]:
-            blockers.append("no_running_pid_reported")
+        blockers = list(dict.fromkeys([*before["blockers"], *_observation_blockers(comparison)]))
         return {**result, "ok": True, "loaded_job_observed": True,
                 "source": "SMJobCopyDictionary(kSMDomainUserLaunchd)", "deprecated_api": True,
                 "domain": "caller_user_launchd", "uid": os.getuid(), "label": deployment.LABEL,
                 "launch_review_digest": expect_digest, "comparison": comparison,
                 "stable_selected_samples": 2, "blockers": blockers,
-                "message": "Selected loaded job fields observed only; no health, effective environment or activation claim."}
+                "message": "Partial-observation contract only: ok means the read completed, not configuration equivalence or activation readiness."}
     except LoadedServiceError as exc:
         code = str(exc)
     except (launch_review.LaunchReviewError, pairing.PairingError):

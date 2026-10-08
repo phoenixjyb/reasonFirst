@@ -94,12 +94,14 @@ class NativeShapeTests(unittest.TestCase):
                 result = self.shape({'WorkingDirectory': value})
                 self.assertEqual(result['selected_top_level_types']['WorkingDirectory'], tag)
 
-    def test_new_diagnostic_does_not_make_original_native_failure_succeed(self):
+    def test_shape_diagnostic_does_not_turn_partial_observation_into_full_evidence(self):
         for name in ('WorkingDirectory', 'EnvironmentVariables'):
             with self.subTest(name=name):
                 report, _ = support.FixtureReportingTests().invoke(missing=name)
-                self.assertFalse(report['ok'])
-                self.assertEqual(report['error_code'], 'native_fields_incomplete_or_different')
+                self.assertTrue(report['ok'])  # Explicitly revised observation-only scope.
+                self.assertFalse(report['selected_launch_fields_match'])
+                self.assertFalse(report['ready_for_activation'])
+                self.assertIn('loaded_launch_fields_differ_or_not_reported', report['activation_blockers'])
                 self.assertEqual(report['native_shape']['selected_top_level_types'][name], 'absent')
                 self.assertTrue(report['cleanup_confirmed'])
 
