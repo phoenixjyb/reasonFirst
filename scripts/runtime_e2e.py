@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 
-from gitlab_agent.upgrade import deployment as d, pairing, runtime as r
+from gitlab_agent.upgrade import deployment as d, pairing, runtime as r, launch_review
 
 
 
@@ -56,7 +56,52 @@ def execute(argv, cwd, *, env=None):
     return proc
 
 
-def pairing_acceptance(home, runtime_id, python):
+def launch_acceptance(home, runtime_id, python, source, pair_digest):
+    """Native disposable input files + prepared-runtime CLI; never load launchd."""
+    folder = home / ".local/share/reasonfirst/v4-service/tools/codex_web_bridge"
+    folder.mkdir(parents=True)
+    for name in launch_review.KNOWN_LEGACY_BLOBS:
+        item = folder / name
+        item.write_bytes((source / "tools/reasonfirst_v4_0_3" / name).read_bytes())
+        item.chmod(0o700 if name.endswith(".sh") else 0o600)
+
+    def check(action, expected=None):
+        argv = [str(python), "-I", "-B", "-m", "gitlab_agent.upgrade.runtime",
+                action, "--runtime-id", runtime_id,
+                "--expect-pairing-digest", pair_digest, "--json"]
+        if expected:
+            argv += ["--expect-digest", expected]
+        proc = subprocess.run(argv, cwd=home, env=r.child_env(home),
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=120, check=False)
+        result = json.loads(proc.stdout)
+        assert proc.returncode == (0 if result["ok"] else 1), result
+        assert result["ready_for_activation"] is False
+        assert result["compatibility_verified"] is False
+        assert result["commands_executed"] is False
+        return result
+
+    before = cli_snapshot(home)
+    planned = check("launch-plan")
+    assert planned["ok"] and planned["launcher_source_verified"], planned
+    assert "legacy_control_required_but_target_has_no_control" in planned["blockers"], planned
+    assert planned["identity"]["evidence"]["saved_policy"]["mode"] == "full-chat"
+    checked = check("launch-check", planned["plan_digest"])
+    assert checked["ok"] and checked["review_digest_matches"]
+    assert cli_snapshot(home) == before, "Launch inspection mutated fixture"
+    changed = folder / "set_local_no_proxy.sh"
+    original = changed.read_bytes()
+    changed.write_bytes(original + b"\n# synthetic drift\n")
+    refused = check("launch-check", planned["plan_digest"])
+    assert refused["ok"] is False and refused["error_code"] == "known_launcher_modified", refused
+    changed.write_bytes(original)
+    print(json.dumps({"operation":"launch-review-native-acceptance","ok":True,
+                      "verified_legacy_sources":4,"verified_target_sources":2,
+                      "control_mismatch_blocked":True,"drift_refused":True,
+                      "actual_service_started":False,"activation_tested":False}, sort_keys=True))
+
+
+def pairing_acceptance(home, runtime_id, python, source):
     """Only called with this harness's disposable HOME; no actual LaunchAgent."""
     env = r.child_env(home)
     def inspect(action, *, digest=None, error=None):
@@ -86,7 +131,9 @@ def pairing_acceptance(home, runtime_id, python):
     service = home / '.local/share/reasonfirst/v4-service'
     data = {'Label':d.LABEL,
             'ProgramArguments':[str(service/'tools/codex_web_bridge/run_reasonfirst.sh')],
-            'WorkingDirectory':str(service), 'KeepAlive':True}
+            'WorkingDirectory':str(service), 'KeepAlive':True,
+            'EnvironmentVariables': {'RF_MCP_READ_ONLY':'false', 'RF_MCP_PORT':'8765',
+                                     'RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH':'false'}}
     with plist.open('xb') as stream:
         stream.write(plistlib.dumps(data))
     plist.chmod(0o600)
@@ -102,6 +149,7 @@ def pairing_acceptance(home, runtime_id, python):
     check = inspect('deployment-check', digest=plan['plan_digest'])
     assert check['review_digest_matches'] is True
     assert cli_snapshot(home) == before, 'Pairing changed disposable fixture files'
+    launch_acceptance(home, runtime_id, python, source, plan['plan_digest'])
     data['KeepAlive'] = False
     plist.write_bytes(plistlib.dumps(data))
     inspect('deployment-check', digest=plan['plan_digest'], error='registration_drifted')
@@ -186,7 +234,7 @@ def main():
         assert r.status(runtime_id=failed['runtime_id'], home=home)['runtime_status'] == 'preparation_incomplete'
         assert r.status(runtime_id=p['runtime_id'], home=home)['prepared'] is True
         assert not (home/'.config').exists(), 'Application/onboarding state was fabricated'
-        pairing_acceptance(home, p['runtime_id'], prepared_root/'bin/python')
+        pairing_acceptance(home, p['runtime_id'], prepared_root/'bin/python', source)
         (prepared_root/'added-for-drift-test').write_text('synthetic drift')
         assert r.status(runtime_id=p['runtime_id'], home=home)['runtime_status'] == 'drifted'
         print(json.dumps({'operation':'runtime-native-acceptance', 'ok':True,
