@@ -469,9 +469,21 @@ def main(argv=None):
         if action == 'deployment-check':
             p.add_argument('--expect-digest', required=True)
         p.add_argument('--json', action='store_true')
+    for action in ('launch-plan', 'launch-check'):
+        p = sub.add_parser(action, allow_abbrev=False)
+        p.add_argument('--runtime-id', required=True)
+        p.add_argument('--expect-pairing-digest', required=True)
+        if action == 'launch-check':
+            p.add_argument('--expect-digest', required=True)
+        p.add_argument('--json', action='store_true')
     args = parser.parse_args(argv)
     try:
-        if args.action in ('deployment-plan', 'deployment-check'):
+        if args.action in ('launch-plan', 'launch-check'):
+            from .launch_review import run_command
+            result = run_command(args.action, runtime_id=args.runtime_id,
+                                 expect_pairing_digest=args.expect_pairing_digest,
+                                 expect_digest=getattr(args, 'expect_digest', None))
+        elif args.action in ('deployment-plan', 'deployment-check'):
             from .pairing import run_command
             result = run_command(args.action, runtime_id=args.runtime_id,
                                  expect_digest=getattr(args, 'expect_digest', None))

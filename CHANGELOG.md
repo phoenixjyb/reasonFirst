@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add read-only launch/source and saved-policy inspection after deployment/runtime pairing. Pin known legacy HTTP and packaged HTTP source profiles, surface the legacy full-chat /control incompatibility, and require an exact review digest for recheck. Preserve unknown sidecar bootstrap, inherited environment, running core and active-work constraints as blockers. No service activation or release changes.
+
+
 - Add read-only macOS `reasonfirst-runtime deployment-plan/deployment-check` to
   bind a matching saved deployment record and unchanged prepared runtime under
   one review digest. Reject drift, unsafe/missing metadata and cross-host inputs;
