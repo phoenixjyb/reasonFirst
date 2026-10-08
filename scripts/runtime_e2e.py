@@ -56,7 +56,7 @@ def execute(argv, cwd, *, env=None):
     return proc
 
 
-def pairing_acceptance(home, runtime_id, python):
+def pairing_acceptance(home, runtime_id, python, source_root):
     """Only called with this harness's disposable HOME; no actual LaunchAgent."""
     env = r.child_env(home)
     def inspect(action, *, digest=None, error=None):
@@ -77,6 +77,7 @@ def pairing_acceptance(home, runtime_id, python):
         return out
     if platform.system() != 'Darwin':
         inspect('deployment-plan', error='unsupported_pairing_platform')
+        inspect('deployment-assess', error='unsupported_pairing_platform')
         print('Deployment pairing: unsupported native platform rejected; no registry fixture created.')
         return
     # Intentionally create synthetic saved-registration evidence only AFTER the
@@ -102,6 +103,12 @@ def pairing_acceptance(home, runtime_id, python):
     check = inspect('deployment-check', digest=plan['plan_digest'])
     assert check['review_digest_matches'] is True
     assert cli_snapshot(home) == before, 'Pairing changed disposable fixture files'
+    # The harness is run with -I; do not rely on its directory being on sys.path.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('rf_compatibility_fixture', source_root/'scripts/compatibility_e2e.py')
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    fixture.acceptance(home=home, runtime_id=runtime_id, python=python, source_root=source_root, snapshot=cli_snapshot)
     data['KeepAlive'] = False
     plist.write_bytes(plistlib.dumps(data))
     inspect('deployment-check', digest=plan['plan_digest'], error='registration_drifted')
@@ -127,6 +134,8 @@ def main():
             raise AssertionError('Windows unexpectedly accepted POSIX storage')
         result = pairing.run_command('deployment-plan', runtime_id='a' * 64)
         assert result['error_code'] == 'unsupported_pairing_platform'
+        from gitlab_agent.upgrade.compatibility import run_command
+        assert run_command('deployment-assess', runtime_id='a' * 64)['error_code'] == 'unsupported_pairing_platform'
         print('Deployment pairing: Windows unsupported boundary verified; no storage inspected.')
         print('Runtime preparation: Windows unsupported boundary verified; no storage inspected.')
         return 0
@@ -186,7 +195,7 @@ def main():
         assert r.status(runtime_id=failed['runtime_id'], home=home)['runtime_status'] == 'preparation_incomplete'
         assert r.status(runtime_id=p['runtime_id'], home=home)['prepared'] is True
         assert not (home/'.config').exists(), 'Application/onboarding state was fabricated'
-        pairing_acceptance(home, p['runtime_id'], prepared_root/'bin/python')
+        pairing_acceptance(home, p['runtime_id'], prepared_root/'bin/python', source)
         (prepared_root/'added-for-drift-test').write_text('synthetic drift')
         assert r.status(runtime_id=p['runtime_id'], home=home)['runtime_status'] == 'drifted'
         print(json.dumps({'operation':'runtime-native-acceptance', 'ok':True,

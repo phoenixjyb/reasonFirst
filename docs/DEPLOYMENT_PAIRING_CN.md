@@ -87,3 +87,6 @@ manifest 继续绑定包/依赖/解释器身份与安装文件树。元数据只
 LaunchAgent 登记，不加载该服务。Linux/Windows 验证明确的不支持边界。
 
 [部署登记](DEPLOYMENTS_CN.md) · [运行环境准备](RUNTIME_PREPARATION_CN.md) · [English](DEPLOYMENT_PAIRING.md)
+
+下一项只读[旧启动源码检查](DEPLOYMENT_COMPATIBILITY_CN.md)核对实际所选文件及保存的
+Bridge 策略/配置，明确报告旧 `/control` 不匹配，仍不赋予激活权限。

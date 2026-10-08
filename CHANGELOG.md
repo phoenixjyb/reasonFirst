@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add read-only `deployment-assess` / `deployment-assess-check` to the runtime CLI.
+  Fingerprint known staged HTTP sources and selected saved Bridge configuration;
+  report legacy control/remote-push mismatches against a reviewed prepared HTTP
+  profile without executing sources, guessing inherited environment or authorizing
+  activation. Unknown layouts, including one-off uv sidecars, remain unsupported.
+  See [compatibility assessment](docs/DEPLOYMENT_COMPATIBILITY.md) /
+  [中文](docs/DEPLOYMENT_COMPATIBILITY_CN.md).
+
 - Add read-only macOS `reasonfirst-runtime deployment-plan/deployment-check` to
   bind a matching saved deployment record and unchanged prepared runtime under
   one review digest. Reject drift, unsafe/missing metadata and cross-host inputs;
