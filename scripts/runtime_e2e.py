@@ -56,6 +56,79 @@ def execute(argv, cwd, *, env=None):
     return proc
 
 
+
+def loaded_fixture_report(raw):
+    """Whitelist bounded test diagnostics; never print a child's raw streams."""
+    stages = {'eligibility', 'collision_check', 'load', 'initial_query',
+              'initial_comparison', 'drift_query', 'drift_comparison', 'cleanup', 'complete'}
+    codes = {'fixture_context_required', 'fixture_label_collision', 'fixture_load_failed',
+             'fixture_pid_unobserved', 'native_fields_incomplete_or_different',
+             'fixture_pid_changed', 'saved_loaded_drift_not_detected', 'saved_registration_changed',
+             'fixture_cleanup_not_confirmed', 'fixture_cleanup_failed', 'fixture_interrupted',
+             'fixture_failed', 'unsupported_loaded_service_platform', 'user_domain_required',
+             'invalid_job_label', 'native_query_timeout', 'native_output_limit',
+             'native_query_failed', 'native_api_unavailable', 'job_unavailable_or_query_failed',
+             'native_job_unserializable', 'invalid_native_job'}
+    flags = {'ok', 'load_attempted', 'cleanup_attempted', 'cleanup_confirmed',
+             'actual_loaded_job_queried', 'saved_file_drift_detected', 'production_label_used',
+             'reasonfirst_server_started', 'public_cli_full_path_tested', 'activation_tested'}
+    fields = {'Program', 'ProgramArguments', 'WorkingDirectory', 'EnvironmentVariables'}
+    expected = flags | {'operation', 'stage', 'error_code', 'cleanup_error_code',
+                        'selected_fields', 'drift_fields'}
+    try:
+        if not isinstance(raw, bytes) or len(raw) > 8192:
+            raise ValueError
+        report = json.loads(raw, object_pairs_hook=r.unique)
+        if not isinstance(report, dict) or set(report) != expected:
+            raise ValueError
+        if report['operation'] != 'loaded-job-native-fixture' or report['stage'] not in stages:
+            raise ValueError
+        if any(type(report[key]) is not bool for key in flags):
+            raise ValueError
+        for key in ('error_code', 'cleanup_error_code'):
+            if report[key] is not None and report[key] not in codes:
+                raise ValueError
+        for key in ('selected_fields', 'drift_fields'):
+            value = report[key]
+            if not isinstance(value, dict) or (value and set(value) != fields):
+                raise ValueError
+            if any(item not in {'matches', 'differs', 'not_reported'} for item in value.values()):
+                raise ValueError
+        if any(report[key] for key in ('production_label_used', 'reasonfirst_server_started',
+                                        'public_cli_full_path_tested', 'activation_tested')):
+            raise ValueError
+        if report['ok']:
+            if (report['stage'] != 'complete' or report['error_code'] is not None
+                    or report['cleanup_error_code'] is not None
+                    or not all(report[key] for key in ('load_attempted', 'cleanup_attempted',
+                        'cleanup_confirmed', 'actual_loaded_job_queried', 'saved_file_drift_detected'))
+                    or report['selected_fields'] != {key: 'matches' for key in fields}
+                    or report['drift_fields'].get('WorkingDirectory') != 'differs'
+                    or report['drift_fields'].get('EnvironmentVariables') != 'differs'):
+                raise ValueError
+        elif report['error_code'] is None:
+            raise ValueError
+        return report
+    except Exception:
+        raise RuntimeError('Native fixture report invalid; child output withheld.') from None
+
+
+def execute_loaded_fixture(argv, cwd, *, env):
+    """Preserve classified native-test failure instead of losing it in execute()."""
+    try:
+        proc = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=240, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise RuntimeError('Native fixture process failed; child output withheld.') from None
+    report = loaded_fixture_report(proc.stdout)
+    if report['ok'] and proc.returncode != 0:
+        raise RuntimeError('Native fixture exit status conflicts with success report; child output withheld.')
+    print(json.dumps(report, sort_keys=True), flush=True)
+    if proc.returncode != 0 or not report['ok']:
+        raise RuntimeError('Native loaded-job fixture failed; see classified report.')
+    return proc
+
 def launch_acceptance(home, runtime_id, python, source, pair_digest):
     """Native disposable input files + prepared-runtime CLI; never load launchd."""
     folder = home / ".local/share/reasonfirst/v4-service/tools/codex_web_bridge"
@@ -238,10 +311,9 @@ def main():
         if sys.platform == 'darwin' and os.environ.get('GITHUB_ACTIONS') == 'true':
             fixture_env = r.child_env(home)
             fixture_env['GITHUB_ACTIONS'] = 'true'
-            fixture = execute([str(prepared_root/'bin/python'), '-I', '-B',
+            execute_loaded_fixture([str(prepared_root/'bin/python'), '-I', '-B',
                                str(source/'scripts/loaded_service_e2e.py'), '--ci-fixture'],
                               home, env=fixture_env)
-            print(fixture.stdout.decode('utf-8'))
 
         (prepared_root/'added-for-drift-test').write_text('synthetic drift')
         assert r.status(runtime_id=p['runtime_id'], home=home)['runtime_status'] == 'drifted'

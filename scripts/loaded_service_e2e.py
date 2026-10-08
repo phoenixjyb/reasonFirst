@@ -4,6 +4,7 @@
 Loads exactly one random-label /bin/sleep job in a clean CI user's context, then
 unloads that same job. This tests the adapter/comparator using the prepared Python;
 it is not an end-to-end ReasonFirst activation or the public command's full path.
+Only a classified result is emitted, and success is emitted after cleanup.
 """
 from __future__ import annotations
 import argparse
@@ -20,12 +21,31 @@ import uuid
 from gitlab_agent.upgrade import loaded_service as loaded
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--ci-fixture', action='store_true', required=True)
-    parser.parse_args()
-    if sys.platform != 'darwin' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.getuid() == 0:
-        raise SystemExit('Native service fixture requires a non-root disposable macOS Actions runner.')
+class FixtureError(RuntimeError):
+    """Only locally assigned fixed codes may be included in the test report."""
+
+
+NATIVE_ERRORS = frozenset({
+    'unsupported_loaded_service_platform', 'user_domain_required',
+    'invalid_job_label', 'native_query_timeout', 'native_output_limit',
+    'native_query_failed', 'native_api_unavailable',
+    'job_unavailable_or_query_failed', 'native_job_unserializable',
+    'invalid_native_job',
+})
+
+
+def _query(label, root):
+    try:
+        return loaded._query_job(label, root)
+    except loaded.LoadedServiceError as exc:
+        code = str(exc)
+        raise FixtureError(code if code in NATIVE_ERRORS else 'native_query_failed') from None
+
+
+def _run_fixture(report):
+    if (sys.platform != 'darwin' or os.environ.get('GITHUB_ACTIONS') != 'true'
+            or os.getuid() == 0 or os.getuid() != os.geteuid()):
+        raise FixtureError('fixture_context_required')
     label = 'com.reasonfirst.fixture.loaded-' + uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix='rf-native-job-') as td:
         root = Path(td).resolve()
@@ -35,8 +55,9 @@ def main():
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   cwd=root, env=env, timeout=12, check=False)
         # A collision would be unexpected: never remove or reuse a preexisting job.
+        report['stage'] = 'collision_check'
         if command('list',label).returncode == 0:
-            raise RuntimeError('Random fixture label already exists; nothing changed.')
+            raise FixtureError('fixture_label_collision')
         cwd = root / "initial 空间"
         cwd.mkdir()
         changed_cwd = root / 'changed'
@@ -47,53 +68,91 @@ def main():
                     'EnvironmentVariables': {'RF_SYNTHETIC_FIXTURE': 'private-fixture'}}
         original_raw = plistlib.dumps(original)
         plist.write_bytes(original_raw); plist.chmod(0o600)
-        attempted = False
         try:
-            attempted = True
+            report['stage'] = 'load'
+            report['load_attempted'] = True
             if command('load',str(plist)).returncode:
-                raise RuntimeError('Native fixture could not load; no success claim.')
+                raise FixtureError('fixture_load_failed')
+            report['stage'] = 'initial_query'
             deadline = time.monotonic()+10
             job = None
             while time.monotonic()<deadline:
-                try:
-                    job = loaded._query_job(label,root)
-                except loaded.LoadedServiceError:
-                    raise  # API unsupported is an actual failed native test, not a skip.
+                job = _query(label,root)  # Missing native API is failure, not skip.
+                report['actual_loaded_job_queried'] = True
                 if job.get('PID'):
                     break
                 time.sleep(0.1)
             if not job or not job.get('PID'):
-                raise RuntimeError('Fixture PID not observed.')
+                raise FixtureError('fixture_pid_unobserved')
+            report['stage'] = 'initial_comparison'
             initial = loaded._compare(original,job)
+            report['selected_fields'] = initial['selected_fields']
             if not initial['selected_launch_fields_match']:
-                # Field classifications only, never arbitrary job environment/args.
-                raise RuntimeError('Native fields incomplete: '+json.dumps(initial))
+                raise FixtureError('native_fields_incomplete_or_different')
             changed = {**original, 'WorkingDirectory': str(changed_cwd),
                        'EnvironmentVariables': {'RF_SYNTHETIC_FIXTURE':'changed'}}
             changed_raw=plistlib.dumps(changed)
             plist.write_bytes(changed_raw)
-            second=loaded._query_job(label,root)
+            report['stage'] = 'drift_query'
+            second=_query(label,root)
             if second.get('PID')!=job['PID']:
-                raise RuntimeError('Fixture PID changed unexpectedly.')
+                raise FixtureError('fixture_pid_changed')
+            report['stage'] = 'drift_comparison'
             difference=loaded._compare(changed,second)
-            if difference['selected_fields']['WorkingDirectory']!='differs' or difference['selected_fields']['EnvironmentVariables']!='differs':
-                raise RuntimeError('Native query did not distinguish saved-file drift from loaded job.')
+            report['drift_fields'] = difference['selected_fields']
+            if (difference['selected_fields']['WorkingDirectory']!='differs'
+                    or difference['selected_fields']['EnvironmentVariables']!='differs'):
+                raise FixtureError('saved_loaded_drift_not_detected')
             if plist.read_bytes()!=changed_raw:
-                raise RuntimeError('Native query modified saved registration.')
-            print(json.dumps({'operation':'loaded-job-native-fixture','ok':True,
-                              'deprecated_structured_api':True,'actual_loaded_job_queried':True,
-                              'saved_file_drift_detected':True,'helper_python':sys.version.split()[0],
-                              'production_label_used':False,'reasonfirst_server_started':False,
-                              'public_cli_full_path_tested':False,'activation_tested':False},sort_keys=True))
+                raise FixtureError('saved_registration_changed')
+            report['saved_file_drift_detected'] = True
         finally:
-            if attempted:
-                # Label belongs only to this disposable test. Never issue a broad
-                # unload or remove arbitrary user state, and do not ignore failure.
-                plist.write_bytes(original_raw)
-                cleanup=command('unload',str(plist))
-                if cleanup.returncode or command('list',label).returncode==0:
-                    raise RuntimeError('Fixture cleanup not confirmed.')
-    return 0
+            if report['load_attempted']:
+                # Keep the original failure as well as a failed cleanup outcome.
+                # Do not emit success before this block completes.
+                report['cleanup_attempted'] = True
+                try:
+                    plist.write_bytes(original_raw)
+                    cleanup=command('unload',str(plist))
+                    absent=command('list',label).returncode != 0
+                    report['cleanup_confirmed'] = cleanup.returncode == 0 and absent
+                    if not report['cleanup_confirmed']:
+                        report['cleanup_error_code'] = 'fixture_cleanup_not_confirmed'
+                except Exception:
+                    report['cleanup_error_code'] = 'fixture_cleanup_failed'
+                if report['cleanup_error_code'] and sys.exc_info()[0] is None:
+                    report['stage'] = 'cleanup'
+                    raise FixtureError(report['cleanup_error_code'])
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ci-fixture', action='store_true', required=True)
+    parser.parse_args(argv)
+    report = {
+        'operation': 'loaded-job-native-fixture', 'ok': False,
+        'stage': 'eligibility', 'error_code': None,
+        'selected_fields': {}, 'drift_fields': {},
+        'load_attempted': False, 'cleanup_attempted': False,
+        'cleanup_confirmed': False, 'cleanup_error_code': None,
+        'actual_loaded_job_queried': False, 'saved_file_drift_detected': False,
+        'production_label_used': False, 'reasonfirst_server_started': False,
+        'public_cli_full_path_tested': False, 'activation_tested': False,
+    }
+    try:
+        _run_fixture(report)
+    except FixtureError as exc:
+        report['error_code'] = str(exc)
+    except KeyboardInterrupt:
+        report['error_code'] = 'fixture_interrupted'
+    except Exception:
+        # No raw OS/framework/launchctl error or arbitrary data reaches logs.
+        report['error_code'] = 'fixture_failed'
+    else:
+        report['ok'] = True
+        report['stage'] = 'complete'
+    print(json.dumps(report, sort_keys=True), flush=True)
+    return 0 if report['ok'] else 1
 
 
 if __name__=='__main__':raise SystemExit(main())

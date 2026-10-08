@@ -186,7 +186,7 @@ class QueryBoundaryTests(unittest.TestCase):
             self.assertEqual(m._query_job(LABEL,Path('/fixture'))['Label'],LABEL)
         argv,env=capture.call_args.args
         self.assertEqual(argv,[sys.executable,'-I','-S','-B','-c',m.QUERY_SCRIPT,LABEL])
-        self.assertEqual(env,{'HOME':'/fixture','PATH':'/usr/bin:/bin:/usr/sbin:/sbin','LC_ALL':'C'})
+        self.assertEqual(env,{'HOME':str(Path('/fixture')),'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','LC_ALL':'C'})
         self.assertNotIn(SECRET,repr(capture.call_args))
 
     def test_failure_output_never_used_as_native_dictionary(self):

@@ -79,6 +79,12 @@ and unloads that exact fixture. It never uses the production service label or a
 ReasonFirst server. The fixture tests the native adapter/comparator, not the
 public command's complete pairing/review path or a service-upgrade transaction.
 Missing native capability fails that CI test rather than silently skipping it.
+The fixture emits one classified JSON result only after its cleanup attempt. It
+keeps the original failure stage and a separate cleanup outcome, and exposes only
+fixed codes and field-match classifications, never raw native data or stderr.
+The parent validates this bounded report before logging it; a failed fixture or
+inconsistent exit status remains a CI failure. Missing fields and saved/loaded
+drift checks are not relaxed merely to obtain diagnostics.
 No native fixture is run by normal setup/status or on maintainer machines.
 
 Application configuration/schema compatibility, generated-sidecar source support,
