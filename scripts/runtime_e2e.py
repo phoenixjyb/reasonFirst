@@ -57,6 +57,34 @@ def execute(argv, cwd, *, env=None):
 
 
 
+def validate_native_shape(shape):
+    """Accept only a fixed, bounded CI-fixture shape report; no raw names/values."""
+    keys = {'scope', 'selected_top_level_types', 'top_level_entries', 'visited_nodes',
+            'max_depth_seen', 'occurrences', 'traversal_complete'}
+    fields = {'Program', 'ProgramArguments', 'WorkingDirectory', 'EnvironmentVariables'}
+    counters = {'working_directory_key', 'environment_variables_key',
+                'fixture_cwd_value', 'fixture_environment_value'}
+    tags = {'absent', 'dictionary', 'array', 'string', 'boolean', 'integer', 'real', 'data', 'other'}
+    if not isinstance(shape, dict) or set(shape) != keys:
+        raise ValueError
+    if shape['scope'] != 'synthetic-job-response-shape-only' or type(shape['traversal_complete']) is not bool:
+        raise ValueError
+    types = shape['selected_top_level_types']
+    occurrences = shape['occurrences']
+    if not isinstance(types, dict) or set(types) != fields or any(t not in tags for t in types.values()):
+        raise ValueError
+    if not isinstance(occurrences, dict) or set(occurrences) != counters:
+        raise ValueError
+    for key, bound in (('top_level_entries', 262144), ('visited_nodes', 4096), ('max_depth_seen', 16)):
+        value = shape[key]
+        if type(value) is not int or not 0 <= value <= bound:
+            raise ValueError
+    if shape['visited_nodes'] < 1:
+        raise ValueError
+    if any(type(v) is not int or not 0 <= v <= 4096 for v in occurrences.values()):
+        raise ValueError
+
+
 def loaded_fixture_report(raw):
     """Whitelist bounded test diagnostics; never print a child's raw streams."""
     stages = {'eligibility', 'collision_check', 'load', 'initial_query',
@@ -79,8 +107,10 @@ def loaded_fixture_report(raw):
         if not isinstance(raw, bytes) or len(raw) > 8192:
             raise ValueError
         report = json.loads(raw, object_pairs_hook=r.unique)
-        if not isinstance(report, dict) or set(report) != expected:
+        if not isinstance(report, dict) or set(report) not in (expected, expected | {'native_shape'}):
             raise ValueError
+        if 'native_shape' in report:
+            validate_native_shape(report['native_shape'])
         if report['operation'] != 'loaded-job-native-fixture' or report['stage'] not in stages:
             raise ValueError
         if any(type(report[key]) is not bool for key in flags):

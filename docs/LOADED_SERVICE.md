@@ -92,3 +92,28 @@ complete effective environment and process identity, work admission, controlled
 switch/recovery and existing-client acceptance remain separate requirements.
 
 [Launch review](LAUNCH_REVIEW.md) · [中文](LOADED_SERVICE_CN.md)
+
+## Native field-availability investigation
+
+CI at `1ce151e8` successfully queried and cleaned up its synthetic job, but the
+returned dictionary did not report `WorkingDirectory` or `EnvironmentVariables`
+at the expected top level. That is not proof of an absent launch setting and is
+not a successful four-field comparison. No native field is filled from the plist.
+
+The CI-only fixture now adds `native_shape`: fixed top-level type classifications
+and a bounded recursive count of the two known keys and its own synthetic cwd/env
+strings anywhere in the returned dictionary. It emits no arbitrary native key,
+value, label, path or stderr. At most 4096 nodes and depth 16 are inspected; an
+incomplete traversal is explicitly reported and must not support an absence
+claim. This diagnostic is never used to make comparison/cleanup acceptance pass.
+It does not introduce another query, a new production API, or a fallback parser.
+
+Apple's [historical launchd-842.1.4 `job_export` implementation](https://github.com/apple-oss-distributions/launchd/blob/d448a1c8f70a61202f8705f94337f686b87c30c4/src/core.c#L985)
+exports a selected dictionary including program/argv and process status rather
+than the whole saved plist; its export function does not include cwd/environment.
+That old source helps explain a possible API limit, but it is not evidence of
+which binary implementation runs on today's macOS. The native fixture's actual
+field/shape report is the evidence for its particular runner. A renamed/nested
+field must not be accepted through a guessed alias. If the required data is not
+returned, the four-field native acceptance remains blocked pending an explicitly
+reviewed alternative source or a separately approved narrower feature contract.

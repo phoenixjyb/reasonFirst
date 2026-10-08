@@ -62,3 +62,20 @@ PID 不是独立的可执行文件身份或监听归属；LastExitStatus 是历�
 仍需后续实现与验证。
 
 [English](LOADED_SERVICE.md) · [启动审阅](LAUNCH_REVIEW_CN.md)
+
+## 原生字段可用性调查
+
+`1ce151e8` 的 CI 已成功查询并清理临时任务，但原生字典的预期顶层位置没有报告
+`WorkingDirectory` 和 `EnvironmentVariables`。这不代表启动设置未生效，也不是
+四字段比较成功；不能从保存的 plist 补齐原生证据。
+
+仅 CI 临时任务增加 `native_shape`：固定字段的顶层类型，以及在返回字典中递归统计
+这两个已知键及临时任务自身 cwd/env 字符串的出现次数。不输出任意原生键、值、标签、
+路径或 stderr。最多访问 4096 节点、深度 16；不完整遍历明确标记，不能用于断言不存在。
+形状诊断不参与比较或清理的通过判定，不新增查询、生产 API 或回退解析器。
+
+Apple [历史 launchd-842.1.4 的 `job_export` 实现](https://github.com/apple-oss-distributions/launchd/blob/d448a1c8f70a61202f8705f94337f686b87c30c4/src/core.c#L985)
+只导出包含程序、参数及进程状态的选中字段，不导出 cwd/environment；不是完整保存配置。
+该旧源码提示一种 API 能力限制，但不能证明今天 macOS 的二进制实现。
+具体 runner 的证据仍以实际字段及形状报告为准，不猜测改名或嵌套字段的别名。
+如未返回所需数据，四字段原生验收继续阻塞，直到另行审阅替代来源，或明确批准缩小功能范围。

@@ -42,6 +42,63 @@ def _query(label, root):
         raise FixtureError(code if code in NATIVE_ERRORS else 'native_query_failed') from None
 
 
+def native_shape(job, saved):
+    """CI-fixture-only shape/occurrence counts, never native keys or values.
+
+    Search the complete returned dictionary rather than guessing alternate field
+    names. Only fixed field names, type tags, counts and completion are emitted.
+    The compared values come from this synthetic fixture, not real user config.
+    A bounded/incomplete walk is explicitly not evidence of absence.
+    """
+    names = ('Program', 'ProgramArguments', 'WorkingDirectory', 'EnvironmentVariables')
+    counts = {'working_directory_key': 0, 'environment_variables_key': 0,
+              'fixture_cwd_value': 0, 'fixture_environment_value': 0}
+    def tag(value):
+        if isinstance(value, dict): return 'dictionary'
+        if isinstance(value, list): return 'array'
+        if isinstance(value, str): return 'string'
+        if type(value) is bool: return 'boolean'
+        if type(value) is int: return 'integer'
+        if type(value) is float: return 'real'
+        if isinstance(value, bytes): return 'data'
+        return 'other'
+    shape = {
+        'scope': 'synthetic-job-response-shape-only',
+        'selected_top_level_types': {name: tag(job[name]) if name in job else 'absent' for name in names},
+        'top_level_entries': len(job), 'visited_nodes': 0, 'max_depth_seen': 0,
+        'occurrences': counts, 'traversal_complete': True,
+    }
+    cwd = saved['WorkingDirectory']
+    env = saved['EnvironmentVariables']['RF_SYNTHETIC_FIXTURE']
+    stack = [(job, 0)]
+    while stack:
+        value, depth = stack.pop()
+        if depth > 16 or shape['visited_nodes'] >= 4096:
+            shape['traversal_complete'] = False
+            break
+        shape['visited_nodes'] += 1
+        shape['max_depth_seen'] = max(shape['max_depth_seen'], depth)
+        if isinstance(value, dict):
+            # Input bytes are bounded by the production adapter. Also cap queued
+            # work before expanding a large container in a synthetic/unit test.
+            if len(value) * 2 + len(stack) + shape['visited_nodes'] > 4096:
+                shape['traversal_complete'] = False
+                break
+            for key, item in value.items():
+                counts['working_directory_key'] += int(key == 'WorkingDirectory')
+                counts['environment_variables_key'] += int(key == 'EnvironmentVariables')
+                stack.extend(((key, depth + 1), (item, depth + 1)))
+        elif isinstance(value, list):
+            if len(value) + len(stack) + shape['visited_nodes'] > 4096:
+                shape['traversal_complete'] = False
+                break
+            stack.extend((item, depth + 1) for item in value)
+        elif isinstance(value, str):
+            counts['fixture_cwd_value'] += int(value == cwd)
+            counts['fixture_environment_value'] += int(value == env)
+    return shape
+
+
 def _run_fixture(report):
     if (sys.platform != 'darwin' or os.environ.get('GITHUB_ACTIONS') != 'true'
             or os.getuid() == 0 or os.getuid() != os.geteuid()):
@@ -84,6 +141,7 @@ def _run_fixture(report):
                 time.sleep(0.1)
             if not job or not job.get('PID'):
                 raise FixtureError('fixture_pid_unobserved')
+            report['native_shape'] = native_shape(job, original)
             report['stage'] = 'initial_comparison'
             initial = loaded._compare(original,job)
             report['selected_fields'] = initial['selected_fields']
