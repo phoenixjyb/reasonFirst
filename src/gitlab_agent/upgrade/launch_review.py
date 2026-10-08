@@ -128,6 +128,11 @@ def _saved_policy(raw: bytes) -> dict[str, Any]:
                    "RF_CODEX_BRIDGE_STATE_DIR", "RF_V4_RUNTIME_DIR")
     return {
         "source": "saved_plist_not_running_process",
+        # Keep literal saved settings distinct from what a verified legacy
+        # template would expose. A generated/unknown launcher need not honor
+        # these variables; _observe suppresses that interpretation in that case.
+        "saved_environment_policy": {"read_only": readonly, "remote_push": push, "port": port},
+        "interpretation_basis": "known_legacy_profile_saved_values_not_live",
         "endpoint": {"host": "127.0.0.1", "path": "/mcp", "port": port,
                      "port_source": "saved" if port is not None else "not_recorded"},
         "mode": "read-only" if readonly is True else "full-chat" if readonly is False else "unknown",
@@ -187,8 +192,19 @@ def _observe(home: Path, pair: dict[str, Any]) -> dict[str, Any]:
     raw = deployment._registration_bytes(home)
     if hashlib.sha256(raw).hexdigest() != registration["registration_sha256"]:
         fail("saved_registration_changed")
-    return {"launcher": _launcher(home, registration),
-            "saved_policy": _saved_policy(raw), "target": _target(home, pair)}
+    launcher = _launcher(home, registration)
+    policy = _saved_policy(raw)
+    if not launcher["fully_verified"]:
+        # A recognizable path is not a reviewed program. Preserve bounded saved
+        # values, but do not borrow endpoint or privilege semantics from the
+        # legacy template for an unaudited generated bootstrap.
+        policy.update(
+            interpretation_basis="unverified_launcher_values_only",
+            endpoint={"host": None, "path": None, "port": None,
+                      "port_source": "unverified_launcher"},
+            mode="unknown", legacy_control="unknown", remote_push=None,
+        )
+    return {"launcher": launcher, "saved_policy": policy, "target": _target(home, pair)}
 
 
 def _boundary(operation: str) -> dict[str, Any]:
@@ -219,6 +235,11 @@ def plan(*, runtime_id: str, expect_pairing_digest: str,
         blockers.append("legacy_control_requirement_unknown")
     if policy["remote_push"] is not False:
         blockers.append("remote_push_unsupported_or_unknown")
+    # The old read-only surface ignores an enabled remote-push extension, but
+    # the target rejects that environment setting even in read-only mode.
+    # Surface the incompatibility instead of silently clearing the setting.
+    if policy.get("saved_environment_policy", {}).get("remote_push") is True:
+        blockers.append("target_rejects_saved_remote_push_setting")
     if policy["endpoint"]["port"] is None:
         blockers.append("saved_listener_port_unknown")
     if policy["prelaunch_code_override_recorded"]:
@@ -229,7 +250,10 @@ def plan(*, runtime_id: str, expect_pairing_digest: str,
     result.update(ok=True, identity=identity, plan_digest=runtime.digest(identity),
                   launcher_source_verified=launcher["fully_verified"],
                   target_source_verified=True,
-                  saved_control_policy_compatible=(policy["legacy_control"] == "absent"),
+                  saved_control_policy_compatible=(
+                      launcher["fully_verified"]
+                      and not policy["prelaunch_code_override_recorded"]
+                      and policy["legacy_control"] == "absent"),
                   compatibility="not_established", blockers=blockers,
                   message="Read-only source/policy review; no activation permission.")
     return result

@@ -13,6 +13,8 @@ The first command revalidates the saved macOS registration and prepared runtime,
 
 Legacy full-chat HTTP exposes /control. The packaged HTTP entry point does not. A saved full-chat policy therefore yields a blocker, not silent privilege loss. Unknown or inherited policy remains unknown. An existing versioned sidecar is recognized but its bootstrap is not independently audited in this slice, so its source cannot be accepted as verified.
 
+Saved environment values are separate from source-derived behavior. An unaudited sidecar leaves its effective endpoint, mode, control route and remote-push exposure unknown, even when the plist explicitly records those variable names. The positive saved-control comparison additionally requires verified launcher sources and no recorded prelaunch-code override. It is still not live compatibility evidence. An enabled remote-push setting is reported as a target startup blocker even when the old read-only surface would ignore it; the review never silently clears that setting.
+
 The inspected plist may contain credentials and environment values: only constrained policy fields and configuration-reference presence are reported; actual values of referenced files are not opened or printed. The commands never read application .env, bridge.yaml, setup.yaml, workspaces or approval state, and do not contact launchd, any controller or external provider.
 
 A successful review still returns compatibility_verified=false, activation_authorized=false and ready_for_activation=false. Running service identity, actual effective environment, schema compatibility, pending work, controlled activation, recovery and existing-client acceptance remain unresolved. Repeated reads are not an atomic snapshot, and hashes are not signatures.
