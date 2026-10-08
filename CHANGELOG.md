@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add read-only `reasonfirst-runtime launch-plan/launch-check` after an exact
+  deployment/runtime pairing. Measure known staged/isolated-sidecar launch files,
+  expose saved endpoint/mode and configuration references, and report legacy
+  `/control` incompatibility instead of silently dropping it. Unknown/inherited
+  policy remains unresolved; no config-content read, runtime execution, service
+  activation or release change. See [launch review](docs/LAUNCH_REVIEW.md) /
+  [中文](docs/LAUNCH_REVIEW_CN.md).
+
 - Add read-only macOS `reasonfirst-runtime deployment-plan/deployment-check` to
   bind a matching saved deployment record and unchanged prepared runtime under
   one review digest. Reject drift, unsafe/missing metadata and cross-host inputs;

@@ -103,3 +103,5 @@ CLI using a genuinely prepared runtime and a synthetic saved LaunchAgent. It
 never loads that LaunchAgent. Linux/Windows test the explicit unsupported boundary.
 
 [Deployment records](DEPLOYMENTS.md) · [Runtime preparation](RUNTIME_PREPARATION.md) · [中文](DEPLOYMENT_PAIRING_CN.md)
+
+See [known launcher and saved-policy review](LAUNCH_REVIEW.md) for the next read-only evidence step.

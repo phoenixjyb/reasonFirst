@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Private v0.5.1 HTTP compatibility launcher; never runs the setup wizard."""
+from __future__ import annotations
+import hashlib
+import importlib
+import importlib.metadata as metadata
+import inspect
+import json
+import os
+from pathlib import Path
+import sys
+
+BASE = Path(__file__).resolve().parent
+
+class StageCheckError(RuntimeError):
+    pass
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise StageCheckError(message)
+
+def read_bounded(path: Path, maximum: int = 2 * 1024 * 1024) -> bytes:
+    require(path.is_file() and not path.is_symlink(), 'Missing or symlinked checked file')
+    with path.open('rb') as f:
+        raw = f.read(maximum + 1)
+    require(len(raw) <= maximum, 'Checked file exceeded size limit')
+    return raw
+
+def check_file(path: Path, item: dict) -> None:
+    raw = read_bounded(path)
+    require(len(raw) == item['bytes'] and hashlib.sha256(raw).hexdigest() == item['sha256'],
+            'Checked source changed; stop and review the stage again')
+
+def identity(manifest: dict) -> tuple[Path, dict]:
+    require(sys.flags.isolated == 1 and sys.dont_write_bytecode, 'Use the staged isolated launcher')
+    require(Path(sys.prefix).resolve() == Path(manifest['uv_prefix']).resolve(),
+            'Interpreter environment differs from the approved stage')
+    dist = metadata.distribution('chatgpt-selfhosted-gitlab-mcp')
+    require(dist.version == '0.5.1', 'This stage is pinned to ReasonFirst 0.5.1')
+    site = Path(dist.locate_file('')).resolve()
+    require(site.is_relative_to(Path(sys.prefix).resolve()), 'Package is outside the selected environment')
+    for name, item in manifest['package_modules'].items():
+        check_file(site / name, item)
+    for name, item in manifest['compatibility_files'].items():
+        check_file(BASE / 'compat' / name, item)
+    import gitlab_agent
+    require(gitlab_agent.__version__ == '0.5.1' and
+            Path(gitlab_agent.__file__).resolve() == site / 'gitlab_agent/__init__.py',
+            'The imported core differs from the selected package')
+    return site, {'version': dist.version, 'core_import': str(Path(gitlab_agent.__file__).resolve()),
+                  'mcp_sdk_version': metadata.version('mcp'),
+                  'package_python_files_verified': len(manifest['package_modules'])}
+
+def import_check_guard(event: str, args: tuple) -> None:
+    """Accidental-side-effect guard for this import check, not an OS sandbox."""
+    if event in {'subprocess.Popen', 'os.system', 'os.fork', 'os.forkpty',
+                 'os.posix_spawn', 'os.exec', 'os.mkdir', 'os.remove', 'os.rmdir',
+                 'os.rename', 'os.link', 'os.symlink', 'os.chmod', 'os.chown',
+                 'os.truncate', 'os.utime'} or event.startswith('socket.'):
+        raise StageCheckError('Import check attempted a prohibited side effect')
+    if event == 'open':
+        path, mode, flags = args
+        if isinstance(mode, str) and any(c in mode for c in 'wax+'):
+            raise StageCheckError('Import check attempted to write a file')
+        if isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
+            raise StageCheckError('Import check attempted to open a file for writing')
+        if isinstance(path, (str, bytes)):
+            name = Path(os.fsdecode(path)).name
+            if name in {'.env', 'bridge.yaml', 'config.toml', 'auth.json', 'control-token', 'state.json'}:
+                raise StageCheckError('Import check attempted to read live configuration/state')
+
+def main() -> int:
+    is_probe = sys.argv[1:] == ['--import-check']
+    require('--import-check' not in sys.argv[1:] or is_probe, 'Invalid import-check invocation')
+    if is_probe:
+        sys.addaudithook(import_check_guard)
+    manifest = json.loads(read_bounded(BASE / 'STAGE.json').decode('utf-8'))
+    require(manifest.get('stage_kind') == 'reasonfirst-v051-legacy-http-uv', 'Unexpected stage manifest')
+    _, result = identity(manifest)
+    # Isolated Python ignores PYTHONPATH, but children would not. Remove stale
+    # interpreter overrides rather than allowing spawned CLIs to find old code.
+    for key in ('PYTHONPATH', 'PYTHONHOME', 'PYTHONEXECUTABLE', '__PYVENV_LAUNCHER__'):
+        os.environ.pop(key, None)
+    compat = BASE / 'compat'
+    sys.path.insert(0, str(compat))
+    server = importlib.import_module('reasonfirst_mcp_server')
+    installed = importlib.import_module('gitlab_agent.bridge_preview.controller')
+    legacy = importlib.import_module('reasonfirst_codex_bridge.controller')
+    cfg = importlib.import_module('gitlab_agent.bridge_preview.bridge_config')
+    legacy_cfg = importlib.import_module('reasonfirst_codex_bridge.bridge_config')
+    require(legacy is installed and legacy_cfg is cfg and server.BridgeController is installed.BridgeController,
+            'Compatibility imports do not resolve to the packaged implementation')
+    # Import the existing control-route dependency; do not call dispatch or main.
+    importlib.import_module('github_control_relay')
+    from mcp.server import MCPServer
+    inspect.signature(MCPServer.run).bind(
+        object(), transport='streamable-http', host='127.0.0.1', port=8765,
+        streamable_http_path='/mcp')
+    if is_probe:
+        result.update(ok=True, operation='staged-http-import-check',
+                      compatibility_controller_is_packaged=True,
+                      compatibility_config_is_packaged=True,
+                      http_server_imported=True, control_route_dependency_imported=True,
+                      http_call_signature_accepted=True, controller_instantiated=False,
+                      server_started=False, listener_created=False,
+                      live_configuration_or_state_loaded=False,
+                      scope='imports-and-signature-only-not-live-HTTP-acceptance')
+        print(json.dumps(result, indent=2))
+        return 0
+    # Match the audited historical shell launcher's CLI behavior exactly.
+    tail = sys.argv[1:]
+    if tail[:1] in (['--doctor'], ['--stdio']):
+        return server.main(tail)
+    return server.main(['--host', '127.0.0.1', '--port', os.environ.get('RF_MCP_PORT', '8765'),
+                        '--path', '/mcp', *tail])
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(json.dumps({'ok': False, 'operation': 'staged-http-launch',
+                          'error_type': type(exc).__name__,
+                          'error': str(exc) if isinstance(exc, StageCheckError) else 'Stage identity/import/startup check failed; no automatic fallback.'}),
+              file=sys.stderr)
+        raise SystemExit(1)

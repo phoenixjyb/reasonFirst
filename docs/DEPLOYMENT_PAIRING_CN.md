@@ -87,3 +87,5 @@ manifest 继续绑定包/依赖/解释器身份与安装文件树。元数据只
 LaunchAgent 登记，不加载该服务。Linux/Windows 验证明确的不支持边界。
 
 [部署登记](DEPLOYMENTS_CN.md) · [运行环境准备](RUNTIME_PREPARATION_CN.md) · [English](DEPLOYMENT_PAIRING.md)
+
+后续只读证据见[已知启动器与保存策略审阅](LAUNCH_REVIEW_CN.md)。
