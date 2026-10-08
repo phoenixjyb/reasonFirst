@@ -476,9 +476,18 @@ def main(argv=None):
         if action == 'launch-check':
             p.add_argument('--expect-digest', required=True)
         p.add_argument('--json', action='store_true')
+    p = sub.add_parser('loaded-inspect', allow_abbrev=False)
+    for name in ('runtime-id', 'expect-pairing-digest', 'expect-digest'):
+        p.add_argument('--' + name, required=True)
+    p.add_argument('--json', action='store_true')
     args = parser.parse_args(argv)
     try:
-        if args.action in ('launch-plan', 'launch-check'):
+        if args.action == 'loaded-inspect':
+            from .loaded_service import inspect
+            result = inspect(runtime_id=args.runtime_id,
+                             expect_pairing_digest=args.expect_pairing_digest,
+                             expect_digest=args.expect_digest)
+        elif args.action in ('launch-plan', 'launch-check'):
             from .launch_review import run_command
             result = run_command(args.action, runtime_id=args.runtime_id,
                                  expect_pairing_digest=args.expect_pairing_digest,
