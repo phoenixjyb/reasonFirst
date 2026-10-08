@@ -20,3 +20,5 @@ plist 可能包含环境变量值；输出只包含受限的端点／模式／�
 部署配对目前仅支持 macOS；Linux 的独立环境准备与 Windows 的包安装／HTTP 测试不受影响，但不代表已实现全平台服务迁移。
 
 [English](LAUNCH_REVIEW.md) · [部署配对](DEPLOYMENT_PAIRING_CN.md) · [HTTP Bridge](BRIDGE_HTTP_CN.md)
+
+[下一步：显式观察已加载任务的选中字段](LOADED_SERVICE_CN.md)。这是独立原生读取，现有静态启动审阅仍不调用服务管理器。

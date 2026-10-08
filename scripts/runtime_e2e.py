@@ -235,6 +235,14 @@ def main():
         assert r.status(runtime_id=p['runtime_id'], home=home)['prepared'] is True
         assert not (home/'.config').exists(), 'Application/onboarding state was fabricated'
         pairing_acceptance(home, p['runtime_id'], prepared_root/'bin/python', source)
+        if sys.platform == 'darwin' and os.environ.get('GITHUB_ACTIONS') == 'true':
+            fixture_env = r.child_env(home)
+            fixture_env['GITHUB_ACTIONS'] = 'true'
+            fixture = execute([str(prepared_root/'bin/python'), '-I', '-B',
+                               str(source/'scripts/loaded_service_e2e.py'), '--ci-fixture'],
+                              home, env=fixture_env)
+            print(fixture.stdout.decode('utf-8'))
+
         (prepared_root/'added-for-drift-test').write_text('synthetic drift')
         assert r.status(runtime_id=p['runtime_id'], home=home)['runtime_status'] == 'drifted'
         print(json.dumps({'operation':'runtime-native-acceptance', 'ok':True,

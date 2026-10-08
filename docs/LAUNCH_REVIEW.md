@@ -22,3 +22,5 @@ A successful review still returns compatibility_verified=false, activation_autho
 macOS is the only supported deployment-pairing platform. Linux runtime preparation and Windows package/HTTP installation support are separate and unchanged.
 
 [中文](LAUNCH_REVIEW_CN.md) · [Pairing](DEPLOYMENT_PAIRING.md) · [HTTP Bridge](BRIDGE_HTTP.md)
+
+[Next: explicitly observe selected loaded-job fields](LOADED_SERVICE.md). This separate command makes native read queries; static launch review remains unchanged.
