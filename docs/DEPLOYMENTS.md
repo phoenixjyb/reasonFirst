@@ -116,3 +116,5 @@ shared-core wrapper. It does not make this registration command an updater and
 is not compatible with deployments requiring the legacy `/control` route.
 
 [中文说明](DEPLOYMENTS_CN.md)
+
+[Read-only pairing with a prepared runtime](DEPLOYMENT_PAIRING.md)
