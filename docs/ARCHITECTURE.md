@@ -218,9 +218,13 @@ keeps tool admission permanently closed. See
 The [managed HTTP owner](MANAGED_HTTP_SERVICE.md) binds a newly enrolled
 controller to its exact server task and retained listener. Its explicit modern
 JSON profile reserves incoming requests through response handling and disables
-standing subscriptions. Maintenance remains on the owning Python handle;
-configuration compatibility, other work producers, and service adoption still
-require separate evidence.
+standing subscriptions. An optional immutable configuration binds selected
+parent settings, targets, worker requests and state paths through the exact
+owner/controller/core objects. The owner records its actual process and
+selected runtime files, then revalidates them at startup and maintenance
+transitions. These scoped bindings leave effective child/provider configuration,
+loaded-code integrity, other work producers and service adoption unverified.
+Maintenance remains on the owning Python handle.
 
 ## 7. Remote validation
 

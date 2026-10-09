@@ -1,7 +1,9 @@
 """One process-local owner for an enrolled Bridge and its HTTP listener.
 
-This internal API starts a new foreground service.  It does not adopt a service,
-verify a prepared runtime/configuration, or authorize deployment or activation.
+This internal API starts a new foreground service. An explicit configuration
+can bind selected parent policy and a current-process runtime observation. It
+does not adopt a service, verify all effective configuration or a prepared
+runtime, or authorize deployment or activation.
 The disposable startup protocol and ordinary HTTP entry point are independent.
 """
 from __future__ import annotations
@@ -17,6 +19,8 @@ import time
 
 from ..bridge_http import HTTPLaunch
 from ..bridge_preview.admission import AdmissionError, ControllerAdmission, _ERROR_CODES
+from .service_configuration import ManagedServiceConfiguration
+from .service_runtime import SCOPE as _RUNTIME_SCOPE, ServiceRuntimeObservation, capture_service_runtime
 
 
 START_TIMEOUT_SECONDS = 8.0
@@ -37,6 +41,7 @@ _CODES = _ERROR_CODES | frozenset({
     "service_failed", "service_cleanup_failed", "server_cleanup_failed",
     "controller_cleanup_failed", "listener_cleanup_failed", "request_cleanup_failed",
     "lifespan_cleanup_failed",
+    "invalid_service_configuration", "configuration_binding_failed", "runtime_binding_failed",
 })
 
 
@@ -134,9 +139,29 @@ def _observe_listener(server, sock, launch):
         raise ServiceError("listener_observation_failed") from None
 
 
-def _create_controller(admission):
+def _create_controller(admission, *, configuration=None):
     from ..bridge_preview.controller import BridgeController
-    return BridgeController(admission=admission)
+    return BridgeController(admission=admission, service_configuration=configuration)
+
+
+def _runtime_summary(observation):
+    """Validate bounded public evidence before adopting any service resources."""
+    digest, summary = observation.digest, observation.summary()
+    positive = {"interpreter_files_observed", "selected_module_origins_observed",
+                "selected_module_files_observed", "current_process_only"}
+    negative = {"runtime_identity_verified", "running_code_verified", "activation_authorized"}
+    if (type(digest) is not str or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or type(summary) is not dict
+            or set(summary) != positive | negative | {"scope", "digest", "selected_module_count"}
+            or type(summary["scope"]) is not str or summary["scope"] != _RUNTIME_SCOPE
+            or type(summary["digest"]) is not str or summary["digest"] != digest
+            or type(summary["selected_module_count"]) is not int
+            or not 1 <= summary["selected_module_count"] <= 256
+            or any(summary[name] is not True for name in positive)
+            or any(summary[name] is not False for name in negative)):
+        raise ServiceError("runtime_binding_failed")
+    return dict(summary)
 
 
 def _build_core(launch, controller):
@@ -311,10 +336,16 @@ class _AdmissionApp:
 class ManagedBridgeService:
     """One-shot async service owner; private leases are valid only in this PID."""
 
-    def __init__(self, launch: HTTPLaunch):
+    def __init__(self, launch: HTTPLaunch, *, configuration: ManagedServiceConfiguration | None = None):
         if type(launch) is not HTTPLaunch:
             raise ServiceError("invalid_launch")
+        if configuration is not None and type(configuration) is not ManagedServiceConfiguration:
+            raise ServiceError("invalid_service_configuration")
         self._launch = launch
+        self._configuration = configuration
+        self._configuration_digest = None
+        self._runtime_observation = None
+        self._runtime_summary = None
         self._pid = os.getpid()
         self._lock = threading.RLock()
         self._loop = None
@@ -345,6 +376,39 @@ class ManagedBridgeService:
         self._admission.mark_unknown("transport_lost")
         self._admission.close()
 
+    def _verify_configuration_locked(self):
+        if self._configuration is None:
+            return
+        controller, core = self._controller, self._core
+        if (controller is None or core is None
+                or getattr(controller, "_admission", None) is not self._admission
+                or getattr(controller, "service_configuration", None) is not self._configuration
+                or getattr(controller, "_controller_closed", False)
+                or self._admission.snapshot()["state"] == "closed"
+                or getattr(core, "_reasonfirst_controller", None) is not controller
+                or getattr(core, "_reasonfirst_service_configuration", None) is not self._configuration
+                or controller.state_dir != self._configuration.state_dir
+                or controller.state_file != self._configuration.state_dir / "state.json"):
+            self._failed_locked("configuration_binding_failed")
+            raise ServiceError("configuration_binding_failed")
+
+    def _revalidate_runtime_locked(self):
+        if self._configuration is None:
+            return
+        try:
+            if type(self._runtime_observation) is not ServiceRuntimeObservation:
+                raise ServiceError("runtime_binding_failed")
+            self._runtime_observation.revalidate()
+        except BaseException:
+            self._failed_locked("runtime_binding_failed")
+            raise ServiceError("runtime_binding_failed") from None
+        try:
+            if self._configuration.configuration_digest(self._launch) != self._configuration_digest:
+                raise ServiceError("configuration_binding_failed")
+        except BaseException:
+            self._failed_locked("configuration_binding_failed")
+            raise ServiceError("configuration_binding_failed") from None
+
     def _running_locked(self):
         if self._state in {"closing", "closed"}:
             raise ServiceError("service_closed")
@@ -358,6 +422,7 @@ class ManagedBridgeService:
         except ServiceError as exc:
             self._failed_locked(exc.code)
             raise
+        self._verify_configuration_locked()
 
     def maintenance_snapshot(self):
         self._check_pid()
@@ -370,6 +435,7 @@ class ManagedBridgeService:
                 except ServiceError:
                     pass
             admission = self._admission.snapshot()
+            bound = listener and self._configuration is not None
             return {
                 "schema_version": 1, "scope": "owned-managed-bridge-service",
                 "lifecycle": self._state, "listener_serving": listener,
@@ -378,6 +444,13 @@ class ManagedBridgeService:
                     and not admission["unknown_reasons"],
                 "error_code": self._error_code, "cleanup_error_code": self._cleanup_error_code,
                 "cleanup_complete": self._cleanup_complete,
+                "resolved_policy_bound": bound,
+                "current_process_bound": bound and self._runtime_observation is not None,
+                "configuration_digest": self._configuration_digest,
+                # Historical point-in-time file observation; no disk reads in
+                # this diagnostic snapshot and no loaded-code attestation.
+                "runtime_observation": (dict(self._runtime_summary)
+                                        if self._runtime_summary is not None else None),
                 **dict.fromkeys(_FALSE_FLAGS, False),
             }
 
@@ -385,6 +458,7 @@ class ManagedBridgeService:
         self._check_pid()
         with self._lock:
             self._running_locked()
+            self._revalidate_runtime_locked()
             try:
                 return self._admission.try_enter_maintenance()
             except AdmissionError as exc:
@@ -394,6 +468,7 @@ class ManagedBridgeService:
         self._check_pid()
         with self._lock:
             self._running_locked()
+            self._revalidate_runtime_locked()
             try:
                 self._admission.leave_maintenance(lease)
             except AdmissionError as exc:
@@ -453,14 +528,33 @@ class ManagedBridgeService:
                 self._launch.validate(os.environ)
             except Exception:
                 raise ServiceError("invalid_launch") from None
+            if self._configuration is not None:
+                try:
+                    self._configuration_digest = self._configuration.configuration_digest(self._launch)
+                except Exception:
+                    raise ServiceError("configuration_binding_failed") from None
+                try:
+                    observation = capture_service_runtime()
+                    if type(observation) is not ServiceRuntimeObservation:
+                        raise ServiceError("runtime_binding_failed")
+                    summary = _runtime_summary(observation)
+                    self._runtime_observation = observation
+                    self._runtime_summary = summary
+                except Exception:
+                    raise ServiceError("runtime_binding_failed") from None
             self._socket = _bind_socket(self._launch)
-            candidate = _create_controller(self._admission)
+            candidate = (_create_controller(self._admission) if self._configuration is None else
+                         _create_controller(self._admission, configuration=self._configuration))
             if getattr(candidate, "_admission", None) is not self._admission:
                 # A miswired factory is not authority to close someone else's
                 # controller. Adopt only the candidate enrolled in our gate.
                 raise ServiceError("controller_binding_failed")
             self._controller = candidate
-            if (self._controller.managed_startup_state is not None
+            if (getattr(candidate, "service_configuration", None) is not self._configuration
+                    or (self._configuration is not None
+                        and (candidate.state_dir != self._configuration.state_dir
+                             or candidate.state_file != self._configuration.state_dir / "state.json"))
+                    or self._controller.managed_startup_state is not None
                     or self._admission.snapshot()["state"] not in {"open", "unknown"}):
                 raise ServiceError("controller_binding_failed")
             try:
@@ -469,6 +563,9 @@ class ManagedBridgeService:
                 raise ServiceError("invalid_launch") from None
             self._core = _build_core(self._launch, self._controller)
             if self._core._reasonfirst_controller is not self._controller:
+                raise ServiceError("core_binding_failed")
+            if (self._configuration is not None
+                    and getattr(self._core, "_reasonfirst_service_configuration", None) is not self._configuration):
                 raise ServiceError("core_binding_failed")
             raw_app = self._core.streamable_http_app(
                 host=self._launch.host, streamable_http_path=self._launch.path,
@@ -494,6 +591,8 @@ class ManagedBridgeService:
                 if self._server_task.done():
                     raise ServiceError("service_exited")
                 _observe_listener(self._server, self._socket, self._launch)
+                self._verify_configuration_locked()
+                self._revalidate_runtime_locked()
                 if time.monotonic() >= deadline:
                     raise ServiceError("service_startup_timeout")
                 self._state = "running"

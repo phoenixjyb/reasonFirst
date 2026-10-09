@@ -337,6 +337,7 @@ def build_server(
 
     # Keep controller alive for the process lifetime. MCPServer does not own it.
     setattr(server, "_reasonfirst_controller", ctrl)
+    setattr(server, "_reasonfirst_service_configuration", getattr(ctrl, "service_configuration", None))
     return server
 
 

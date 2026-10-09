@@ -8,7 +8,9 @@
 没有新增公共 CLI 命令、MCP 工具、环境变量、setup 状态转换，也不会默认启用。
 
 独立的 [Managed HTTP owner](MANAGED_HTTP_SERVICE_CN.md)进一步将新启用门控的
-controller 连接到其持有的 listener 与受支持的 HTTP 请求生命周期。它使用
+controller 连接到其持有的 listener 与受支持的 HTTP 请求生命周期。可选的
+已选策略绑定在维护进入和释放前核对精确配置对象，并重新观测当前进程和
+指定运行文件；它不证明整个 runtime 或全部有效配置的完整性。owner 使用
 本门控的原始 lease，不扩大 primitive 对外部工作或已有服务的证明范围。
 
 ## 显式启用与作用范围

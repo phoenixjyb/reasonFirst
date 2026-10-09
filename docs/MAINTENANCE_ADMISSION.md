@@ -224,7 +224,11 @@ returned lease; it cannot act on `idle_observed` alone.
 
 The separate [managed HTTP owner](MANAGED_HTTP_SERVICE.md) now connects a fresh
 controller enrollment to an owned listener and the supported HTTP request
-lifetimes. It uses this original lease and leaves the primitive's scope intact.
+lifetimes. Its optional selected-policy binding adds exact configuration-object
+checks and current-process/runtime-file revalidation before maintenance entry
+and release. It uses this original lease and leaves the primitive's scope intact;
+those observations do not establish whole-runtime or effective-configuration
+integrity.
 
 The primitive does not discover or enroll external producers, prove that an
 old service has no work, stop a service, change a listener, switch runtimes,

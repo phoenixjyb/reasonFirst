@@ -74,7 +74,9 @@ IPv6 仅验证参数接受；当前真实传输测试使用 IPv4 回环地址。
 
 独立的内部 [Managed HTTP owner](MANAGED_HTTP_SERVICE_CN.md)添加 controller
 准入、真实 listener/task 所有权，以及关闭 subscriptions 的现代 JSON 请求
-profile。它是 Python 嵌入式 API；本前台命令保持既有启动与协议行为。
+profile。其可选的显式配置对象绑定父进程的已选策略，并由 owner 自行记录
+当前进程与指定运行文件的观测基线；这不验证全部有效配置或已准备 runtime。
+它是 Python 嵌入式 API；本前台命令保持既有启动与协议行为。
 
 [并行运行环境准备](RUNTIME_PREPARATION_CN.md)在独立的最终路径绑定审阅过的
 wheel、解释器与已解析依赖。它与 managed HTTP owner 仍是不同组件；后续

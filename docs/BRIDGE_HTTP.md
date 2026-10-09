@@ -86,8 +86,11 @@ acceptance, listener ownership, worker execution, or an upgrade's success.
 
 The separate internal [managed HTTP owner](MANAGED_HTTP_SERVICE.md) adds a
 controller admission gate, actual listener/task ownership, and a modern JSON
-request profile with subscriptions disabled. It is a Python embedding API;
-this foreground command keeps its existing launch and protocol behavior.
+request profile with subscriptions disabled. Its optional explicit configuration
+binds selected parent policy and an internally observed process/runtime-file
+baseline; it does not verify all effective configuration or a prepared runtime.
+It is a Python embedding API; this foreground command keeps its existing launch
+and protocol behavior.
 
 Tests separate static validation/mocked registration from real SDK/HTTP behavior.
 Native regressions use disposable homes and test ports, compare complete HTTP tool

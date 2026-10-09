@@ -521,6 +521,7 @@ class ManagedServiceOwnerTests(unittest.IsolatedAsyncioTestCase):
             "effective_configuration_verified", "recovered_state_verified", "external_producers_quiesced",
             "global_idle_verified", "runtime_identity_verified", "activation_authorized",
             "ready_for_activation", "existing_service_adopted",
+            "resolved_policy_bound", "current_process_bound", "configuration_digest", "runtime_observation",
         })
         self.assertEqual(snapshot["schema_version"], 1)
         self.assertEqual(snapshot["scope"], "owned-managed-bridge-service")
@@ -528,8 +529,11 @@ class ManagedServiceOwnerTests(unittest.IsolatedAsyncioTestCase):
             "effective_configuration_verified", "recovered_state_verified", "external_producers_quiesced",
             "global_idle_verified", "runtime_identity_verified", "activation_authorized",
             "ready_for_activation", "existing_service_adopted",
+            "resolved_policy_bound", "current_process_bound",
         ):
             self.assertIs(snapshot[name], False)
+        self.assertIsNone(snapshot["configuration_digest"])
+        self.assertIsNone(snapshot["runtime_observation"])
         text = json.dumps(snapshot)
         self.assertNotIn(str(self.state_dir), text)
         self.assertNotIn("owned-core", text)
