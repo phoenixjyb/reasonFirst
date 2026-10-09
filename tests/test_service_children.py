@@ -165,7 +165,7 @@ class ServiceChildrenTests(unittest.TestCase):
             os.environ["PATH"] = str(alternative.parent)
             os.environ["HOME"] = str(alternative.parent)
             with patch.object(c.os, "getenv", side_effect=AssertionError):
-                self.assertEqual(context.resolve_executable("git"), str(selected))
+                self.assertEqual(Path(context.resolve_executable("git")), selected)
                 self.assertEqual(context.managed_app_server_socket(),
                                  self.home / "selected-codex" / "app-server-control" / "app-server-control.sock")
 
@@ -174,16 +174,16 @@ class ServiceChildrenTests(unittest.TestCase):
         selected = self.executable("git" + self.suffix, directory=working / "tools")
         env = {**self.environment, "PATH": "tools"}
         with self.selected(environment=env) as context:
-            self.assertEqual(context.resolve_executable("git", cwd=working), str(selected))
+            self.assertEqual(Path(context.resolve_executable("git", cwd=working)), selected)
 
     def test_optional_unavailability_preserves_prior_selections_and_context(self):
         selected = self.executable("git" + self.suffix)
         with self.selected() as context:
-            self.assertEqual(context.resolve_executable("git"), str(selected))
+            self.assertEqual(Path(context.resolve_executable("git")), selected)
             previous = context.summary()
             self.assert_code("child_executable_unavailable", lambda: context.resolve_executable("missing-optional"))
             self.assertEqual(context.summary(), previous)
-            self.assertEqual(context.resolve_executable("git"), str(selected))
+            self.assertEqual(Path(context.resolve_executable("git")), selected)
 
     def test_explicit_missing_codex_never_selects_an_installed_fallback(self):
         self.executable("codex" + self.suffix)
@@ -206,7 +206,7 @@ class ServiceChildrenTests(unittest.TestCase):
         desktop_choice = self.executable("desktop-codex")
         with self.selected() as context, \
                 patch.object(c.ServiceChildContext, "_desktop_candidates", return_value=[desktop_choice]):
-            self.assertEqual(context.resolve_codex_binary(), str(path_choice))
+            self.assertEqual(Path(context.resolve_codex_binary()), path_choice)
             self.assertEqual(context.resolve_codex_binary(prefer_desktop=True), str(desktop_choice))
             self.assertEqual(context.summary()["selected_executable_count"], 2)
 
@@ -248,9 +248,9 @@ class ServiceChildrenTests(unittest.TestCase):
         selected = self.executable("git" + self.suffix)
         env = {**self.environment, "PATH": str(first) + os.pathsep + str(self.bin)}
         with self.selected(environment=env) as context:
-            self.assertEqual(context.resolve_executable("git"), str(selected))
+            self.assertEqual(Path(context.resolve_executable("git")), selected)
             self.executable("git" + self.suffix, directory=first)
-            self.assertEqual(context.resolve_executable("git"), str(selected))
+            self.assertEqual(Path(context.resolve_executable("git")), selected)
 
     def test_observed_file_drift_is_sticky_and_cached_reuse_revalidates(self):
         selected = self.executable("git" + self.suffix)
@@ -291,7 +291,7 @@ class ServiceChildrenTests(unittest.TestCase):
         with self.selected() as context, patch.object(c, "MAX_SELECTIONS", 1):
             context.resolve_executable("git")
             self.assert_code("child_selection_limit", lambda: context.resolve_executable("ssh"))
-            self.assertEqual(context.resolve_executable("git"), str(selected))
+            self.assertEqual(Path(context.resolve_executable("git")), selected)
             self.assertEqual(context.summary()["selected_executable_count"], 1)
 
     def test_changing_initial_executable_read_invalidates_context(self):

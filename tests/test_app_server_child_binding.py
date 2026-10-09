@@ -212,8 +212,9 @@ class AppServerChildBindingTests(unittest.TestCase):
             app = a.AppServerClient.remote_ssh("selected-host", remote_codex="/opt/selected-codex", connect_timeout=9, child_context=context)
             try:
                 self.assertIs(app.child_context, context)
-                self.assertEqual(launch.call_args.args[0], [
-                    str(self.ssh), "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=9",
+                self.assertEqual(Path(launch.call_args.args[0][0]), self.ssh)
+                self.assertEqual(launch.call_args.args[0][1:], [
+                    "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=9",
                     "--", "selected-host", "sh -lc 'exec /opt/selected-codex app-server'",
                 ])
                 self.assertEqual(launch.call_args.kwargs["env"], self.environment)

@@ -75,7 +75,7 @@ class LocalChildInputTests(unittest.TestCase):
                 patch.object(workspace.subprocess, "run", side_effect=self.completed) as run:
             self.manager._run_git(["status"], auth=True, auth_url="https://gitlab.example.invalid/team/project.git")
         args, kwargs = run.call_args
-        self.assertEqual(args[0][0], str(self.executables["git"]))
+        self.assertEqual(Path(args[0][0]), self.executables["git"])
         self.assertEqual(kwargs["cwd"], self.cwd)
         self.assertEqual(kwargs["env"]["RF_CHILD_MARKER"], "selected-value")
         self.assertNotIn("HTTP_PROXY", kwargs["env"])
@@ -103,7 +103,8 @@ class LocalChildInputTests(unittest.TestCase):
                 patch.object(runner.subprocess, "run", side_effect=self.completed) as run:
             result = command_runner.run(self.wid, ["pytest", "-q"])
         args, kwargs = run.call_args
-        self.assertEqual(args[0], [str(self.executables["pytest"]), "-q"])
+        self.assertEqual(Path(args[0][0]), self.executables["pytest"])
+        self.assertEqual(args[0][1:], ["-q"])
         self.assertEqual(result["argv"], ["pytest", "-q"])
         self.assertEqual(result["execution"]["resolved_argv"], args[0])
         self.assertEqual(kwargs["cwd"], self.worktree)
@@ -147,7 +148,7 @@ class LocalChildInputTests(unittest.TestCase):
             )
         self.assertEqual(result, b"false\n")
         args, kwargs = launch.call_args
-        self.assertEqual(args[0][0], str(self.executables["git"]))
+        self.assertEqual(Path(args[0][0]), self.executables["git"])
         self.assertEqual(kwargs["cwd"], self.worktree)
         self.assertEqual(kwargs["env"]["RF_CHILD_MARKER"], "selected-value")
         self.assertEqual(kwargs["env"]["GIT_CONFIG_GLOBAL"], os.devnull)
@@ -163,7 +164,7 @@ class LocalChildInputTests(unittest.TestCase):
                       side_effect=self.completed) as launch:
             manager._ssh("printf synthetic")
         args, kwargs = launch.call_args
-        self.assertEqual(args[0][0], str(self.executables["ssh"]))
+        self.assertEqual(Path(args[0][0]), self.executables["ssh"])
         self.assertEqual(args[0][-3:], ["--", "synthetic.invalid", "sh -s"])
         self.assertEqual(kwargs["input"], "printf synthetic\n")
         self.assertEqual(kwargs["cwd"], self.cwd)
