@@ -131,6 +131,11 @@ ReasonFirst 已加入可重入、跨进程文件锁，用于本地工作区 muta
 证明全局空闲。普通 controller 保持现有行为，一次性启动观察仍永久关闭
 工具准入。见[Controller 维护准入](MAINTENANCE_ADMISSION_CN.md)。
 
+[Managed HTTP owner](MANAGED_HTTP_SERVICE_CN.md)将新启用门控的 controller
+绑定到其准确的 server task 和持续持有的 listener。显式的现代 JSON profile
+将请求预留覆盖到回复处理，并关闭持久 subscriptions。维护通过 Python
+owner handle 进行；配置兼容性、其他工作来源与已有服务接管仍需独立证据。
+
 ## 7. 远端验证
 
 worker 不再获得任意 `bash -lc` 远端执行能力。

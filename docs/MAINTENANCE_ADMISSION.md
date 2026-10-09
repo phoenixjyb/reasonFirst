@@ -222,6 +222,10 @@ returned lease; it cannot act on `idle_observed` alone.
 
 ## What remains outside this gate
 
+The separate [managed HTTP owner](MANAGED_HTTP_SERVICE.md) now connects a fresh
+controller enrollment to an owned listener and the supported HTTP request
+lifetimes. It uses this original lease and leaves the primitive's scope intact.
+
 The primitive does not discover or enroll external producers, prove that an
 old service has no work, stop a service, change a listener, switch runtimes,
 reconnect clients, or perform a maintenance task. Existing work owned by an

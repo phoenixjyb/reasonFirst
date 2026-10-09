@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add an internal managed HTTP service owner that binds one enrolled controller
+  to its owned listener and request lifetimes. The explicit MCP 2026-07-28 JSON
+  profile disables subscriptions, holds maintenance through the original local
+  lease, and preserves uncertainty on transport or cleanup failure. Native
+  installation fixtures exercise both wheel/source routes and both tool modes.
+  See [managed HTTP service](docs/MANAGED_HTTP_SERVICE.md) /
+  [中文](docs/MANAGED_HTTP_SERVICE_CN.md).
+
 - Add an internal opt-in controller maintenance gate with atomic reservation,
   instance-bound leases, full operation/turn/approval lifetime tracking, and
   bounded diagnostic snapshots. Busy or unknown activity blocks maintenance;
