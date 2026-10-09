@@ -9,7 +9,7 @@ import json
 import os
 import secrets
 import sys
-from typing import Any
+from typing import Any, Literal
 
 from gitlab_agent import __version__ as REASONFIRST_VERSION
 from .bridge_preview.controller import BridgeController, BridgeError, redact
@@ -27,7 +27,16 @@ def _doctor() -> int:
         ctrl.close()
 
 
-def build_server(*, read_only_mode: bool | None = None, controller: BridgeController | None = None):
+def build_server(
+    *,
+    read_only_mode: bool | None = None,
+    controller: BridgeController | None = None,
+    subscriptions: Literal[False] | None = None,
+):
+    # A managed HTTP owner can explicitly exclude standing subscription tasks.
+    # Omission preserves the SDK's existing default for every ordinary caller.
+    if subscriptions is not None and subscriptions is not False:
+        raise ValueError("subscriptions must be None or False")
     # MCP Python SDK v2 (2026-07-28 protocol line).
     from mcp.server import MCPServer
     from mcp.types import ToolAnnotations
@@ -63,7 +72,8 @@ def build_server(*, read_only_mode: bool | None = None, controller: BridgeContro
             " This is a disposable startup observation. The catalog is exposed for verification, "
             "but every tool call is blocked with startup_observation_only."
         )
-    server = MCPServer("ReasonFirst", instructions=instructions)
+    subscription_options = {} if subscriptions is None else {"subscriptions": False}
+    server = MCPServer("ReasonFirst", instructions=instructions, **subscription_options)
 
     # The packaged stdio/tunnel Bridge intentionally omits the legacy HTTP
     # /control bearer-token route. ChatGPT uses only the declared MCP tools.

@@ -23,6 +23,96 @@ EXECUTABLES = (
     "gitlab-agent",
 )
 
+MANAGED_HTTP_CASES = frozenset({
+    "test_async_turn_survives_http_reply_and_interrupt_ack",
+    "test_disconnect_keeps_work_counted_and_then_unknown",
+    "test_full_chat_catalog_and_maintenance_cycle",
+    "test_http_and_controller_work_block_maintenance_until_reply",
+    "test_http_body_is_reserved_before_controller_dispatch",
+    "test_import_origins_match_selected_route",
+    "test_invalid_configuration_cleans_failed_startup",
+    "test_occupied_listener_survives_failed_startup",
+    "test_protocol_and_method_guards_on_real_listener",
+    "test_read_only_catalog_and_maintenance_cycle",
+})
+MANAGED_HTTP_REPORT_LIMIT = 8192
+
+
+def _managed_http_report(raw: bytes, *, route: str, returncode: int) -> dict[str, object]:
+    """Accept only the bounded fixture schema; never echo process output."""
+    failure = "managed HTTP native fixture returned an invalid report; raw output withheld"
+    if type(raw) is not bytes or not 0 < len(raw) <= MANAGED_HTTP_REPORT_LIMIT:
+        raise RuntimeError(failure)
+    def unique_object(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("duplicate_key")
+            obj[key] = value
+        return obj
+
+    try:
+        payload = json.loads(raw, object_pairs_hook=unique_object)
+    except (ValueError, UnicodeError):
+        raise RuntimeError(failure) from None
+    boolean_fields = {
+        "ok", "module_origins_verified", "real_mcp_calls_exercised",
+        "all_tools_denied_during_maintenance", "working_service_touched", "activation_tested",
+    }
+    count_fields = {"tests_run", "expected_tests", "failures", "errors", "skipped"}
+    if (type(payload) is not dict
+            or set(payload) != boolean_fields | count_fields | {
+                "operation", "route", "failed_cases", "modes",
+            }
+            or payload["operation"] != "managed-http-native-acceptance"
+            or route not in {"packaged", "source"} or payload["route"] != route
+            or payload["modes"] != ["read-only", "full-chat"]
+            or any(type(payload[key]) is not bool for key in boolean_fields)
+            or any(type(payload[key]) is not int or not 0 <= payload[key] <= 2 * len(MANAGED_HTTP_CASES)
+                   for key in count_fields)
+            or payload["expected_tests"] != len(MANAGED_HTTP_CASES)
+            or payload["tests_run"] > payload["expected_tests"]
+            or payload["working_service_touched"] is not False
+            or payload["activation_tested"] is not False):
+        raise RuntimeError(failure)
+    cases = payload["failed_cases"]
+    if (type(cases) is not list or len(cases) > len(MANAGED_HTTP_CASES) + 1
+            or any(type(name) is not str or name not in MANAGED_HTTP_CASES | {"fixture_failed"}
+                   for name in cases)
+            or cases != sorted(set(cases))):
+        raise RuntimeError(failure)
+    ok = payload["ok"]
+    if ((returncode == 0) is not ok
+            or any(payload[key] is not ok for key in (
+                "module_origins_verified", "real_mcp_calls_exercised",
+                "all_tools_denied_during_maintenance",
+            ))
+            or (ok and (payload["tests_run"] != payload["expected_tests"]
+                        or any(payload[key] != 0 for key in ("failures", "errors", "skipped"))
+                        or cases))):
+        raise RuntimeError(failure)
+    return payload
+
+
+def _verify_managed_http(
+    *, python: Path, source_root: Path, outside: Path, env: dict[str, str],
+    route: str, expected_root: Path,
+) -> None:
+    try:
+        result = subprocess.run(
+            [str(python), "-I", "-B", str(source_root / "tests/test_managed_http_integration.py"),
+             "--native-route", route, "--expected-root", str(expected_root)],
+            cwd=outside, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            check=False, timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("managed HTTP native fixture timed out; raw output withheld") from None
+    report = _managed_http_report(result.stdout, route=route, returncode=result.returncode)
+    print(json.dumps(report, sort_keys=True), flush=True)
+    if report["ok"] is not True:
+        raise RuntimeError(f"{route}: managed HTTP native acceptance failed; raw output withheld")
+
 
 def _run(
     argv: list[str],
@@ -166,6 +256,11 @@ def verify_packaged_route(*, wheel: Path, root: Path, source_root: Path) -> None
     print(result.stdout)
     print(result.stderr)
 
+    _verify_managed_http(
+        python=python, source_root=source_root, outside=outside, env=child_env,
+        route="packaged", expected_root=runtime,
+    )
+
     staging = _run(
         [str(python), "-I", "-B", str(source_root / "scripts/runtime_e2e.py"),
          "--wheel", str(wheel.resolve()), "--source-root", str(source_root)],
@@ -205,6 +300,20 @@ def verify_source_route(*, source_root: Path, root: Path) -> None:
     inventory_payload = json.loads(inventory.stdout)
     if inventory_payload.get("ok") is not True:
         raise RuntimeError("source: Bridge inventory failed")
+
+    selected = _run(
+        ["uv", "run", "python", "-I", "-B", "-c", "import sys; print(sys.executable)"],
+        cwd=source_root, env=env,
+    ).stdout.strip()
+    python = Path(selected)
+    if "\n" in selected or "\r" in selected or not python.is_absolute() or not python.is_file():
+        raise RuntimeError("source: developer interpreter could not be selected")
+    outside = root / "outside-source-tree"
+    outside.mkdir(parents=True, exist_ok=True)
+    _verify_managed_http(
+        python=python, source_root=source_root, outside=outside, env=env,
+        route="source", expected_root=source_root / "src",
+    )
 
 
 def main() -> int:

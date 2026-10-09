@@ -84,6 +84,11 @@ acceptance, listener ownership, worker execution, or an upgrade's success.
 
 ## Validation and next step
 
+The separate internal [managed HTTP owner](MANAGED_HTTP_SERVICE.md) adds a
+controller admission gate, actual listener/task ownership, and a modern JSON
+request profile with subscriptions disabled. It is a Python embedding API;
+this foreground command keeps its existing launch and protocol behavior.
+
 Tests separate static validation/mocked registration from real SDK/HTTP behavior.
 Native regressions use disposable homes and test ports, compare complete HTTP tool
 schemas to the shared core in both modern and legacy client modes, check both
@@ -99,11 +104,10 @@ Current CI exercises Python 3.12; the package's broader Python/SDK dependency ra
 is not a complete compatibility matrix. IPv6 is validated as an accepted argument;
 the native wire-level fixtures currently exercise IPv4 loopback only.
 
-Verified side-by-side runtime preparation is the next B2 piece. It must pin the
-reviewed wheel, interpreter and resolved dependency identity, prepare at the final
-runtime path, preserve the CLI environment, and independently verify endpoint,
-configuration and privilege compatibility before any later activation. Legacy
-control compatibility remains a separate blocking requirement where applicable.
-No activation, cleanup, maintenance gate, release, tag or Latest change is included.
+[Side-by-side runtime preparation](RUNTIME_PREPARATION.md) pins the reviewed
+wheel, interpreter and resolved dependencies at a separate final runtime path.
+It and the managed HTTP owner remain separate components: endpoint, application
+configuration, client/control compatibility, work ownership, and durable recovery
+must be established together before a later service transition.
 
 [中文](BRIDGE_HTTP_CN.md) · [Install/update](INSTALL.md)

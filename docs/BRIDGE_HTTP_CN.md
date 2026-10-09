@@ -72,8 +72,13 @@ reasonfirst-bridge-http --inspect --host 127.0.0.1 --port 8765 --path /mcp --mod
 当前 CI 使用 Python 3.12，不表示包声明的全部 Python/SDK 范围都测过。
 IPv6 仅验证参数接受；当前真实传输测试使用 IPv4 回环地址。
 
-下一块 B2 才是经验证的并行运行环境准备：绑定审阅过的 wheel、解释器和已解析依赖身份，
-在最终目录安装，保留 CLI 环境，并在后续切换前独立核对端点、配置及权限。
-需要旧 control 的部署仍被其兼容性要求阻塞。本功能不含激活、清理、维护锁、发布、tag 或 Latest 改动。
+独立的内部 [Managed HTTP owner](MANAGED_HTTP_SERVICE_CN.md)添加 controller
+准入、真实 listener/task 所有权，以及关闭 subscriptions 的现代 JSON 请求
+profile。它是 Python 嵌入式 API；本前台命令保持既有启动与协议行为。
+
+[并行运行环境准备](RUNTIME_PREPARATION_CN.md)在独立的最终路径绑定审阅过的
+wheel、解释器与已解析依赖。它与 managed HTTP owner 仍是不同组件；后续
+服务切换之前，需要共同确认端点、应用配置、客户端/control 兼容性、工作
+所有权与持久恢复能力。
 
 [English](BRIDGE_HTTP.md) · [安装/更新](INSTALL_CN.md)

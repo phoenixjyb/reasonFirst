@@ -215,6 +215,13 @@ controllers keep their existing behavior, and disposable startup observation
 keeps tool admission permanently closed. See
 [controller maintenance admission](MAINTENANCE_ADMISSION.md).
 
+The [managed HTTP owner](MANAGED_HTTP_SERVICE.md) binds a newly enrolled
+controller to its exact server task and retained listener. Its explicit modern
+JSON profile reserves incoming requests through response handling and disables
+standing subscriptions. Maintenance remains on the owning Python handle;
+configuration compatibility, other work producers, and service adoption still
+require separate evidence.
+
 ## 7. Remote validation
 
 Arbitrary remote `bash -lc` execution is not part of the worker tool surface.
