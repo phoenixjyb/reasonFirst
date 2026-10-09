@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add an internal, one-shot startup-claims message codec/verifier with strict
+  schemas, an eight-second local deadline and replay rejection. Successful claim
+  comparison is explicitly not peer identity, effective configuration, managed
+  startup confirmation or activation. No command/service uses it automatically.
+  See [protocol scope](docs/STARTUP_CONFIRMATION.md) /
+  [中文](docs/STARTUP_CONFIRMATION_CN.md).
+
 - Add read-only launch/source and saved-policy inspection after deployment/runtime pairing. Pin known legacy HTTP and packaged HTTP source profiles, surface the legacy full-chat /control incompatibility, and require an exact review digest for recheck. Preserve unknown sidecar bootstrap, inherited environment, running core and active-work constraints as blockers. No service activation or release changes.
 
 

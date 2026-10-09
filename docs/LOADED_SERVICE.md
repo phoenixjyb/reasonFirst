@@ -161,3 +161,9 @@ identity can be relied on. A self-report alone is neither independent process
 attestation nor authorization. Older uninstrumented services require a reviewed
 maintenance-adoption path. None of that protocol, activation or recovery is
 implemented in this partial-observation change.
+
+## Next protocol layer
+
+See [managed-startup claim messages](STARTUP_CONFIRMATION.md). This internal
+codec/verifier does not bind a live peer or collect effective configuration.
+It does not remove this observer's unconditional startup-confirmation blocker.
