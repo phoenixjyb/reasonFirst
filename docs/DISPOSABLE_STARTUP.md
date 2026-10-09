@@ -89,10 +89,31 @@ supplies an owned socket to Uvicorn's supported `serve(sockets=...)` path.
    its installed runtime and loaded policy, and builds the shared MCP server.
 4. After Uvicorn's real `startup()` returns, the child checks the actual
    `asyncio.Server` objects, serving state, and socket identity before replying.
-5. The parent checks `SO_ACCEPTCONN` on its retained socket and checks its owned
-   child is alive. A separate owned helper checks the exact MCP endpoint/catalog;
+5. The parent queries the kernel's listening state on its retained socket and
+   checks its owned child is alive. A separate owned helper checks the exact MCP endpoint/catalog;
    the parent monitors both processes and checks the listener again afterward.
    An occupied/decoy endpoint fails without stopping its owner.
+
+The socket observation uses each platform's supported query on the same owned
+descriptor, before launch and after real server startup:
+
+| Platform | Kernel query | Before launch | After startup |
+| --- | --- | --- | --- |
+| Linux | `getsockopt(SOL_SOCKET, SO_ACCEPTCONN)` | Exactly `0` | Exactly `1` |
+| macOS | `getsockopt(IPPROTO_TCP, TCP_CONNECTION_INFO, 1)` | One byte: `TCPS_CLOSED` (`0`) | One byte: `TCPS_LISTEN` (`1`) |
+
+macOS defines `SO_ACCEPTCONN` but rejects this query. Its public
+`TCP_CONNECTION_INFO` reports the kernel TCP state in the first byte. Requesting
+only that byte avoids depending on the remainder of the structure. A missing
+query constant is rejected before side effects; failed queries, malformed
+results, and other states cannot supply listening evidence. There is no health
+or catalog fallback for unavailable socket evidence.
+
+The macOS query is grounded in Apple's pinned XNU sources:
+[public option and first field](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/netinet/tcp.h),
+[TCP states](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/netinet/tcp_fsm.h),
+[listen transition and query implementation](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/netinet/tcp_usrreq.c),
+and [bounded option copying](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/uipc_socket.c).
 
 The HTTP probe disables ambient proxy use, forbids redirects away from the
 exact endpoint, and bounds response bytes and elapsed time. Catalog checking
@@ -186,6 +207,12 @@ in both modes. Source, installed Linux, native macOS CI, Windows unsupported
 behavior, PR CI, and post-merge CI must be reported separately by exact source
 identity. Windows rejects this POSIX adapter before filesystem/socket/process
 side effects; its existing codec and packaged HTTP coverage remain required.
+
+Failed native fixtures preserve the probe's fixed `probe_error_code` and
+`probe_cleanup_error_code` alongside the fixture's own failure classification.
+Only allowlisted codes cross this reporting boundary; arbitrary values, claims,
+exception text, and child stderr are withheld. Both fields must be null on a
+successful fixture, including after expected occupied/decoy-listener failures.
 
 [Protocol contract](STARTUP_CONFIRMATION.md) ·
 [Runtime preparation](RUNTIME_PREPARATION.md) ·

@@ -71,9 +71,22 @@ Uvicorn 会先执行 ASGI lifespan，再开始监听，因此 lifespan 回调不
    创建共享核心。
 4. Uvicorn 的真实 `startup()` 返回后，检查实际 asyncio.Server、serving 状态
    和 socket 身份，随后才发送启动回复。
-5. 父进程检查保留 socket 的 `SO_ACCEPTCONN` 和自己持有的子进程存活状态。
+5. 父进程通过内核查询保留 socket 的监听状态，并检查自己持有的子进程存活状态。
    独立且由本次尝试拥有的辅助进程检查精确 MCP 端点和目录；父进程监视两个进程，
    随后再次检查监听器。已占用或伪装端口会导致失败，不停止原监听者。
+
+各平台使用其支持的内核查询，在子进程启动前和实际开始监听后检查同一个自有描述符：
+
+| 平台 | 内核查询 | 启动前 | 开始监听后 |
+| --- | --- | --- | --- |
+| Linux | `getsockopt(SOL_SOCKET, SO_ACCEPTCONN)` | 必须为 `0` | 必须为 `1` |
+| macOS | `getsockopt(IPPROTO_TCP, TCP_CONNECTION_INFO, 1)` | 恰好一个字节：`TCPS_CLOSED`（`0`） | 恰好一个字节：`TCPS_LISTEN`（`1`） |
+
+macOS 虽然定义了 `SO_ACCEPTCONN`，但不支持该查询。公开的 `TCP_CONNECTION_INFO`
+在第一个字节返回内核 TCP 状态；只请求这个字节，无需依赖其余结构布局。缺少查询常量
+会在副作用之前明确拒绝；查询失败、结果格式错误或其他状态都不能作为监听证据。
+不会用健康检查或目录结果代替不可用的 socket 证据。英文规范列出了固定版本的 Apple
+XNU 一手源代码，包括公开字段、TCP 状态、监听转换、查询实现及有界复制规则。
 
 HTTP 探针关闭环境代理，拒绝偏离精确端点的重定向，并限制响应字节和总耗时。
 目录验证采用单独、明确的回复后时限，不延长消息协议原有的八秒有效期。
@@ -129,6 +142,11 @@ Windows 源码 fixture 的 base-executable 选择方法移植为生产启动方�
 Windows 明确不支持边界、PR CI 和合并后 CI 必须按精确源码身份分别报告。
 Windows 在访问文件系统、socket 或进程前拒绝本 POSIX 适配器；既有可移植
 codec 和 HTTP 安装测试仍需执行。
+
+原生测试失败时，在测试自身的错误分类之外，单独保留探针的固定
+`probe_error_code` 和 `probe_cleanup_error_code`。只有允许列表内的错误码能够输出；
+任意值、身份声明、异常文本及子进程 stderr 均不回显。成功报告必须将这两个字段设为
+null，包括通过预期的端口占用及伪装监听器负向测试之后。
 
 [消息协议](STARTUP_CONFIRMATION_CN.md) · [运行环境准备](RUNTIME_PREPARATION_CN.md) ·
 [English](DISPOSABLE_STARTUP.md)

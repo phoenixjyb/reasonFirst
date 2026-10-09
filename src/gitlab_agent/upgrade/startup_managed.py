@@ -4,7 +4,8 @@ The supervisor retains an exclusive bound, initially non-listening TCP socket.
 Only its explicitly owned child receives that socket and the private pipe ends.
 The SDK's ASGI application is hosted unchanged; the managed adapter observes the
 actual Uvicorn/asyncio server after startup and the parent independently observes
-SO_ACCEPTCONN on the same kernel socket. An inherited handle is not attestation.
+its listening state on the same kernel socket. Linux uses SO_ACCEPTCONN; Darwin
+uses the public TCP_CONNECTION_INFO state byte. An inherited handle is not attestation.
 
 Only selected, revalidated prepared runtimes are supported. There is no editable
 source fallback, arbitrary command launcher, expected-claims child argument,
@@ -50,6 +51,7 @@ _CODES = frozenset({
     "runtime_not_ready", "runtime_record_mismatch", "runtime_identity_mismatch",
     "interpreter_identity_mismatch", "runtime_import_mismatch", "runtime_drifted",
     "unsupported_listener_sdk", "configuration_mismatch", "managed_state_required",
+    "unsupported_listener_query", "listener_observation_failed",
     "invalid_child_arguments", "listener_bind_failed", "invalid_listener",
     "listener_not_started", "child_exited", "child_startup_failed", "startup_failed",
     "startup_cancelled", "startup_timeout", "startup_reply_failed",
@@ -76,8 +78,12 @@ def _fail(code: str):
 
 
 def _supported():
-    if os.name != "posix" or platform.system() not in {"Darwin", "Linux"}:
+    system = platform.system()
+    if os.name != "posix" or system not in {"Darwin", "Linux"}:
         _fail("unsupported_managed_startup_platform")
+    option = "TCP_CONNECTION_INFO" if system == "Darwin" else "SO_ACCEPTCONN"
+    if type(getattr(socket, option, None)) is not int:
+        _fail("unsupported_listener_query")
 
 
 def _sdk_supported(packages):
@@ -204,6 +210,31 @@ def _claims(selected, launch, configuration_digest):
                          launch.control_policy)
 
 
+def _socket_listening(sock):
+    """Read the required kernel state of this owned socket, without fallback."""
+    _supported()
+    try:
+        if platform.system() == "Darwin":
+            # XNU f6217f891ac0bb64f3d375211650a4c1ff8ca1ea:
+            # tcp.h exposes tcpi_state as the first u_int8_t field;
+            # tcp_usrreq.c copies tp->t_state; tcp_fsm.h defines CLOSED=0,
+            # LISTEN=1. sooptcopyout supports this bounded public prefix.
+            # Darwin defines SO_ACCEPTCONN but does not implement its query.
+            state = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_CONNECTION_INFO, 1)
+            if type(state) is not bytes or len(state) != 1:
+                _fail("listener_observation_failed")
+            value = state[0]
+        else:
+            value = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
+            if type(value) is not int:
+                _fail("listener_observation_failed")
+    except (OSError, ValueError):
+        _fail("listener_observation_failed")
+    if value not in (0, 1):
+        _fail("invalid_listener")
+    return value == 1
+
+
 def _exclusive_socket(launch):
     family = socket.AF_INET6 if launch.host == "::1" else socket.AF_INET
     sock = socket.socket(family, socket.SOCK_STREAM)
@@ -213,7 +244,7 @@ def _exclusive_socket(launch):
             sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
         # Never set SO_REUSEPORT/SO_REUSEADDR; never release/reacquire the port.
         sock.bind((launch.host, launch.port))
-        if sock.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) != 0:
+        if _socket_listening(sock):
             _fail("invalid_listener")
         return sock
     except BaseException:
@@ -226,7 +257,7 @@ def _listener_observation(sock, launch, *, listening):
         address = sock.getsockname()
         valid = (sock.getsockopt(socket.SOL_SOCKET, socket.SO_TYPE) == socket.SOCK_STREAM
                  and address[:2] == (launch.host, launch.port)
-                 and sock.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) == int(listening))
+                 and _socket_listening(sock) is listening)
     except (OSError, ValueError):
         valid = False
     if not valid:

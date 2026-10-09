@@ -20,7 +20,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from gitlab_agent.bridge_http import HTTPLaunch
 from gitlab_agent.upgrade import startup_managed as m
@@ -62,6 +62,25 @@ class ManagedBoundaryTests(unittest.TestCase):
         self.assertEqual(bad["error_code"], "invalid_launch")
         self.assertEqual(cancelled_report["error_code"], "startup_cancelled")
         self.assertEqual(invalid["error_code"], "invalid_cancel")
+
+    def test_missing_darwin_query_capability_precedes_all_side_effects(self):
+        launch = self.launch()
+        with patch.object(m.os, "name", "posix"), \
+             patch.object(m.platform, "system", return_value="Darwin"), \
+             patch.object(m.socket, "TCP_CONNECTION_INFO", None, create=True), \
+             patch.object(m, "_select_runtime", side_effect=AssertionError) as select_runtime, \
+             patch.object(m.os, "pipe", side_effect=AssertionError) as pipe, \
+             patch.object(m.socket, "socket", side_effect=AssertionError) as create_socket, \
+             patch.object(m.tempfile, "TemporaryDirectory", side_effect=AssertionError) as fixture, \
+             patch.object(m.subprocess, "Popen", side_effect=AssertionError) as child:
+            report = m.probe_disposable(runtime_id="a" * 64, home="unread", launch=launch)
+        self.assertEqual(report["error_code"], "unsupported_listener_query")
+        self.assertTrue(report["cleanup_confirmed"])
+        self.assertFalse(report["ok"])
+        for operation in (select_runtime, pipe, create_socket, fixture, child):
+            operation.assert_not_called()
+        for flag in FALSE_FLAGS:
+            self.assertIs(report[flag], False)
 
     def test_sdk_guard_requires_the_inspected_versions(self):
         m._sdk_supported({"mcp": "2.3.0", "uvicorn": "0.54.0"})
@@ -121,6 +140,73 @@ class ManagedBoundaryTests(unittest.TestCase):
                     code = m.main([flag, *ordinary])
                 self.assertEqual(code, m._CHILD_CODES["child_startup_failed"])
                 self.assertEqual(stderr.getvalue(), "")
+
+
+class ListenerQueryTests(unittest.TestCase):
+    def test_darwin_reads_only_public_state_byte_and_never_queries_so_acceptconn(self):
+        owned = Mock()
+        with patch.object(m.os, "name", "posix"), \
+             patch.object(m.platform, "system", return_value="Darwin"), \
+             patch.object(m.socket, "TCP_CONNECTION_INFO", 0x106, create=True):
+            for state, expected in ((b"\x00", False), (b"\x01", True)):
+                with self.subTest(state=state):
+                    owned.getsockopt.reset_mock()
+                    owned.getsockopt.return_value = state
+                    self.assertIs(m._socket_listening(owned), expected)
+                    owned.getsockopt.assert_called_once_with(socket.IPPROTO_TCP, 0x106, 1)
+
+    def test_linux_retains_so_acceptconn_query(self):
+        owned = Mock()
+        with patch.object(m.os, "name", "posix"), \
+             patch.object(m.platform, "system", return_value="Linux"):
+            for state in (0, 1):
+                with self.subTest(state=state):
+                    owned.getsockopt.reset_mock()
+                    owned.getsockopt.return_value = state
+                    self.assertIs(m._socket_listening(owned), bool(state))
+                    owned.getsockopt.assert_called_once_with(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
+
+    def test_darwin_malformed_unexpected_or_unsupported_query_fails_closed(self):
+        malformed = (b"", b"\x00\x01", None, 1, bytearray(b"\x01"))
+        unexpected = (b"\x02", b"\x04", b"\xff")
+        cases = [(value, "listener_observation_failed") for value in malformed]
+        cases.extend((value, "invalid_listener") for value in unexpected)
+        with patch.object(m.os, "name", "posix"), \
+             patch.object(m.platform, "system", return_value="Darwin"), \
+             patch.object(m.socket, "TCP_CONNECTION_INFO", 0x106, create=True):
+            for value, expected in cases:
+                with self.subTest(value=value):
+                    owned = Mock()
+                    owned.getsockopt.return_value = value
+                    with self.assertRaisesRegex(m.ManagedStartupError, expected):
+                        m._socket_listening(owned)
+                    owned.getsockopt.assert_called_once_with(socket.IPPROTO_TCP, 0x106, 1)
+            owned = Mock()
+            owned.getsockopt.side_effect = OSError(errno.ENOPROTOOPT, "synthetic-secret")
+            with self.assertRaisesRegex(m.ManagedStartupError, "listener_observation_failed") as failure:
+                m._socket_listening(owned)
+            self.assertNotIn("synthetic-secret", str(failure.exception))
+            owned.getsockopt.assert_called_once_with(socket.IPPROTO_TCP, 0x106, 1)
+
+    def test_darwin_closed_and_listening_states_cannot_substitute_for_each_other(self):
+        launch = HTTPLaunch("127.0.0.1", 55123, "/fixture", "read-only", "disabled")
+        owned = Mock()
+        owned.getsockname.return_value = (launch.host, launch.port)
+        with patch.object(m.os, "name", "posix"), \
+             patch.object(m.platform, "system", return_value="Darwin"), \
+             patch.object(m.socket, "TCP_CONNECTION_INFO", 0x106, create=True):
+            for state, listening, expected in ((b"\x00", True, "listener_not_started"),
+                                               (b"\x01", False, "invalid_listener")):
+                with self.subTest(state=state, listening=listening):
+                    def get_option(level, option, *length):
+                        if (level, option) == (socket.SOL_SOCKET, socket.SO_TYPE):
+                            self.assertEqual(length, ())
+                            return socket.SOCK_STREAM
+                        self.assertEqual((level, option, length), (socket.IPPROTO_TCP, 0x106, (1,)))
+                        return state
+                    owned.getsockopt.side_effect = get_option
+                    with self.assertRaisesRegex(m.ManagedStartupError, expected):
+                        m._listener_observation(owned, launch, listening=listening)
 
 
 ACTOR = r'''
@@ -242,6 +328,30 @@ class ManagedSocketTests(unittest.TestCase):
             with socket.socket() as contender:
                 with self.assertRaises(OSError) as error:contender.bind(owned.getsockname())
                 self.assertEqual(error.exception.errno, errno.EADDRINUSE)
+            # Test-owned socket only: verify the native kernel query observes
+            # the actual transition. The production supervisor never listens.
+            owned.listen()
+            m._listener_observation(owned, launch, listening=True)
+            with self.assertRaisesRegex(m.ManagedStartupError, "invalid_listener"):
+                m._listener_observation(owned, launch, listening=False)
+
+    def test_required_listener_query_failure_is_distinct_from_bind_collision(self):
+        observed = Mock()
+        observed.getsockopt.side_effect = OSError(errno.ENOPROTOOPT, "synthetic-secret")
+        launch = self.launch()
+        with patch.object(m, "_select_runtime", return_value=self.selected), \
+             patch.object(m.socket, "socket", return_value=observed), \
+             patch.object(m.tempfile, "TemporaryDirectory", side_effect=AssertionError) as fixture, \
+             patch.object(m.subprocess, "Popen", side_effect=AssertionError) as child:
+            report = m.probe_disposable(runtime_id="a" * 64, home=self.root, launch=launch)
+        observed.bind.assert_called_once_with((launch.host, launch.port))
+        observed.close.assert_called_once_with()
+        fixture.assert_not_called()
+        child.assert_not_called()
+        self.assertEqual(report["error_code"], "listener_observation_failed")
+        self.assertFalse(report["listener_reserved"])
+        self.assertTrue(report["cleanup_confirmed"])
+        self.assertNotIn("synthetic-secret", json.dumps(report))
 
     def test_matching_early_reply_cannot_replace_listener_evidence(self):
         report = self.run_actor("early")
@@ -292,11 +402,11 @@ class ManagedSocketTests(unittest.TestCase):
                          dict(valid, activation_authorized=True)):
             with self.subTest(evidence=evidence):
                 report = self.run_actor("listening", probe=lambda *args, **kwargs: evidence)
-            self.assertEqual(report["error_code"], "catalog_probe_failed")
-            self.assertFalse(report["endpoint_catalog_verified"])
-            self.assertFalse(report["catalog_helper_reaped"])
-            self.assertFalse(report["catalog_helper_cleanup_confirmed"])
-            self.assertEqual(set(report), set(m._base_report()))
+                self.assertEqual(report["error_code"], "catalog_probe_failed")
+                self.assertFalse(report["endpoint_catalog_verified"])
+                self.assertFalse(report["catalog_helper_reaped"])
+                self.assertFalse(report["catalog_helper_cleanup_confirmed"])
+                self.assertEqual(set(report), set(m._base_report()))
 
     def test_cancellation_during_runtime_selection_prevents_spawn(self):
         cancel = threading.Event()

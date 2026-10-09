@@ -50,21 +50,32 @@ _ERRORS = frozenset({
 })
 
 
+def _probe_code(value):
+    if value is None:
+        return None
+    return value if type(value) is str and value in startup_managed._CODES else "probe_failed"
+
+
 class FixtureFailure(RuntimeError):
-    def __init__(self, code):
+    def __init__(self, code, *, probe=None):
         self.code = code if type(code) is str and code in _ERRORS else "fixture_failed"
+        # Retain only the trusted adapter's fixed codes, never the probe object.
+        source = probe if type(probe) is dict else {}
+        self.probe_error_code = _probe_code(source.get("error_code"))
+        self.probe_cleanup_error_code = _probe_code(source.get("cleanup_error_code"))
         super().__init__(self.code)
 
 
-def _require(value, code):
+def _require(value, code, *, probe=None):
     if not value:
-        raise FixtureFailure(code) from None
+        raise FixtureFailure(code, probe=probe) from None
 
 
 def _report(route):
     return {
         "operation": "managed-startup-native-acceptance", "supervisor_route": route,
         "ok": False, "stage": "context", "error_code": None, "cleanup_error_code": None,
+        "probe_error_code": None, "probe_cleanup_error_code": None,
         "supervisor_import_origins_verified": False, "child_import_origins_verified": False,
         "read_only_catalog_verified": False, "full_chat_catalog_verified": False,
         "occupied_listener_preserved": False, "decoy_listener_preserved": False,
@@ -77,24 +88,25 @@ def _report(route):
 
 def _check_probe(report, *, expected_error=None):
     _require(type(report) is dict and report.get("operation") == "disposable-managed-startup",
-             "unexpected_probe_result")
-    _require(all(report.get(name) is False for name in _FALSE_FLAGS), "unexpected_probe_result")
+             "unexpected_probe_result", probe=report)
+    _require(all(report.get(name) is False for name in _FALSE_FLAGS),
+             "unexpected_probe_result", probe=report)
     _require(report.get("cleanup_confirmed") is True and report.get("cleanup_error_code") is None,
-             "probe_cleanup_unconfirmed")
+             "probe_cleanup_unconfirmed", probe=report)
     if expected_error is None:
         _require(report.get("ok") is True and report.get("error_code") is None
                  and all(report.get(name) is True for name in _SUCCESS_FLAGS),
-                 "unexpected_probe_result")
+                 "unexpected_probe_result", probe=report)
         codec = report.get("codec_result")
         _require(type(codec) is dict and codec.get("fresh_reply_claims_match") is True
                  and codec.get("pid_claim_matches") is True
                  and all(codec.get(name) is False for name in _FALSE_FLAGS),
-                 "unexpected_probe_result")
+                 "unexpected_probe_result", probe=report)
     else:
         _require(report.get("ok") is False and report.get("error_code") == expected_error
                  and report.get("listener_startup_observed") is False
                  and report.get("endpoint_catalog_verified") is False,
-                 "unexpected_probe_result")
+                 "unexpected_probe_result", probe=report)
 
 
 def _launch(port, mode="read-only"):
@@ -134,7 +146,7 @@ def _verify_unsupported(report):
         _require(result.get("ok") is False
                  and result.get("error_code") == "unsupported_managed_startup_platform"
                  and all(result.get(name) is False for name in _FALSE_FLAGS),
-                 "unsupported_boundary_failed")
+                 "unsupported_boundary_failed", probe=result)
         _require(all(operation.call_count == 0 for operation in observed), "unsupported_boundary_failed")
     report.update(ok=True, stage="complete", unsupported_before_side_effects=True)
 
@@ -254,7 +266,8 @@ def main():
         else:
             _verify(args, report)
     except FixtureFailure as error:
-        report["error_code"] = error.code
+        report.update(error_code=error.code, probe_error_code=error.probe_error_code,
+                      probe_cleanup_error_code=error.probe_cleanup_error_code)
     except KeyboardInterrupt:
         report["error_code"] = "fixture_interrupted"
     except Exception:

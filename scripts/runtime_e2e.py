@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 
-from gitlab_agent.upgrade import deployment as d, pairing, runtime as r, launch_review
+from gitlab_agent.upgrade import deployment as d, pairing, runtime as r, launch_review, startup_managed
 
 
 
@@ -65,7 +65,8 @@ def execute_startup_fixture(argv, cwd, *, env=None):
              'attempt_cleanup_confirmed', 'runtime_unchanged',
              'unsupported_before_side_effects', 'tool_catalog_only',
              'tool_calls_exercised', 'working_service_touched', 'activation_tested'}
-    keys = flags | {'operation', 'supervisor_route', 'stage', 'error_code', 'cleanup_error_code'}
+    probe_codes = ('probe_error_code', 'probe_cleanup_error_code')
+    keys = flags | {'operation', 'supervisor_route', 'stage', 'error_code', 'cleanup_error_code'} | set(probe_codes)
     stages = {'context', 'initial_status', 'read-only', 'full-chat', 'occupied_listener',
               'decoy_listener', 'final_status', 'complete'}
     errors = {'fixture_context_required', 'supervisor_origin_mismatch', 'runtime_not_prepared',
@@ -73,22 +74,26 @@ def execute_startup_fixture(argv, cwd, *, env=None):
               'listener_fixture_failed', 'fixture_cleanup_failed', 'unsupported_boundary_failed',
               'fixture_interrupted', 'fixture_failed'}
     try:
-        if len(proc.stdout) > 8192:
+        if type(proc.stdout) is not bytes or len(proc.stdout) > 8192:
             raise ValueError
         report = json.loads(proc.stdout, object_pairs_hook=r.unique)
         if (type(report) is not dict or set(report) != keys
-                or report['operation'] != 'managed-startup-native-acceptance'
+                or type(report['operation']) is not str or report['operation'] != 'managed-startup-native-acceptance'
+                or type(report['supervisor_route']) is not str
                 or report['supervisor_route'] not in {'clean-wheel', 'prepared-runtime', 'unsupported'}
-                or report['stage'] not in stages
+                or type(report['stage']) is not str or report['stage'] not in stages
                 or any(type(report[key]) is not bool for key in flags)
-                or any(report[key] is not None and report[key] not in errors
+                or any(report[key] is not None and (type(report[key]) is not str or report[key] not in errors)
                        for key in ('error_code', 'cleanup_error_code'))
+                or any(report[key] is not None and (type(report[key]) is not str
+                       or report[key] not in startup_managed._CODES) for key in probe_codes)
                 or report['tool_catalog_only'] is not True
                 or any(report[key] for key in ('tool_calls_exercised', 'working_service_touched', 'activation_tested'))):
             raise ValueError
         if report['ok']:
             if (report['stage'] != 'complete' or report['error_code'] is not None
-                    or report['cleanup_error_code'] is not None or proc.returncode != 0):
+                    or report['cleanup_error_code'] is not None
+                    or any(report[key] is not None for key in probe_codes) or proc.returncode != 0):
                 raise ValueError
             if report['supervisor_route'] == 'unsupported':
                 if (report['unsupported_before_side_effects'] is not True
