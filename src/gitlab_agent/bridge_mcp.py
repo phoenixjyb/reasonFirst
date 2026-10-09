@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from functools import wraps
 import hmac
 import json
 import os
@@ -26,7 +27,7 @@ def _doctor() -> int:
         ctrl.close()
 
 
-def build_server(*, read_only_mode: bool | None = None):
+def build_server(*, read_only_mode: bool | None = None, controller: BridgeController | None = None):
     # MCP Python SDK v2 (2026-07-28 protocol line).
     from mcp.server import MCPServer
     from mcp.types import ToolAnnotations
@@ -39,7 +40,8 @@ def build_server(*, read_only_mode: bool | None = None):
         }
     elif type(read_only_mode) is not bool:
         raise ValueError("read_only_mode must be a boolean")
-    ctrl = BridgeController()
+    ctrl = controller if controller is not None else BridgeController()
+    managed_observation = controller is not None and controller.managed_startup_state is not None
     instructions = (
         "ReasonFirst v4 is the local code-work orchestration server. ChatGPT is the planner/reviewer; "
         "Codex is only the implementation/build/test executor. For local workspaces prefer dispatch -> files/read -> "
@@ -55,6 +57,11 @@ def build_server(*, read_only_mode: bool | None = None):
             "managed workspaces, files, diffs, worker status/events, CI, review bundles and artifacts, but this MCP surface "
             "does not expose workspace creation, worker control, approvals, publication, evidence generation, remote push, "
             "or the control POST route. Never ask the user to treat this mode as a write-capable ReasonFirst session."
+        )
+    if managed_observation:
+        instructions += (
+            " This is a disposable startup observation. The catalog is exposed for verification, "
+            "but every tool call is blocked with startup_observation_only."
         )
     server = MCPServer("ReasonFirst", instructions=instructions)
 
@@ -85,17 +92,28 @@ def build_server(*, read_only_mode: bool | None = None):
         idempotent_hint=False,
     )
 
+    def admitted(fn):
+        if not managed_observation:
+            return fn
+
+        @wraps(fn)
+        def guarded(*args, **kwargs):
+            ctrl.assert_tool_admitted()
+            return fn(*args, **kwargs)
+
+        return guarded
+
     def read_tool(name: str, *, compatibility: bool = True):
         def decorator(fn):
             if not read_only_mode or compatibility:
-                return server.tool(name=name, annotations=read)(fn)
+                return server.tool(name=name, annotations=read)(admitted(fn))
             return fn
         return decorator
 
     def write_tool(name: str):
         def decorator(fn):
             if not read_only_mode:
-                return server.tool(name=name, annotations=write)(fn)
+                return server.tool(name=name, annotations=write)(admitted(fn))
             return fn
         return decorator
 

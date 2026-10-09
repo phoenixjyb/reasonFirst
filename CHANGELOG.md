@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add an internal disposable managed-startup probe for reviewed macOS/Linux
+  prepared runtimes: bounded inherited pipes, selected non-secret policy from
+  captured startup objects, an owned listener and exact shared MCP catalog
+  checks. Tool admission remains closed and activation/compatibility gates stay
+  blocked. Unmanaged launch behavior and the existing claim codec are preserved.
+  See [disposable startup](docs/DISPOSABLE_STARTUP.md) /
+  [中文](docs/DISPOSABLE_STARTUP_CN.md).
+
 - Add an internal, one-shot startup-claims message codec/verifier with strict
   schemas, an eight-second local deadline and replay rejection. Successful claim
   comparison is explicitly not peer identity, effective configuration, managed
