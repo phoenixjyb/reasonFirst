@@ -47,13 +47,69 @@ def cli_snapshot(root):
     return sorted(rows)
 
 
-def execute(argv, cwd, *, env=None):
+def execute(argv, cwd, *, env=None, allow_failure=False):
     proc = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           timeout=240, check=False)
-    if proc.returncode:
+    if proc.returncode and not allow_failure:
         raise RuntimeError('Disposable runtime-E2E command failed: ' + str(proc.returncode))
     return proc
+
+
+def execute_startup_fixture(argv, cwd, *, env=None):
+    """Print only the bounded fixture schema, including classified failures."""
+    proc = execute(argv, cwd, env=env, allow_failure=True)
+    flags = {'ok', 'supervisor_import_origins_verified', 'child_import_origins_verified',
+             'read_only_catalog_verified', 'full_chat_catalog_verified',
+             'occupied_listener_preserved', 'decoy_listener_preserved',
+             'attempt_cleanup_confirmed', 'runtime_unchanged',
+             'unsupported_before_side_effects', 'tool_catalog_only',
+             'tool_calls_exercised', 'working_service_touched', 'activation_tested'}
+    keys = flags | {'operation', 'supervisor_route', 'stage', 'error_code', 'cleanup_error_code'}
+    stages = {'context', 'initial_status', 'read-only', 'full-chat', 'occupied_listener',
+              'decoy_listener', 'final_status', 'complete'}
+    errors = {'fixture_context_required', 'supervisor_origin_mismatch', 'runtime_not_prepared',
+              'unexpected_probe_result', 'probe_cleanup_unconfirmed', 'runtime_changed',
+              'listener_fixture_failed', 'fixture_cleanup_failed', 'unsupported_boundary_failed',
+              'fixture_interrupted', 'fixture_failed'}
+    try:
+        if len(proc.stdout) > 8192:
+            raise ValueError
+        report = json.loads(proc.stdout, object_pairs_hook=r.unique)
+        if (type(report) is not dict or set(report) != keys
+                or report['operation'] != 'managed-startup-native-acceptance'
+                or report['supervisor_route'] not in {'clean-wheel', 'prepared-runtime', 'unsupported'}
+                or report['stage'] not in stages
+                or any(type(report[key]) is not bool for key in flags)
+                or any(report[key] is not None and report[key] not in errors
+                       for key in ('error_code', 'cleanup_error_code'))
+                or report['tool_catalog_only'] is not True
+                or any(report[key] for key in ('tool_calls_exercised', 'working_service_touched', 'activation_tested'))):
+            raise ValueError
+        if report['ok']:
+            if (report['stage'] != 'complete' or report['error_code'] is not None
+                    or report['cleanup_error_code'] is not None or proc.returncode != 0):
+                raise ValueError
+            if report['supervisor_route'] == 'unsupported':
+                if (report['unsupported_before_side_effects'] is not True
+                        or any(report[key] for key in flags - {
+                            'ok', 'unsupported_before_side_effects', 'tool_catalog_only'})):
+                    raise ValueError
+            elif (report['unsupported_before_side_effects'] is not False
+                  or not all(report[key] for key in (
+                      'supervisor_import_origins_verified', 'child_import_origins_verified',
+                      'read_only_catalog_verified', 'full_chat_catalog_verified',
+                      'occupied_listener_preserved', 'decoy_listener_preserved',
+                      'attempt_cleanup_confirmed', 'runtime_unchanged'))):
+                raise ValueError
+        elif report['error_code'] is None or proc.returncode == 0:
+            raise ValueError
+    except Exception:
+        raise RuntimeError('Managed startup fixture report invalid; child output withheld.') from None
+    print(json.dumps(report, sort_keys=True), flush=True)
+    if not report['ok']:
+        raise RuntimeError('Managed startup fixture failed; see classified report.')
+    return report
 
 
 
@@ -309,6 +365,8 @@ def main():
         assert result['error_code'] == 'unsupported_pairing_platform'
         print('Deployment pairing: Windows unsupported boundary verified; no storage inspected.')
         print('Runtime preparation: Windows unsupported boundary verified; no storage inspected.')
+        execute_startup_fixture([sys.executable, '-I', '-B',
+                                 str(source/'scripts/startup_e2e.py'), 'unsupported'], Path.cwd())
         return 0
     uv = shutil.which('uv')
     if not uv:
@@ -343,6 +401,18 @@ def main():
                         str(source/'tests/test_bridge_http_integration.py')], root, env=env)
         print(proc.stdout.decode('utf-8'))
         print(proc.stderr.decode('utf-8'))
+        assert r.status(runtime_id=p['runtime_id'], home=home)['prepared'] is True
+        # The same freshly prepared child is exercised by the clean-wheel
+        # supervisor and by its own prepared interpreter, never from source.
+        for python, route, supervisor_root in (
+                (Path(sys.executable), 'clean-wheel', cli_root),
+                (prepared_root/'bin/python', 'prepared-runtime', prepared_root)):
+            execute_startup_fixture([
+                str(python), '-I', '-B', str(source/'scripts/startup_e2e.py'), 'verify',
+                '--runtime-id', p['runtime_id'], '--runtime-home', str(home),
+                '--prepared-root', str(prepared_root), '--supervisor-root', str(supervisor_root),
+                '--source-root', str(source), '--fixture-root', str(root), '--route', route,
+            ], root, env=r.child_env(root))
         assert r.status(runtime_id=p['runtime_id'], home=home)['prepared'] is True
         # Idempotent inspection, never idempotent overwrite of an old directory.
         try:

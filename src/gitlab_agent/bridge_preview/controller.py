@@ -12,7 +12,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from urllib.parse import unquote, urlparse
 
 from gitlab_agent.codex_app_server import (
@@ -39,6 +39,9 @@ from gitlab_agent.workspace import WorkspaceManager
 from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
 from .remote_workspace import RemoteWorkspaceManager
 
+if TYPE_CHECKING:
+    from gitlab_agent.upgrade.startup_state import ManagedStartupState
+
 
 class BridgeError(RuntimeError):
     pass
@@ -59,8 +62,8 @@ def redact(text: str, limit: int = 4000) -> str:
     return out[:limit]
 
 
-def _private_state_dir() -> Path:
-    raw = os.getenv("RF_CODEX_BRIDGE_STATE_DIR", "~/.local/share/reasonfirst/codex-web-bridge")
+def _private_state_dir(selected: Path | None = None) -> Path:
+    raw = selected if selected is not None else os.getenv("RF_CODEX_BRIDGE_STATE_DIR", "~/.local/share/reasonfirst/codex-web-bridge")
     path = Path(raw).expanduser().resolve()
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
@@ -99,17 +102,37 @@ def _run_json(argv: list[str], *, timeout: int = 360, allow_failure_json: bool =
 
 
 class BridgeController:
-    def __init__(self) -> None:
-        self.state_dir = _private_state_dir()
+    def __init__(self, *, managed_startup: ManagedStartupState | None = None) -> None:
+        if managed_startup is not None:
+            from gitlab_agent.upgrade.startup_state import ManagedStartupState
+            if type(managed_startup) is not ManagedStartupState:
+                raise BridgeError("invalid_managed_startup_state")
+        self._managed_startup = managed_startup
+        self.state_dir = _private_state_dir(managed_startup.state_dir) if managed_startup is not None else _private_state_dir()
         self.state_file = self.state_dir / "state.json"
         self._lock = threading.RLock()
         self._state = self._load_state()
-        self.bridge_config = load_bridge_config()
+        self.bridge_config = managed_startup.bridge_configuration() if managed_startup is not None else load_bridge_config()
         self._apps: dict[str, AppServerClient] = {}
         self._app_current_thread: dict[str, str] = {}
         self._approval_waiters: dict[str, threading.Event] = {}
         self._approval_results: dict[str, dict[str, Any]] = {}
         self._approval_requests: dict[str, dict[str, Any]] = {}
+
+    @property
+    def managed_startup_state(self) -> ManagedStartupState | None:
+        return self._managed_startup
+
+    def assert_tool_admitted(self) -> None:
+        # This context has no activation/admission transition.  A disposable
+        # startup observer may enumerate the exact catalog but execute no tool.
+        if self._managed_startup is not None:
+            raise BridgeError("startup_observation_only")
+
+    def _settings_for_operation(self) -> AgentSettings:
+        if self._managed_startup is not None:
+            return self._managed_startup.settings
+        return AgentSettings.load()
 
     def _load_state(self) -> dict[str, Any]:
         if not self.state_file.exists():
@@ -176,14 +199,22 @@ class BridgeController:
         return item
 
     def _target_from_dict(self, data: Any) -> ExecutionTarget:
-        return resolve_target(data, config=self.bridge_config)
+        config = self._managed_startup.bridge_configuration() if self._managed_startup is not None else self.bridge_config
+        return resolve_target(data, config=config)
 
     def _requested_target(self, data: Any = None) -> ExecutionTarget:
+        if self._managed_startup is not None:
+            return self._managed_startup.configured_target(data)
         return resolve_configured_target(data, config=self.bridge_config)
 
     @staticmethod
     def _codex_policy() -> WorkerPolicy:
         return resolve_worker_policy(AgentSettings.load(), "codex")
+
+    def _effective_codex_policy(self) -> WorkerPolicy:
+        if self._managed_startup is not None:
+            return self._managed_startup.codex_policy
+        return self._codex_policy()
 
     def _bridge_mutation_lock(self, rec: dict[str, Any]):
         workspace_id = str(rec.get("workspace_id") or "")
@@ -212,8 +243,7 @@ class BridgeController:
         # it only after a credential-less fetch fails and only to the configured
         # GitLab host.
         try:
-            from gitlab_agent.config import AgentSettings
-            settings = AgentSettings.load()
+            settings = self._settings_for_operation()
             host = (urlparse(settings.gitlab_base_url).hostname or "").lower()
             return RemoteWorkspaceManager(
                 target,
@@ -226,6 +256,8 @@ class BridgeController:
                 max_file_bytes=settings.max_file_bytes,
             )
         except Exception:
+            if self._managed_startup is not None:
+                raise BridgeError("managed_configuration_failed") from None
             return RemoteWorkspaceManager(target)
 
     def _is_remote_proxy_target(self, target: ExecutionTarget) -> bool:
@@ -747,7 +779,7 @@ class BridgeController:
             policy = (
                 WorkerPolicy.from_dict(raw_policy)
                 if isinstance(raw_policy, dict)
-                else self._codex_policy()
+                else self._effective_codex_policy()
             )
             verified = app.resume_thread(tid, policy=policy)
             if not bool(verified.get("satisfied", False)):
@@ -1129,7 +1161,7 @@ class BridgeController:
         target = self._target_from_dict(rec.get("target") or "local")
         target, execution_migrated = self._migrate_legacy_remote_target_if_needed(wid, rec, target)
         dynamic_tools: list[dict[str, Any]] | None = None
-        policy = self._codex_policy()
+        policy = self._effective_codex_policy()
         sandbox_mode = policy.sandbox_mode or "workspace-write"
         if rec.get("kind") == "ssh":
             workspace = self._remote_manager(target).status(rec)
@@ -1353,7 +1385,7 @@ class BridgeController:
         if not isinstance(project_context, dict):
             raise BridgeError("Remote workspace has no effective project policy")
 
-        settings = AgentSettings.load()
+        settings = self._settings_for_operation()
         target = self._target_from_dict(rec.get("target") or {})
         manager = self._remote_manager(target)
         validations: list[dict[str, Any]] = []
@@ -1787,7 +1819,7 @@ class BridgeController:
                 "Secret-scan override differs from the reviewed finish preview"
             )
 
-        settings=AgentSettings.load()
+        settings=self._settings_for_operation()
         manager=WorkspaceManager(settings)
         runner=CommandRunner(settings,manager)
         plan=build_finish_plan(
