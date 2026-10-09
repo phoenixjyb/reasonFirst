@@ -143,6 +143,17 @@ manager is started. The child exits before verification, intentionally proving
 that successful message comparison is not liveness evidence. No test is skipped
 on platform grounds by the new test module.
 
+The process fixture launches the running interpreter's explicit base executable
+on Windows, where a virtual-environment executable may be a redirector with a
+different PID. This is test-only selection before launch, not production fallback.
+The child must match the parent's Python version and import the reviewed source.
+Expected PID still comes from `Popen.pid`, never from a probe or the reply. A
+separate original-executable probe reports only whether those PIDs coincide; a
+real relay-process negative test requires rejection when they do not. No missing
+base interpreter, PID mismatch or failed challenge is retried with weaker checks.
+The fixture does not validate an installed Windows venv or a service launcher.
+See the corresponding [CPython Windows spawning implementation](https://github.com/python/cpython/blob/v3.12.10/Lib/multiprocessing/popen_spawn_win32.py).
+
 This is not a native installed-wheel, macOS API, managed daemon, full effective
 configuration, IPC peer credential, lifecycle, rollback or reboot test. The
 existing three-platform CI remains required for any proposed PR; local results

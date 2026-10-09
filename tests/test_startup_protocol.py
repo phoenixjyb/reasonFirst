@@ -114,7 +114,7 @@ class StartupProtocolTests(unittest.TestCase):
     def test_expired_before_start_consumed(self):
         self.now += s.LIFETIME_NS
         self.assert_code('challenge_expired', self.pending.start)
-        self.now = 123456789
+        self.now = original = 123456789
         self.assert_code('challenge_used', self.pending.start)
 
     def test_clock_failure_or_backwards_movement_fails_closed(self):
@@ -280,35 +280,155 @@ class StartupProtocolTests(unittest.TestCase):
         self.assert_code('invalid_claims',lambda:s.make_reply(request,observed=None))
 
 
-class StartupProtocolProcessTests(unittest.TestCase):
-    def test_real_disposable_child_reply_without_bridge_or_network(self):
-        # A real process exchanges bytes on its private stdin/stdout. The child
-        # exits before verification: therefore this cannot be a liveness claim.
-        root=Path(__file__).resolve().parents[1]
-        bootstrap='''
+def _direct_fixture_python():
+    # Test fixture only. Windows venv executables may redirect to another
+    # process, so their Popen.pid is not necessarily the interpreter's PID.
+    # CPython's own Windows multiprocessing implementation uses this same
+    # explicit base-executable selection. No PATH search or failure fallback.
+    selected = getattr(sys, '_base_executable', None) if sys.platform == 'win32' else sys.executable
+    if (type(selected) is not str or not Path(selected).is_absolute()
+            or not Path(selected).is_file()):
+        raise AssertionError('Direct fixture interpreter unavailable; no fallback attempted')
+    return selected
+
+
+_RESPONDER = r'''
 import json,sys
-sys.path.insert(0,sys.argv[1])
-from gitlab_agent.upgrade.startup_protocol import StartupClaims,make_reply,MAX_MESSAGE_BYTES
-local=StartupClaims('1'*64,'2'*64,'3'*64,'4'*64,'127.0.0.1',8765,'/mcp','read-only','disabled')
-request=sys.stdin.buffer.read(MAX_MESSAGE_BYTES+1)
-sys.stdout.buffer.write(make_reply(request,observed=local))
+from pathlib import Path
+root=Path(sys.argv[1]).resolve()
+assert list(sys.version_info[:3]) == json.loads(sys.argv[2]), 'Fixture Python version mismatch'
+sys.path.insert(0,str(root))
+from gitlab_agent.upgrade import startup_protocol as protocol
+assert Path(protocol.__file__).resolve() == root/'gitlab_agent/upgrade/startup_protocol.py', 'Fixture import origin mismatch'
+local=protocol.StartupClaims('1'*64,'2'*64,'3'*64,'4'*64,'127.0.0.1',8765,'/mcp','read-only','disabled')
+request=sys.stdin.buffer.read(protocol.MAX_MESSAGE_BYTES+1)
+sys.stdout.buffer.write(protocol.make_reply(request,observed=local))
 sys.stdout.buffer.flush()
 '''
-        env={k:v for k,v in os.environ.items() if k in ('SystemRoot','SYSTEMROOT','WINDIR','PATH','TEMP','TMP','LANG')}
-        proc=subprocess.Popen([sys.executable,'-I','-S','-B','-c',bootstrap,str(root/'src')],
-                              stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
+
+
+def _fixture_env():
+    return {k:v for k,v in os.environ.items()
+            if k in ('SystemRoot','SYSTEMROOT','WINDIR','PATH','TEMP','TMP','LANG')}
+
+
+def _close_fixture(proc):
+    if proc.poll() is None:
+        proc.kill()
+        proc.wait(timeout=3)
+    for stream in (proc.stdin,proc.stdout,proc.stderr):
+        if stream is not None:
+            stream.close()
+
+
+class StartupProtocolFixtureTests(unittest.TestCase):
+    def test_windows_fixture_selects_explicit_base_not_redirector(self):
+        existing = sys.executable
+        with patch.object(sys, 'platform', 'win32'), \
+             patch.object(sys, 'executable', 'unusable-wrapper'), \
+             patch.object(sys, '_base_executable', existing, create=True):
+            self.assertEqual(_direct_fixture_python(), existing)
+
+    def test_non_windows_fixture_preserves_existing_interpreter(self):
+        existing = sys.executable
+        for platform in ('darwin', 'linux'):
+            with self.subTest(platform=platform), patch.object(sys, 'platform', platform), \
+                 patch.object(sys, '_base_executable', 'unusable-base', create=True):
+                self.assertEqual(_direct_fixture_python(), existing)
+
+    def test_invalid_windows_base_is_failure_not_interpreter_fallback(self):
+        for value in (None, '', 'python.exe', True, 1, str(Path(sys.executable).parent)):
+            with self.subTest(value=value), patch.object(sys, 'platform', 'win32'), \
+                 patch.object(sys, '_base_executable', value, create=True), \
+                 patch.object(subprocess, 'Popen', side_effect=AssertionError('no process allowed')) as spawn:
+                with self.assertRaisesRegex(AssertionError, 'no fallback attempted'):
+                    _direct_fixture_python()
+                spawn.assert_not_called()
+
+
+class StartupProtocolProcessTests(unittest.TestCase):
+    def test_real_disposable_child_reply_without_bridge_or_network(self):
+        # Observe the original executable separately; never use this probe's
+        # reported PID as the challenge expectation. On Windows it may be a
+        # venv redirector's child rather than the Popen handle's process.
+        probe=subprocess.Popen([sys.executable,'-I','-S','-B','-c',
+                                'import os;print(os.getpid())'], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=_fixture_env())
+        try:
+            out,err=probe.communicate(timeout=7)
+            self.assertEqual(probe.returncode,0,err[-1000:])
+            observed=int(out)
+            self.assertGreater(observed,0)
+            original_pid_matches = observed == probe.pid
+        finally:
+            _close_fixture(probe)
+        # A real direct process exchanges bytes on private stdin/stdout. It
+        # exits before verification: therefore this cannot be a liveness claim.
+        root=Path(__file__).resolve().parents[1]
+        python=_direct_fixture_python()
+        proc=subprocess.Popen([python,'-I','-S','-B','-c',_RESPONDER,str(root/'src'),
+                               json.dumps(list(sys.version_info[:3]))],
+                              stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=_fixture_env())
         try:
             p=s.PendingStartupChallenge(expected=claims(),expected_pid=proc.pid)
             stdout,stderr=proc.communicate(p.start(),timeout=7)
             self.assertEqual(proc.returncode,0,stderr[-1000:])
+            # A failed comparison must not select a new PID or interpreter and
+            # retry the same challenge. Expectations still come from our handle.
+            self.assertEqual(json.loads(stdout)['pid'],proc.pid,'Direct child PID differs from process handle')
             report=p.finish(stdout)
             self.assertTrue(report['ok']);self.assertFalse(report['peer_identity_verified'])
             self.assertFalse(report['managed_startup_confirmation_verified'])
             self.assertFalse(report['ready_for_activation'])
+            print(json.dumps({'operation':'startup-codec-process-fixture',
+                              'original_executable_pid_matches':original_pid_matches,
+                              'interpreter_selection':'windows-base-test-only' if sys.platform=='win32' else 'existing-test-interpreter',
+                              'expected_pid_source':'Popen.pid', 'direct_child_pid_matches':True,
+                              'peer_identity_verified':False, 'ready_for_activation':False},sort_keys=True))
         finally:
-            if proc.poll() is None:proc.kill();proc.wait(timeout=3)
-            for stream in (proc.stdin,proc.stdout,proc.stderr):
-                if stream is not None:stream.close()
+            _close_fixture(proc)
+
+    def test_relay_process_pid_cannot_authorize_another_interpreters_reply(self):
+        # Reproduce redirector semantics portably: Popen tracks a relay, but
+        # the reply is emitted by a second interpreter. Correct claims and a
+        # fresh nonce must not turn the relay's PID into a responder identity.
+        root=Path(__file__).resolve().parents[1]
+        python=_direct_fixture_python()
+        relay=r'''
+import subprocess,sys
+request=sys.stdin.buffer.read(16385)
+child=subprocess.Popen([sys.argv[1],'-I','-S','-B','-c',sys.argv[2],sys.argv[3],sys.argv[4]],
+                       stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+try:
+    out,err=child.communicate(request,timeout=5)
+    assert child.returncode == 0, 'Relay responder failed'
+    sys.stdout.buffer.write(out)
+    sys.stdout.buffer.flush()
+finally:
+    if child.poll() is None:
+        child.kill();child.wait(timeout=1)
+    for stream in (child.stdin,child.stdout,child.stderr):
+        if stream is not None:stream.close()
+'''
+        proc=subprocess.Popen([python,'-I','-S','-B','-c',relay,python,_RESPONDER,
+                               str(root/'src'),json.dumps(list(sys.version_info[:3]))],
+                              stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=_fixture_env())
+        try:
+            p=s.PendingStartupChallenge(expected=claims(),expected_pid=proc.pid)
+            request=p.start()
+            stdout,stderr=proc.communicate(request,timeout=7)
+            self.assertEqual(proc.returncode,0,stderr[-1000:])
+            reply=json.loads(stdout)
+            self.assertEqual(reply['claims'],claims().to_mapping())
+            for name in ('nonce','launch_id'):
+                self.assertEqual(reply[name],json.loads(request)[name])
+            self.assertNotEqual(reply['pid'],proc.pid)
+            with self.assertRaisesRegex(s.StartupProtocolError,'^reply_mismatch$'):
+                p.finish(stdout)
+            with self.assertRaisesRegex(s.StartupProtocolError,'^challenge_used$'):
+                p.finish(stdout)
+        finally:
+            _close_fixture(proc)
 
 
 class StartupProtocolDocumentationTests(unittest.TestCase):
