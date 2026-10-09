@@ -201,6 +201,20 @@ ReasonFirst now has re-entrant cross-process file locking for mutation-critical 
 
 Locks reduce races but are not a general OS sandbox.
 
+### Controller maintenance admission
+
+An internal caller can opt one `BridgeController` into activity tracking and
+atomic maintenance reservation. A held instance-bound lease closes new
+admission; busy or unknown readiness refuses maintenance immediately. Unknown
+readiness alone leaves ordinary admission usable when otherwise open, so
+approval and cancellation can continue.
+
+This scope does not include independent CLI or other clients' Desktop activity,
+and it does not adopt an existing service or establish global idle. Default
+controllers keep their existing behavior, and disposable startup observation
+keeps tool admission permanently closed. See
+[controller maintenance admission](MAINTENANCE_ADMISSION.md).
+
 ## 7. Remote validation
 
 Arbitrary remote `bash -lc` execution is not part of the worker tool surface.

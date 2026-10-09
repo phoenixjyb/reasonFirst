@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+from contextlib import nullcontext
+from functools import wraps
 import hashlib
 import json
 import os
@@ -12,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from typing import Any, TYPE_CHECKING
 from urllib.parse import unquote, urlparse
 
@@ -22,6 +25,7 @@ from gitlab_agent.codex_app_server import (
     resolve_codex_binary,
 )
 from .artifacts import artifact_file, scan_artifacts
+from .admission import AdmissionError, ControllerAdmission, MaintenanceLease
 from .bridge_config import (
     ExecutionTarget,
     config_path,
@@ -45,6 +49,10 @@ if TYPE_CHECKING:
 
 class BridgeError(RuntimeError):
     pass
+
+
+class BridgeOperationUncertain(BridgeError):
+    """An operation may have outlived its local command/transport response."""
 
 
 SECRET_PATTERNS = [
@@ -84,7 +92,7 @@ def _run_json(argv: list[str], *, timeout: int = 360, allow_failure_json: bool =
     try:
         proc = subprocess.run(argv, text=True, capture_output=True, timeout=timeout, check=False, env=os.environ.copy())
     except subprocess.TimeoutExpired as exc:
-        raise BridgeError(f"Command timed out: {argv[0]} ...") from exc
+        raise BridgeOperationUncertain(f"Command timed out: {argv[0]} ...") from exc
     except OSError as exc:
         raise BridgeError(f"Could not launch command: {argv[0]}") from exc
     stdout = proc.stdout.strip()
@@ -101,23 +109,86 @@ def _run_json(argv: list[str], *, timeout: int = 360, allow_failure_json: bool =
     return data
 
 
+def _admitted_operation(*, kind: str = "operation", uncertain_on_error: bool = False):
+    """Hold admission through a controller call, including nested side effects.
+
+    This is a controller boundary, not an MCP annotation. The async turn and
+    app-server response reservations deliberately outlive these synchronous
+    calls. Unmanaged callers retain their existing behavior.
+    """
+    def decorate(fn):
+        @wraps(fn)
+        def guarded(self, *args, **kwargs):
+            self.assert_tool_admitted()
+            admission = self._admission
+            if admission is None:
+                return fn(self, *args, **kwargs)
+            try:
+                reservation = admission.reserve_operation(kind=kind)
+            except AdmissionError as exc:
+                raise BridgeError(exc.code) from None
+            uncertain = False
+            try:
+                return fn(self, *args, **kwargs)
+            except BaseException as exc:
+                uncertain = (
+                    uncertain_on_error
+                    or isinstance(exc, BridgeOperationUncertain)
+                    or not isinstance(exc, (BridgeError, AdmissionError))
+                )
+                raise
+            finally:
+                admission.finish_operation(reservation, uncertain=uncertain)
+        return guarded
+    return decorate
+
+
 class BridgeController:
-    def __init__(self, *, managed_startup: ManagedStartupState | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        managed_startup: ManagedStartupState | None = None,
+        admission: ControllerAdmission | None = None,
+    ) -> None:
+        if admission is not None:
+            if type(admission) is not ControllerAdmission:
+                raise BridgeError("invalid_controller_admission")
+            if managed_startup is not None:
+                raise BridgeError("disposable_admission_conflict")
+            try:
+                admission.claim_controller()
+            except AdmissionError as exc:
+                raise BridgeError(exc.code) from None
+        self._admission = admission
         if managed_startup is not None:
             from gitlab_agent.upgrade.startup_state import ManagedStartupState
             if type(managed_startup) is not ManagedStartupState:
                 raise BridgeError("invalid_managed_startup_state")
         self._managed_startup = managed_startup
-        self.state_dir = _private_state_dir(managed_startup.state_dir) if managed_startup is not None else _private_state_dir()
-        self.state_file = self.state_dir / "state.json"
-        self._lock = threading.RLock()
-        self._state = self._load_state()
-        self.bridge_config = managed_startup.bridge_configuration() if managed_startup is not None else load_bridge_config()
-        self._apps: dict[str, AppServerClient] = {}
-        self._app_current_thread: dict[str, str] = {}
-        self._approval_waiters: dict[str, threading.Event] = {}
-        self._approval_results: dict[str, dict[str, Any]] = {}
-        self._approval_requests: dict[str, dict[str, Any]] = {}
+        try:
+            self.state_dir = _private_state_dir(managed_startup.state_dir) if managed_startup is not None else _private_state_dir()
+            self.state_file = self.state_dir / "state.json"
+            self._lock = threading.RLock()
+            self._app_lock = threading.RLock()
+            self._controller_closed = False
+            self._app_generations: dict[str, str] = {}
+            self._start_revisions: dict[str, int] = {}
+            self._next_start_revision = 0
+            # Saved state is not evidence of live worker/approval completion. This
+            # first slice enrolls a fresh instance; it does not adopt previous work.
+            if admission is not None and self.state_file.exists():
+                admission.mark_unknown("recovered_state_unverified")
+            self._state = self._load_state()
+            self.bridge_config = managed_startup.bridge_configuration() if managed_startup is not None else load_bridge_config()
+            self._apps: dict[str, AppServerClient] = {}
+            self._app_current_thread: dict[str, str] = {}
+            self._approval_waiters: dict[str, threading.Event] = {}
+            self._approval_results: dict[str, dict[str, Any]] = {}
+            self._approval_requests: dict[str, dict[str, Any]] = {}
+        except BaseException:
+            if admission is not None:
+                admission.close()
+            raise
 
     @property
     def managed_startup_state(self) -> ManagedStartupState | None:
@@ -128,6 +199,99 @@ class BridgeController:
         # startup observer may enumerate the exact catalog but execute no tool.
         if self._managed_startup is not None:
             raise BridgeError("startup_observation_only")
+
+    def _require_admission(self) -> ControllerAdmission:
+        if self._admission is None:
+            raise BridgeError("maintenance_admission_not_enabled")
+        return self._admission
+
+    def maintenance_snapshot(self) -> dict[str, Any]:
+        """Inspect the local ledger without loading state or contacting workers."""
+        try:
+            return self._require_admission().snapshot()
+        except AdmissionError as exc:
+            raise BridgeError(exc.code) from None
+
+    def try_enter_maintenance(self) -> MaintenanceLease:
+        try:
+            return self._require_admission().try_enter_maintenance()
+        except AdmissionError as exc:
+            raise BridgeError(exc.code) from None
+
+    def leave_maintenance(self, lease: MaintenanceLease) -> None:
+        try:
+            self._require_admission().leave_maintenance(lease)
+        except AdmissionError as exc:
+            raise BridgeError(exc.code) from None
+
+    def _assert_app_source(self, app_key: str, generation: str | None) -> None:
+        if self._admission is not None and (
+            not generation or generation != self._app_generations.get(app_key)
+        ):
+            self._admission.mark_unknown("untracked_request")
+            raise BridgeError("untracked_app_source")
+
+    def _track_server_request(self, msg: dict[str, Any], *, app_key: str, generation: str):
+        """Reserve before dispatch and retain ownership through the wire reply."""
+        admission = self._require_admission()
+        self._assert_app_source(app_key, generation)
+        method = str(msg.get("method") or "")
+        kind = "callback" if method == "item/tool/call" else "approval"
+        try:
+            reservation = admission.reserve_operation(kind=kind)
+        except AdmissionError:
+            admission.mark_unknown("untracked_request")
+            raise
+
+        def finish(response_sent: bool) -> None:
+            if not response_sent:
+                admission.mark_unknown("callback_response_unsent")
+            admission.finish_operation(reservation, uncertain=not response_sent)
+
+        return finish
+
+    def _start_tracked_turn(self, app_key: str, app: AppServerClient, *, workspace_id: str, **kwargs) -> tuple[str, bool, int | None]:
+        admission = self._admission
+        if admission is None:
+            return app.start_turn(**kwargs), True, None
+        try:
+            reservation = admission.reserve_turn(
+                app_key=self._app_generations[app_key],
+                thread_id=kwargs["thread_id"],
+                workspace_key=workspace_id,
+            )
+        except AdmissionError as exc:
+            raise BridgeError(exc.code) from None
+        try:
+            with self._lock:
+                self._next_start_revision += 1
+                revision = self._next_start_revision
+                self._start_revisions[kwargs["thread_id"]] = revision
+            turn_id = app.start_turn(**kwargs)
+            active = admission.bind_turn(reservation, turn_id=turn_id)
+        except BaseException:
+            admission.fail_turn(reservation)
+            raise
+        return turn_id, active, revision
+
+    def _record_start_response(
+        self, session: dict[str, Any], turn_id: str, *, active: bool, revision: int | None,
+    ) -> None:
+        # A completion notification can precede the RPC response. The admission
+        # ledger handles this independently; keep the displayed state monotonic
+        # for enrolled controllers as well.
+        if self._admission is not None and self._start_revisions.get(session["thread_id"]) != revision:
+            # The previous turn may have completed and been continued while its
+            # initiating caller was still waiting to record the RPC response.
+            return
+        if (
+            self._admission is not None
+            and session.get("last_turn_id") == turn_id
+            and session.get("last_turn_status") in {"completed", "failed", "interrupted"}
+        ):
+            return
+        session["last_turn_id"] = turn_id
+        session["last_turn_status"] = "inProgress" if active else "unknown"
 
     def _settings_for_operation(self) -> AgentSettings:
         if self._managed_startup is not None:
@@ -177,7 +341,8 @@ class BridgeController:
         payload = json.dumps(self._state, ensure_ascii=False, indent=2, sort_keys=True)
         fd, temp_name = tempfile.mkstemp(prefix="state.", suffix=".tmp", dir=self.state_dir)
         try:
-            os.fchmod(fd, 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(payload); f.flush(); os.fsync(f.fileno())
             os.replace(temp_name, self.state_file)
@@ -271,6 +436,7 @@ class BridgeController:
                 return line.split("=", 1)[1].strip()
         return ""
 
+    @_admitted_operation()
     def _migrate_legacy_remote_target_if_needed(
         self, workspace_id: str, rec: dict[str, Any], target: ExecutionTarget
     ) -> tuple[ExecutionTarget, bool]:
@@ -336,11 +502,15 @@ class BridgeController:
             return {"permissions": {}}
         return {"decision": "decline"}
 
+    @_admitted_operation(kind="approval")
     def _handle_app_approval_request(
         self,
         app_key: str,
         msg: dict[str, Any],
+        *,
+        admission_app_key: str | None = None,
     ) -> dict[str, Any]:
+        self._assert_app_source(app_key, admission_app_key)
         method = str(msg.get("method") or "")
         request_id = msg.get("id")
         params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
@@ -410,6 +580,7 @@ class BridgeController:
             self._save_state()
             return result
 
+    @_admitted_operation()
     def pending_approvals(self, *, thread_id: str) -> dict[str, Any]:
         session = self._session(thread_id)
         pending = session.get("pending_approvals")
@@ -423,6 +594,7 @@ class BridgeController:
             "timeout_seconds": self._approval_timeout_seconds(),
         }
 
+    @_admitted_operation(kind="approval")
     def resolve_approval(
         self,
         *,
@@ -504,11 +676,29 @@ class BridgeController:
                 "result": result,
             }
 
+    @_admitted_operation()
     def _get_app(
         self,
         target: ExecutionTarget,
         *,
         cwd: str | None = None,
+    ) -> tuple[str, AppServerClient]:
+        # Serialize connection creation for an enrolled instance. close() uses
+        # the same lock after permanently closing admission.
+        with self._app_lock if self._admission is not None else nullcontext():
+            if self._admission is not None and self._controller_closed:
+                raise BridgeError("controller_closed")
+            try:
+                return self._get_app_locked(target, cwd=cwd)
+            except BaseException:
+                if self._admission is not None:
+                    # A constructor may have launched its child or reader before
+                    # failing to return an owned handle to this controller.
+                    self._admission.mark_unknown("app_creation_failed")
+                raise
+
+    def _get_app_locked(
+        self, target: ExecutionTarget, *, cwd: str | None = None,
     ) -> tuple[str, AppServerClient]:
         key = self._app_key(target)
         if target.codex_backend in {"global-config-local", "desktop-proxy"}:
@@ -517,9 +707,26 @@ class BridgeController:
         existing = self._apps.get(key)
         if existing is not None:
             return key, existing
-        handler = lambda event, app_key=key: self._on_event(event, app_key)
-        request_handler = lambda msg, app_key=key: self._handle_dynamic_tool_request(app_key, msg)
-        approval_handler = lambda msg, app_key=key: self._handle_app_approval_request(app_key, msg)
+        generation = uuid.uuid4().hex if self._admission is not None else None
+        if generation is not None:
+            self._app_generations[key] = generation
+        handler = lambda event, app_key=key, source=generation: self._on_event(
+            event, app_key, admission_app_key=source,
+        )
+        request_handler = lambda msg, app_key=key, source=generation: self._handle_dynamic_tool_request(
+            app_key, msg, admission_app_key=source,
+        )
+        approval_handler = lambda msg, app_key=key, source=generation: self._handle_app_approval_request(
+            app_key, msg, admission_app_key=source,
+        )
+        activity_hooks = {}
+        if self._admission is not None:
+            activity_hooks = {
+                "server_request_tracker": lambda msg: self._track_server_request(
+                    msg, app_key=key, generation=generation,
+                ),
+                "transport_lost_handler": lambda: self._admission.mark_unknown("transport_lost"),
+            }
         if target.type == "ssh" and target.codex_backend == "remote-ssh":
             app = AppServerClient.remote_ssh(
                 target.host,
@@ -527,6 +734,7 @@ class BridgeController:
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
+                **activity_hooks,
                 connect_timeout=target.ssh_connect_timeout,
             )
         elif target.codex_backend in {"global-config-local", "desktop-proxy"}:
@@ -535,12 +743,14 @@ class BridgeController:
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
+                **activity_hooks,
             )
         elif target.codex_backend == "desktop-required":
             app = AppServerClient.desktop_preferred(
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
+                **activity_hooks,
                 required=True,
             )
         elif target.codex_backend == "desktop-managed":
@@ -548,6 +758,7 @@ class BridgeController:
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
+                **activity_hooks,
                 required=True,
             )
         elif target.codex_backend == "standalone-local":
@@ -555,6 +766,7 @@ class BridgeController:
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
+                **activity_hooks,
                 backend_name="standalone-local",
             )
         else:
@@ -564,10 +776,12 @@ class BridgeController:
                 event_handler=handler,
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
+                **activity_hooks,
             )
         self._apps[key] = app
         return key, app
 
+    @_admitted_operation()
     def _proxy_workspace(self, workspace_id: str, rec: dict[str, Any]) -> str:
         root = self.state_dir / "proxy" / workspace_id
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -677,7 +891,11 @@ class BridgeController:
             "tools": tools,
         }]
 
-    def _handle_dynamic_tool_request(self, app_key: str, msg: dict[str, Any]) -> dict[str, Any]:
+    @_admitted_operation(kind="callback", uncertain_on_error=True)
+    def _handle_dynamic_tool_request(
+        self, app_key: str, msg: dict[str, Any], *, admission_app_key: str | None = None,
+    ) -> dict[str, Any]:
+        self._assert_app_source(app_key, admission_app_key)
         if str(msg.get("method") or "") != "item/tool/call":
             raise BridgeError("Unsupported dynamic server request")
         params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
@@ -733,6 +951,10 @@ class BridgeController:
                     cwd=str(args.get("cwd") or "."),
                     timeout_seconds=int(args.get("timeout_seconds") or 300),
                 )
+                if self._admission is not None and bool(result.get("timed_out")):
+                    # The remote container-engine CLI timing out does not prove
+                    # that the validation container stopped executing.
+                    self._admission.mark_unknown("operation_outcome_unknown")
         elif tool == "snapshot":
             result = manager.snapshot(rec)
         elif tool == "commit_push":
@@ -767,6 +989,7 @@ class BridgeController:
         text = redact(json.dumps(result, ensure_ascii=False, default=str), 50000)
         return {"contentItems": [{"type": "inputText", "text": text}], "success": True}
 
+    @_admitted_operation()
     def _app_for_session(self, session: dict[str, Any]) -> tuple[str, AppServerClient]:
         target = self._target_from_dict(session.get("target") or "local")
         key, app = self._get_app(
@@ -817,6 +1040,7 @@ class BridgeController:
         if forced in {"api", "token", "full"}: return False
         return not bool(self._reasonfirst_config().get("api_token_set"))
 
+    @_admitted_operation()
     def doctor(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "ok": True,
@@ -856,6 +1080,7 @@ class BridgeController:
                     result["targets"][name] = {"ok": False, "error": redact(str(exc), 2000)}
         return result
 
+    @_admitted_operation()
     def target_probe(self, execution: Any = None) -> dict[str, Any]:
         target = self._requested_target(execution)
         if target.type == "ssh":
@@ -882,6 +1107,7 @@ class BridgeController:
             "desktop_preferred": target.codex_backend in {"desktop-preferred", "desktop-required"},
         }
 
+    @_admitted_operation()
     def parse_gitlab_url(self, gitlab_url: str) -> dict[str, str]:
         raw = str(gitlab_url).strip()
         cfg = self._reasonfirst_config(); base = str(cfg.get("gitlab_base_url") or "").rstrip("/")
@@ -903,6 +1129,7 @@ class BridgeController:
                 hinted_path = "/".join(pieces[2:]).strip("/")
         return {"project": project_part, "hinted_path": hinted_path, "gitlab_url": raw}
 
+    @_admitted_operation()
     def dispatch_request(
         self,
         *,
@@ -962,6 +1189,7 @@ class BridgeController:
             )
         return result
 
+    @_admitted_operation()
     def project_preflight(self, project: str, *, ref: str = "") -> dict[str, Any]:
         if self._git_only_mode():
             argv = _module_command("gitlab_agent.actual_coder_cli", "project-config", project, "--validate")
@@ -974,6 +1202,7 @@ class BridgeController:
         if not bool(report.get("ok")): raise BridgeError(f"Project access preflight failed: {report}")
         return report
 
+    @_admitted_operation()
     def prepare(
         self,
         *,
@@ -1061,12 +1290,14 @@ class BridgeController:
         if thread_id: return str(self._session(thread_id)["workspace_id"])
         raise BridgeError("workspace_id or thread_id is required")
 
+    @_admitted_operation()
     def workspace_status(self, *, workspace_id: str = "", thread_id: str = "") -> dict[str, Any]:
         wid = self._workspace_id(workspace_id=workspace_id, thread_id=thread_id); rec = self._workspace_record(wid)
         if rec.get("kind") == "ssh":
             target = self._target_from_dict(rec["target"]); return {"ok": True, "workspace": self._remote_manager(target).status(rec)}
         return {"ok": True, "workspace": _run_json(_module_command("gitlab_agent.actual_coder_cli", "status", wid), timeout=60)}
 
+    @_admitted_operation()
     def files(self, *, workspace_id: str = "", thread_id: str = "", path: str = ".", recursive: bool = False, max_entries: int = 300) -> dict[str, Any]:
         wid = self._workspace_id(workspace_id=workspace_id, thread_id=thread_id); rec = self._workspace_record(wid)
         if rec.get("kind") == "ssh":
@@ -1075,6 +1306,7 @@ class BridgeController:
         if recursive: argv.append("--recursive")
         return {"ok": True, **_run_json(argv, timeout=60)}
 
+    @_admitted_operation()
     def read(self, *, workspace_id: str = "", thread_id: str = "", path: str, start_line: int = 1, end_line: int = 0, max_chars: int = 32000) -> dict[str, Any]:
         wid = self._workspace_id(workspace_id=workspace_id, thread_id=thread_id); rec = self._workspace_record(wid)
         if rec.get("kind") == "ssh":
@@ -1085,6 +1317,7 @@ class BridgeController:
         numbered="\n".join(f"{idx}: {line}" for idx,line in enumerate(lines[start-1:end] if lines else [], start=start)); cap=max(1000,min(int(max_chars),40000)); clipped=redact(numbered,cap)
         return {"ok": True, "workspace_id": wid, "path": path, "total_lines": len(lines), "start_line": start if lines else 0, "end_line": end, "truncated": bool(result.get("truncated")) or len(numbered)>len(clipped), "content": clipped}
 
+    @_admitted_operation()
     def diff(self, *, workspace_id: str = "", thread_id: str = "") -> dict[str, Any]:
         wid=self._workspace_id(workspace_id=workspace_id, thread_id=thread_id); rec=self._workspace_record(wid)
         if rec.get("kind") == "ssh":
@@ -1155,6 +1388,7 @@ class BridgeController:
             "- Keep changes scoped to the reviewed ChatGPT plan and acceptance criteria.\n"
         )
 
+    @_admitted_operation()
     def start_codex(self, *, workspace_id: str, goal: str) -> dict[str, Any]:
         wid = self._workspace_id(workspace_id=workspace_id)
         rec = self._workspace_record(wid)
@@ -1222,7 +1456,8 @@ class BridgeController:
         effective_network = bool(policy.network_access) and bool(target.network_access)
         if self._is_remote_proxy_target(target):
             effective_network = False
-        turn_id = app.start_turn(
+        turn_id, active, revision = self._start_tracked_turn(
+            app_key, app, workspace_id=wid,
             thread_id=thread_id,
             cwd=codex_cwd,
             prompt=prompt,
@@ -1231,8 +1466,8 @@ class BridgeController:
             sandbox_mode=sandbox_mode,
         )
         with self._lock:
-            self._state["sessions"][thread_id]["last_turn_id"] = turn_id
-            self._state["sessions"][thread_id]["last_turn_status"] = "inProgress"
+            session = self._state["sessions"][thread_id]
+            self._record_start_response(session, turn_id, active=active, revision=revision)
             self._save_state()
         decorated = self._decorate_thread(
             app=app,
@@ -1260,14 +1495,17 @@ class BridgeController:
             "execution_migrated": execution_migrated,
         }
 
+    @_admitted_operation()
     def start(self, *, project: str, task: str, goal: str, base_ref: str = "", execution: Any = None) -> dict[str, Any]:
         prepared=self.prepare(project=project,task=task,goal=goal,base_ref=base_ref,execution=execution)
         started=self.start_codex(workspace_id=str(prepared["workspace_id"]),goal=goal)
         return {**prepared, **started}
 
+    @_admitted_operation()
     def _ensure_loaded(self, thread_id: str) -> tuple[dict[str, Any], AppServerClient]:
         session=self._session(thread_id); key,app=self._app_for_session(session); self._app_current_thread[key]=thread_id; return session,app
 
+    @_admitted_operation()
     def continue_task(self, *, thread_id: str, goal: str, from_ci: bool = False) -> dict[str, Any]:
         if from_ci:
             raise BridgeError("resume_from_ci is unavailable for dynamic/SSH targets unless GitLab API mode is configured")
@@ -1309,7 +1547,8 @@ class BridgeController:
         effective_network = bool(policy.network_access) and bool(target.network_access)
         if self._is_remote_proxy_target(target):
             effective_network = False
-        turn_id = app.start_turn(
+        turn_id, active, revision = self._start_tracked_turn(
+            str(session["app_key"]), app, workspace_id=str(session["workspace_id"]),
             thread_id=thread_id,
             cwd=cwd,
             prompt=prompt,
@@ -1318,24 +1557,37 @@ class BridgeController:
             sandbox_mode=sandbox_mode,
         )
         with self._lock:
-            session["last_turn_id"] = turn_id
-            session["last_turn_status"] = "inProgress"
+            self._record_start_response(session, turn_id, active=active, revision=revision)
             session["updated_at"] = int(time.time())
             self._save_state()
         return {"ok": True, "thread_id": thread_id, "turn_id": turn_id}
 
+    @_admitted_operation()
     def steer(self, *, thread_id: str, prompt: str, turn_id: str = "") -> dict[str, Any]:
         session,app=self._ensure_loaded(thread_id); tid=turn_id or str(session.get("last_turn_id") or ""); accepted=app.steer(thread_id=thread_id,turn_id=tid,prompt=prompt); return {"ok":True,"thread_id":thread_id,"turn_id":accepted}
 
+    @_admitted_operation()
     def interrupt(self, *, thread_id: str, turn_id: str = "") -> dict[str, Any]:
-        session,app=self._ensure_loaded(thread_id); tid=turn_id or str(session.get("last_turn_id") or ""); app.interrupt(thread_id=thread_id,turn_id=tid); return {"ok":True,"thread_id":thread_id,"turn_id":tid}
+        session, app = self._ensure_loaded(thread_id)
+        tid = turn_id or str(session.get("last_turn_id") or "")
+        if self._admission is not None:
+            self._admission.turn_stopping(
+                app_key=self._app_generations[str(session["app_key"])],
+                thread_id=thread_id,
+                turn_id=tid,
+            )
+        app.interrupt(thread_id=thread_id, turn_id=tid)
+        return {"ok": True, "thread_id": thread_id, "turn_id": tid}
 
+    @_admitted_operation()
     def status(self, *, thread_id: str) -> dict[str, Any]:
         session,app=self._ensure_loaded(thread_id); thread=app.read_thread(thread_id,include_turns=False); return {"ok":True,"session":dict(session),"thread":thread,"workspace":self.workspace_status(thread_id=thread_id).get("workspace"),"codex_backend":app.backend_name}
 
+    @_admitted_operation()
     def events(self, *, thread_id: str, limit: int = 30) -> dict[str, Any]:
         session=self._session(thread_id); events=list(session.get("events",[]))[-max(1,min(int(limit),100)):]; return {"ok":True,"thread_id":thread_id,"events":events,"last_agent_message":redact(str(session.get("last_agent_message") or ""),12000)}
 
+    @_admitted_operation()
     def compact_status(self, *, thread_id: str) -> dict[str, Any]:
         session = self._session(thread_id)
         workspace = self.workspace_status(thread_id=thread_id).get("workspace")
@@ -1358,6 +1610,7 @@ class BridgeController:
             "last_push": session.get("last_push"),
         }
 
+    @_admitted_operation()
     def _remote_finish_plan(
         self,
         *,
@@ -1418,11 +1671,15 @@ class BridgeController:
                         argv,
                         timeout_seconds=timeout,
                     )
+                    if self._admission is not None and bool(result.get("timed_out")):
+                        self._admission.mark_unknown("operation_outcome_unknown")
                     passed = (
                         not bool(result.get("timed_out"))
                         and result.get("returncode") == 0
                     )
                 except Exception as exc:
+                    if self._admission is not None:
+                        self._admission.mark_unknown("operation_outcome_unknown")
                     result = {
                         "argv": argv,
                         "timed_out": False,
@@ -1574,6 +1831,7 @@ class BridgeController:
             "blockers": blockers,
         }
 
+    @_admitted_operation()
     def authorize_push(
         self,
         *,
@@ -1653,6 +1911,7 @@ class BridgeController:
             ),
         }
 
+    @_admitted_operation()
     def artifacts(self, *, workspace_id: str = "", thread_id: str = "", path: str = ".", changed_only: bool = True, max_entries: int = 80, max_text_chars: int = 20000, max_visual_previews: int = 2) -> dict[str, Any]:
         wid=self._workspace_id(workspace_id=workspace_id,thread_id=thread_id); rec=self._workspace_record(wid); since=int(rec.get("created_at") or 0)
         if rec.get("kind") != "ssh":
@@ -1675,12 +1934,14 @@ class BridgeController:
                 items.append({**candidate,"extract_error":redact(str(exc),500)})
         return {"ok":True,"workspace_id":wid,"path":path,"changed_only":changed_only,"since_epoch":since,"items":items,"truncated":len(candidates)>=max_entries,"visual_previews":previews}
 
+    @_admitted_operation()
     def artifact_descriptor(self, *, path: str, workspace_id: str = "", thread_id: str = "", max_bytes: int = 8*1024*1024) -> dict[str, Any]:
         wid=self._workspace_id(workspace_id=workspace_id,thread_id=thread_id); rec=self._workspace_record(wid)
         if rec.get("kind") == "ssh":
             target=self._target_from_dict(rec["target"]); data=self._remote_manager(target).read_bytes_b64(rec,path,max_bytes=max_bytes); return {"workspace_id":wid,"remote":True,"path":path,"size":data["size"],"base64":data["base64"],"target":target.to_dict()}
         status=_run_json(_module_command("gitlab_agent.actual_coder_cli","status",wid),timeout=60); worktree=Path(self._assert_worktree_allowed(str(status.get("worktree_path") or ""))); return {"workspace_id":wid,**artifact_file(worktree,path,max_bytes=max_bytes)}
 
+    @_admitted_operation()
     def review_bundle(self, *, thread_id: str, artifact_path: str = ".") -> dict[str, Any]:
         session=self._session(thread_id); ev=self.events(thread_id=thread_id,limit=24); bounded=[]
         for item in ev.get("events",[]):
@@ -1691,6 +1952,7 @@ class BridgeController:
         diff=self.diff(thread_id=thread_id); diff["diff"]=redact(str(diff.get("diff") or ""),16000)
         return {"ok":True,"thread_id":thread_id,"workspace_id":session["workspace_id"],"status":self.status(thread_id=thread_id),"events":{"events":bounded,"last_agent_message":redact(str(ev.get("last_agent_message") or ""),5000)},"diff":diff,"artifacts":self.artifacts(thread_id=thread_id,path=artifact_path,changed_only=True,max_entries=30,max_text_chars=12000,max_visual_previews=1)}
 
+    @_admitted_operation()
     def ci(self, *, thread_id: str) -> dict[str, Any]:
         rec=self._workspace_record(str(self._session(thread_id)["workspace_id"]))
         if rec.get("kind")=="ssh" or self._git_only_mode():
@@ -1701,6 +1963,7 @@ class BridgeController:
             allow_failure_json=True,
         )
 
+    @_admitted_operation()
     def evidence(self, *, thread_id: str, from_ci: bool = False) -> dict[str, Any]:
         rec=self._workspace_record(str(self._session(thread_id)["workspace_id"]))
         if rec.get("kind")=="ssh":
@@ -1712,6 +1975,7 @@ class BridgeController:
             argv.append("--from-ci")
         return _run_json(argv,timeout=180,allow_failure_json=True)
 
+    @_admitted_operation()
     def finish_preview(
         self,
         *,
@@ -1770,6 +2034,7 @@ class BridgeController:
             "raw": result,
         }
 
+    @_admitted_operation()
     def finish(
         self,
         *,
@@ -1863,7 +2128,68 @@ class BridgeController:
             "result": result,
         }
 
-    def _on_event(self, event: dict[str, Any], app_key: str) -> None:
+    def _on_event(
+        self,
+        event: dict[str, Any],
+        app_key: str,
+        *,
+        admission_app_key: str | None = None,
+    ) -> None:
+        admission = self._admission
+        if admission is None:
+            self._record_event(event, app_key)
+            return
+        try:
+            reservation = admission.reserve_operation(kind="callback")
+        except AdmissionError:
+            # A late event must not mutate state while maintenance is held, or
+            # manufacture evidence of idle from an untracked source.
+            admission.mark_unknown("unexpected_event")
+            return
+        uncertain = True
+        try:
+            # Keep ledger acceptance and its display write in one session
+            # ordering step; a new start must not overtake an old completion.
+            with self._lock:
+                if not admission_app_key or admission_app_key != self._app_generations.get(app_key):
+                    admission.mark_unknown("unexpected_event")
+                    return
+                method = event.get("method")
+                if method in {"turn/started", "turn/completed"}:
+                    params = event.get("params")
+                    params = params if isinstance(params, dict) else {}
+                    thread_id = params.get("threadId")
+                    turn = params.get("turn")
+                    turn = turn if isinstance(turn, dict) else {}
+                    turn_id = turn.get("id")
+                    if not isinstance(thread_id, str) or not thread_id or not isinstance(turn_id, str) or not turn_id:
+                        admission.mark_unknown("unexpected_event")
+                        return
+                    if method == "turn/completed":
+                        if turn.get("status") not in {"completed", "failed", "interrupted"}:
+                            admission.mark_unknown("unexpected_event")
+                            return
+                        accepted = admission.turn_completed(
+                            app_key=admission_app_key, thread_id=thread_id, turn_id=turn_id,
+                        )
+                    else:
+                        accepted = admission.turn_started(
+                            app_key=admission_app_key, thread_id=thread_id, turn_id=turn_id,
+                        )
+                    if not accepted:
+                        # Exact duplicate/stale events cannot roll the displayed
+                        # session back to an older turn. The ledger classified any
+                        # unknown identity independently.
+                        uncertain = False
+                        return
+                elif method == "bridge/protocolError":
+                    admission.mark_unknown("transport_lost")
+                self._record_event(event, app_key)
+                uncertain = False
+        finally:
+            admission.finish_operation(reservation, uncertain=uncertain)
+
+    def _record_event(self, event: dict[str, Any], app_key: str) -> None:
         method=str(event.get("method") or ""); params=event.get("params") if isinstance(event.get("params"),dict) else {}; thread_id=params.get("threadId") if isinstance(params,dict) else None
         if not isinstance(thread_id,str) or not thread_id: thread_id=self._app_current_thread.get(app_key)
         if not thread_id: return
@@ -1873,7 +2199,15 @@ class BridgeController:
             summary=None
             if method=="turn/started":
                 turn=params.get("turn") if isinstance(params,dict) else None
-                if isinstance(turn,dict): session["last_turn_id"]=turn.get("id") or session.get("last_turn_id"); session["last_turn_status"]=turn.get("status") or "inProgress"
+                if isinstance(turn, dict):
+                    completed_already = (
+                        self._admission is not None
+                        and session.get("last_turn_id") == turn.get("id")
+                        and session.get("last_turn_status") in {"completed", "failed", "interrupted"}
+                    )
+                    if not completed_already:
+                        session["last_turn_id"] = turn.get("id") or session.get("last_turn_id")
+                        session["last_turn_status"] = turn.get("status") or "inProgress"
                 summary={"method":method,"turn_id":session.get("last_turn_id")}
             elif method=="turn/completed":
                 turn=params.get("turn") if isinstance(params,dict) else None
@@ -1904,7 +2238,12 @@ class BridgeController:
             session["updated_at"]=int(time.time()); self._save_state()
 
     def close(self) -> None:
-        for app in list(self._apps.values()):
-            try: app.close()
-            except Exception: pass
-        self._apps.clear()
+        if self._admission is not None:
+            # This is permanent shutdown, never a drain/idle certificate.
+            self._admission.close()
+            self._controller_closed = True
+        with self._app_lock if self._admission is not None else nullcontext():
+            for app in list(self._apps.values()):
+                try: app.close()
+                except Exception: pass
+            self._apps.clear()

@@ -120,6 +120,17 @@ ReasonFirst 已加入可重入、跨进程文件锁，用于本地工作区 muta
 
 锁不是通用 OS sandbox。
 
+### Controller 维护准入
+
+内部调用方可以为一个 `BridgeController` 显式启用活动追踪和维护窗口
+原子预留。持有与实例绑定的 lease 时，新工作准入关闭；busy 或 unknown
+就绪状态会立即拒绝维护。unknown 本身不会关闭因其他条件仍开放的普通
+准入，因此审批和取消仍可继续。
+
+范围不包括独立 CLI 或其他客户端的 Desktop 活动，也不接管已有服务或
+证明全局空闲。普通 controller 保持现有行为，一次性启动观察仍永久关闭
+工具准入。见[Controller 维护准入](MAINTENANCE_ADMISSION_CN.md)。
+
 ## 7. 远端验证
 
 worker 不再获得任意 `bash -lc` 远端执行能力。

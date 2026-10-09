@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add an internal opt-in controller maintenance gate with atomic reservation,
+  instance-bound leases, full operation/turn/approval lifetime tracking, and
+  bounded diagnostic snapshots. Busy or unknown activity blocks maintenance;
+  unknown readiness keeps ordinary admission available when otherwise open.
+  Default behavior and permanent disposable tool denial are preserved. This
+  does not establish global idle, adopt a service, or authorize activation.
+  See [maintenance admission](docs/MAINTENANCE_ADMISSION.md) /
+  [中文](docs/MAINTENANCE_ADMISSION_CN.md).
+
 - Add an internal disposable managed-startup probe for reviewed macOS/Linux
   prepared runtimes: bounded inherited pipes, selected non-secret policy from
   captured startup objects, an owned listener and exact shared MCP catalog
