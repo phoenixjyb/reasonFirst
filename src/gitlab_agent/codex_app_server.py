@@ -160,12 +160,22 @@ class AppServerClient:
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
+        transport_lost_handler: Callable[[], None] | None = None,
         request_timeout: float = 60.0,
     ) -> None:
+        if any(hook is not None and not callable(hook) for hook in (
+            server_request_tracker, transport_lost_handler,
+        )):
+            raise AppServerError("invalid_activity_hook")
         self.codex_bin = codex_bin or (resolve_codex_binary() if launch_argv is None and unix_socket is None else "")
         self.event_handler = event_handler
         self.server_request_handler = server_request_handler
         self.approval_request_handler = approval_request_handler
+        self.server_request_tracker = server_request_tracker
+        self.transport_lost_handler = transport_lost_handler
+        self._activity_lock = threading.RLock()
+        self._transport_lost_notified = False
         self.request_timeout = request_timeout
         self.backend_name = backend_name
         self._next_id = 1
@@ -179,6 +189,23 @@ class AppServerClient:
         self.proc: subprocess.Popen[str] | None = None
         self.ws: Any = None
 
+        try:
+            self._open_transport(unix_socket, launch_argv)
+            self._initialize()
+        except BaseException:
+            if self._activity_enabled():
+                try:
+                    self._notify_transport_lost()
+                except BaseException:
+                    self._stderr_tail.append("activity_hook_failed")
+                try:
+                    self._cleanup_failed_initialization()
+                except BaseException:
+                    self._stderr_tail.append("activity_start_cleanup_failed")
+                del self._stderr_tail[:-20]
+            raise
+
+    def _open_transport(self, unix_socket, launch_argv) -> None:
         if unix_socket:
             self._connect_unix_socket(unix_socket)
             self._reader = threading.Thread(
@@ -215,7 +242,65 @@ class AppServerClient:
             )
             self._reader.start()
             self._stderr_reader.start()
-        self._initialize()
+
+    def _cleanup_failed_initialization(self) -> None:
+        # The constructor has not returned a handle to its owner. Do not use
+        # close()'s _closed short circuit, and do not stop an attached worker.
+        self._closed = True
+        failed = False
+        try:
+            self._fail_pending()
+        except BaseException:
+            failed = True
+        if self.ws is not None:
+            try:
+                self.ws.close()
+            except BaseException:
+                failed = True
+        reaped = self.proc is None
+        if self.proc is not None:
+            for action in ("terminate", "kill"):
+                try:
+                    if self.proc.poll() is None:
+                        getattr(self.proc, action)()
+                    self.proc.wait(timeout=1)
+                    reaped = True
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                except BaseException:
+                    failed = True
+        readers_stopped = True
+        for name in ("_reader", "_stderr_reader"):
+            reader = getattr(self, name, None)
+            if reader is None:
+                continue
+            try:
+                if reader.ident is not None and reader is not threading.current_thread():
+                    reader.join(timeout=.25)
+                readers_stopped = readers_stopped and not reader.is_alive()
+            except BaseException:
+                readers_stopped = False
+        # A surviving reader/writer might hold a stream lock. Never turn bounded
+        # process cleanup into a blocking stream.close() on another thread.
+        if self.proc is not None and reaped and readers_stopped:
+            acquired = self._send_lock.acquire(blocking=False)
+            if acquired:
+                try:
+                    for name in ("stdin", "stdout", "stderr"):
+                        stream = getattr(self.proc, name, None)
+                        if stream is not None:
+                            try:
+                                stream.close()
+                            except BaseException:
+                                failed = True
+                finally:
+                    self._send_lock.release()
+            else:
+                failed = True
+        if failed or not reaped or not readers_stopped:
+            self._stderr_tail.append("activity_start_cleanup_failed")
+            del self._stderr_tail[:-20]
 
     @classmethod
     def global_config_local(
@@ -225,6 +310,8 @@ class AppServerClient:
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
+        transport_lost_handler: Callable[[], None] | None = None,
     ) -> "AppServerClient":
         """Launch a dedicated local app-server using the user's normal Codex config.
 
@@ -251,6 +338,7 @@ class AppServerClient:
             event_handler=event_handler,
             server_request_handler=server_request_handler,
             approval_request_handler=approval_request_handler,
+            **cls._activity_hooks(server_request_tracker, transport_lost_handler),
         )
 
     @classmethod
@@ -260,6 +348,8 @@ class AppServerClient:
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
+        transport_lost_handler: Callable[[], None] | None = None,
         required: bool = False,
     ) -> "AppServerClient":
         sock = managed_app_server_socket()
@@ -271,6 +361,7 @@ class AppServerClient:
                     event_handler=event_handler,
                     server_request_handler=server_request_handler,
                     approval_request_handler=approval_request_handler,
+                    **cls._activity_hooks(server_request_tracker, transport_lost_handler),
                 )
             except Exception as exc:
                 if required:
@@ -297,12 +388,14 @@ class AppServerClient:
                     event_handler=event_handler,
                     server_request_handler=server_request_handler,
                     approval_request_handler=approval_request_handler,
+                    **cls._activity_hooks(server_request_tracker, transport_lost_handler),
                 )
         return cls(
             event_handler=event_handler,
             server_request_handler=server_request_handler,
             approval_request_handler=approval_request_handler,
             backend_name="standalone-local",
+            **cls._activity_hooks(server_request_tracker, transport_lost_handler),
         )
 
     @classmethod
@@ -314,6 +407,8 @@ class AppServerClient:
         event_handler: Callable[[dict[str, Any]], None] | None = None,
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
+        transport_lost_handler: Callable[[], None] | None = None,
         connect_timeout: int = 8,
     ) -> "AppServerClient":
         host = str(host).strip()
@@ -340,7 +435,18 @@ class AppServerClient:
             event_handler=event_handler,
             server_request_handler=server_request_handler,
             approval_request_handler=approval_request_handler,
+            **cls._activity_hooks(server_request_tracker, transport_lost_handler),
         )
+
+    @staticmethod
+    def _activity_hooks(tracker, lost_handler) -> dict[str, Any]:
+        # Keep the historical factory call shape when instrumentation is absent.
+        hooks = {}
+        if tracker is not None:
+            hooks["server_request_tracker"] = tracker
+        if lost_handler is not None:
+            hooks["transport_lost_handler"] = lost_handler
+        return hooks
 
     def _connect_unix_socket(self, socket_path: str) -> None:
         try:
@@ -365,11 +471,76 @@ class AppServerClient:
             return
         try:
             self.event_handler(event)
-        except Exception as exc:
+        except BaseException as exc:
+            if self._activity_enabled():
+                self._activity_hook_failed()
+                return
+            if not isinstance(exc, Exception):
+                raise
             self._stderr_tail.append(
                 f"bridge event handler error: {type(exc).__name__}: {str(exc)[:500]}"
             )
             del self._stderr_tail[:-20]
+
+    def _activity_enabled(self) -> bool:
+        return (getattr(self, "server_request_tracker", None) is not None
+                or getattr(self, "transport_lost_handler", None) is not None)
+
+    def _notify_transport_lost(self) -> None:
+        handler = getattr(self, "transport_lost_handler", None)
+        if handler is None:
+            return
+        with self._activity_lock:
+            if self._transport_lost_notified:
+                return
+            self._transport_lost_notified = True
+            # Another reader/closer must wait until the loss observer has run
+            # before it wakes RPC waiters. The observer may reenter close().
+            try:
+                handler()
+            except BaseException:
+                # A failing observer cannot make this connection trustworthy again.
+                self._closed = True
+                self._stderr_tail.append("activity_hook_failed")
+                del self._stderr_tail[:-20]
+                self._fail_pending()
+
+    def _activity_hook_failed(self) -> None:
+        self._stderr_tail.append("activity_hook_failed")
+        del self._stderr_tail[:-20]
+        self._notify_transport_lost()
+        if getattr(self, "transport_lost_handler", None) is None or self._closed:
+            self._closed = True
+            self._fail_pending()
+
+    def _track_server_request(self, msg: dict[str, Any]):
+        # Reserve before starting a handler thread. Its finalizer covers the
+        # response write too; True records a completed write, not a peer ACK.
+        tracker = getattr(self, "server_request_tracker", None)
+        if tracker is None:
+            return True, None
+        try:
+            finish = tracker(msg)
+            if not callable(finish):
+                raise AppServerError("invalid_activity_finalizer")
+        except BaseException:
+            self._activity_hook_failed()
+            return False, None
+        completed = False
+        lock = threading.Lock()
+
+        def finish_once(response_sent: bool) -> None:
+            nonlocal completed
+            with lock:
+                if completed:
+                    return
+                completed = True
+            try:
+                finish(response_sent)
+            except BaseException:
+                self._activity_hook_failed()
+
+        return True, finish_once
 
     def _read_stderr(self) -> None:
         if self.proc is None or self.proc.stderr is None:
@@ -388,18 +559,22 @@ class AppServerClient:
         return self.proc is not None and self.proc.poll() is None
 
     def _write(self, message: dict[str, Any]) -> None:
-        if not self._is_running():
-            raise AppServerError(
-                f"codex app-server is not running (backend={self.backend_name}, stderr_tail={self._stderr_tail[-5:]})"
-            )
-        payload = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
-        with self._send_lock:
-            if self.ws is not None:
-                self.ws.send(payload)
-            else:
-                assert self.proc is not None and self.proc.stdin is not None
-                self.proc.stdin.write(payload + "\n")
-                self.proc.stdin.flush()
+        try:
+            if not self._is_running():
+                raise AppServerError(
+                    f"codex app-server is not running (backend={self.backend_name}, stderr_tail={self._stderr_tail[-5:]})"
+                )
+            payload = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
+            with self._send_lock:
+                if self.ws is not None:
+                    self.ws.send(payload)
+                else:
+                    assert self.proc is not None and self.proc.stdin is not None
+                    self.proc.stdin.write(payload + "\n")
+                    self.proc.stdin.flush()
+        except BaseException:
+            self._notify_transport_lost()
+            raise
 
     @staticmethod
     def _is_approval_method(method: str) -> bool:
@@ -449,10 +624,12 @@ class AppServerClient:
             return result
         raise AppServerError(f"unsupported approval request method {method!r}")
 
-    def _reject_server_request(self, msg: dict[str, Any]) -> None:
+    def _reject_server_request(self, msg: dict[str, Any], finish=None) -> None:
         method = str(msg.get("method") or "")
         rid = msg.get("id")
         if not isinstance(rid, int):
+            if finish is not None:
+                finish(False)
             return
         if self._is_approval_method(method):
             response: dict[str, Any] = {
@@ -471,110 +648,157 @@ class AppServerClient:
                     "message": "ReasonFirst declines unsupported server request",
                 },
             }
+        response_sent = False
         try:
-            self._write(response)
-        except Exception:
-            pass
-        self._emit_event({
-            "method": "bridge/serverRequestDeclined",
-            "params": {"method": method},
-        })
+            try:
+                self._write(response)
+                response_sent = True
+            except Exception:
+                pass
+            self._emit_event({
+                "method": "bridge/serverRequestDeclined",
+                "params": {"method": method},
+            })
+        finally:
+            if finish is not None:
+                finish(response_sent)
 
-    def _handle_approval_request_async(self, msg: dict[str, Any]) -> None:
+    def _handle_approval_request_async(self, msg: dict[str, Any], finish=None) -> None:
         rid = msg.get("id")
         method = str(msg.get("method") or "")
         if not isinstance(rid, int):
+            if finish is not None:
+                finish(False)
             return
+        response_sent = False
+        write_started = False
+        delivery_uncertain = False
         try:
-            if self.approval_request_handler is None:
-                result = self._decline_approval_result(method)
-            else:
-                result = self._validate_approval_result(
-                    method,
-                    self.approval_request_handler(msg),
-                )
-            self._write({"id": rid, "result": result})
-            self._emit_event({
-                "method": "bridge/approvalResponded",
-                "params": {
-                    "requestId": rid,
-                    "method": method,
-                    "result": result,
-                },
-            })
-        except Exception as exc:
             try:
-                self._write({
-                    "id": rid,
-                    "result": self._decline_approval_result(method),
-                })
-            except Exception:
-                pass
-            self._emit_event({
-                "method": "bridge/approvalHandlerError",
-                "params": {
-                    "requestId": rid,
-                    "method": method,
-                    "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
-                },
-            })
-
-    def _handle_server_request_async(self, msg: dict[str, Any]) -> None:
-        rid = msg.get("id")
-        if not isinstance(rid, int):
-            return
-        try:
-            if self.server_request_handler is None:
-                self._reject_server_request(msg)
-                return
-            result = self.server_request_handler(msg)
-            if not isinstance(result, dict):
-                result = {
-                    "contentItems": [
-                        {"type": "inputText", "text": str(result)}
-                    ],
-                    "success": True,
-                }
-            self._write({"id": rid, "result": result})
-        except Exception as exc:
-            try:
-                self._write({
-                    "id": rid,
-                    "result": {
-                        "contentItems": [{
-                            "type": "inputText",
-                            "text": (
-                                "ReasonFirst tool error: "
-                                f"{type(exc).__name__}: {str(exc)[:2000]}"
-                            ),
-                        }],
-                        "success": False,
+                if self.approval_request_handler is None:
+                    result = self._decline_approval_result(method)
+                else:
+                    result = self._validate_approval_result(
+                        method,
+                        self.approval_request_handler(msg),
+                    )
+                write_started = True
+                self._write({"id": rid, "result": result})
+                response_sent = True
+                self._emit_event({
+                    "method": "bridge/approvalResponded",
+                    "params": {
+                        "requestId": rid,
+                        "method": method,
+                        "result": result,
                     },
                 })
-            except Exception:
-                pass
+            except Exception as exc:
+                delivery_uncertain = write_started and not response_sent
+                try:
+                    self._write({
+                        "id": rid,
+                        "result": self._decline_approval_result(method),
+                    })
+                    response_sent = True
+                except Exception:
+                    response_sent = False
+                self._emit_event({
+                    "method": "bridge/approvalHandlerError",
+                    "params": {
+                        "requestId": rid,
+                        "method": method,
+                        "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+                    },
+                })
+        finally:
+            if finish is not None:
+                finish(response_sent and not delivery_uncertain)
+
+    def _handle_server_request_async(self, msg: dict[str, Any], finish=None) -> None:
+        rid = msg.get("id")
+        if not isinstance(rid, int):
+            if finish is not None:
+                finish(False)
+            return
+        response_sent = False
+        write_started = False
+        delivery_uncertain = False
+        try:
+            try:
+                if self.server_request_handler is None:
+                    self._reject_server_request(msg, finish)
+                    finish = None
+                    return
+                result = self.server_request_handler(msg)
+                if not isinstance(result, dict):
+                    result = {
+                        "contentItems": [
+                            {"type": "inputText", "text": str(result)}
+                        ],
+                        "success": True,
+                    }
+                write_started = True
+                self._write({"id": rid, "result": result})
+                response_sent = True
+            except Exception as exc:
+                delivery_uncertain = write_started and not response_sent
+                try:
+                    self._write({
+                        "id": rid,
+                        "result": {
+                            "contentItems": [{
+                                "type": "inputText",
+                                "text": (
+                                    "ReasonFirst tool error: "
+                                    f"{type(exc).__name__}: {str(exc)[:2000]}"
+                                ),
+                            }],
+                            "success": False,
+                        },
+                    })
+                    response_sent = True
+                except Exception:
+                    response_sent = False
+        finally:
+            if finish is not None:
+                finish(response_sent and not delivery_uncertain)
 
     def _handle_message(self, msg: Any) -> None:
         if not isinstance(msg, dict):
+            self._notify_transport_lost()
             return
         rid = msg.get("id")
         method = msg.get("method")
         if isinstance(rid, int) and isinstance(method, str):
+            accepted, finish = self._track_server_request(msg)
+            if not accepted:
+                self._reject_server_request(msg)
+                return
             if self._is_approval_method(method):
-                threading.Thread(
-                    target=self._handle_approval_request_async,
-                    args=(msg,),
-                    name="codex-approval-request",
-                    daemon=True,
-                ).start()
+                target = self._handle_approval_request_async
+                name = "codex-approval-request"
             elif method == "item/tool/call" and self.server_request_handler is not None:
+                target = self._handle_server_request_async
+                name = "codex-dynamic-tool"
+            else:
+                self._reject_server_request(msg, finish)
+                return
+            try:
                 threading.Thread(
-                    target=self._handle_server_request_async,
-                    args=(msg,),
-                    name="codex-dynamic-tool",
+                    target=target,
+                    args=(msg, finish) if finish is not None else (msg,),
+                    name=name,
                     daemon=True,
                 ).start()
-            else:
+            except BaseException:
+                if not self._activity_enabled():
+                    raise
+                if finish is not None:
+                    finish(False)
+                self._notify_transport_lost()
+                self._stderr_tail.append("activity_dispatch_failed")
+                del self._stderr_tail[:-20]
                 self._reject_server_request(msg)
             return
         if isinstance(rid, int):
@@ -596,6 +820,10 @@ class AppServerClient:
 
     def _mark_closed(self) -> None:
         self._closed = True
+        self._notify_transport_lost()
+        self._fail_pending()
+
+    def _fail_pending(self) -> None:
         error = {
             "error": {
                 "code": -32099,
@@ -622,6 +850,7 @@ class AppServerClient:
                 try:
                     self._handle_message(json.loads(raw))
                 except json.JSONDecodeError:
+                    self._notify_transport_lost()
                     self._emit_event({"method": "bridge/protocolError", "params": {"message": "invalid JSON from app-server"}})
         finally:
             self._mark_closed()
@@ -635,6 +864,7 @@ class AppServerClient:
                 try:
                     self._handle_message(json.loads(str(raw)))
                 except json.JSONDecodeError:
+                    self._notify_transport_lost()
                     self._emit_event({"method": "bridge/protocolError", "params": {"message": "invalid JSON from managed app-server"}})
         except Exception as exc:
             self._stderr_tail.append(f"managed socket reader error: {type(exc).__name__}: {str(exc)[:1000]}")
@@ -652,6 +882,7 @@ class AppServerClient:
             try:
                 msg = waiter.get(timeout=timeout or self.request_timeout)
             except queue.Empty as exc:
+                self._notify_transport_lost()
                 raise AppServerError(f"Timed out waiting for app-server method {method}") from exc
         finally:
             with self._pending_lock:
@@ -1091,8 +1322,12 @@ class AppServerClient:
 
     def close(self) -> None:
         if self._closed:
+            self._notify_transport_lost()
             return
         self._closed = True
+        self._notify_transport_lost()
+        if self._activity_enabled():
+            self._fail_pending()
         if self.ws is not None:
             try:
                 self.ws.close()

@@ -196,10 +196,15 @@ service_changed
 
 The codec's startup/peer/collection blockers remain scoped to that message
 primitive. Added integration observations do not rewrite the codec's result or
-remove the loaded-service/pairing compatibility blockers. Maintenance/idle
-admission, existing work and approvals, state/schema compatibility, required
-legacy `/control`, durable recovery/rollback, client reconnection, and human
-authorization remain future gates.
+remove the loaded-service/pairing compatibility blockers.
+
+The separate opt-in [controller maintenance gate](MAINTENANCE_ADMISSION.md)
+covers one explicitly enrolled controller. It does not enroll an existing
+service or external work producers, establish global idle, or open this
+disposable context's tool admission. Existing-service work and approval
+coverage, state/schema compatibility, required legacy `/control`, durable
+recovery/rollback, client reconnection, and human authorization remain separate
+gates.
 
 The installation harness exercises a clean-wheel supervisor and a separately
 prepared-runtime supervisor, outside the checkout, against a prepared child

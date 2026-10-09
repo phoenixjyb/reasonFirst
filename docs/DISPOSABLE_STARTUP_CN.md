@@ -134,8 +134,10 @@ Windows 源码 fixture 的 base-executable 选择方法移植为生产启动方�
 `activation_authorized`、`ready_for_activation`、`service_changed` 仍为 false。
 新增观察不改写 codec 的结论，也不清除旧服务观察 / pairing 的兼容性阻断。
 
-维护窗口、空闲准入、进行中的工作与审批、状态 / schema 兼容、旧 `/control`、
-持久恢复和回滚、客户端重连以及人工授权仍属于后续阶段。
+独立的[Controller 维护准入](MAINTENANCE_ADMISSION_CN.md)只覆盖一个显式
+启用追踪的 controller，不会自动纳入已有服务或外部工作来源，不证明全局空闲，
+也不能开放本一次性上下文的工具准入。已有服务的工作与审批覆盖、状态 / schema
+兼容、旧 `/control`、持久恢复和回滚、客户端重连以及人工授权仍是独立门槛。
 
 安装测试分别从干净 wheel 和单独准备的 runtime 启动监督进程，在源码目录外、
 使用已准备的子运行环境验证两种模式。源码测试、Linux 安装测试、原生 macOS CI、
