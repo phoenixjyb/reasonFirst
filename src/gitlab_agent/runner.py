@@ -29,10 +29,13 @@ class CommandRunner:
     def __init__(self, settings: AgentSettings, workspaces: WorkspaceManager) -> None:
         self.settings = settings
         self.workspaces = workspaces
+        self.child_context = getattr(workspaces, "child_context", None)
 
     def _safe_env(self, workspace_id: str) -> dict[str, str]:
         env: dict[str, str] = {}
-        for key, value in os.environ.items():
+        retained = (self.child_context.environment_copy()
+                    if self.child_context is not None else os.environ)
+        for key, value in retained.items():
             upper = key.upper()
             if any(fragment in upper for fragment in _SECRET_NAME_FRAGMENTS):
                 continue
@@ -86,6 +89,13 @@ class CommandRunner:
             with self.workspaces.mutation_lock(workspace_id):
                 resolution = PythonBindings(self.workspaces).resolve(workspace_id, argv)
                 effective_argv = resolution["resolved_argv"]
+                if self.child_context is not None:
+                    # An approved Python path stays the selected invocation;
+                    # all other allowlisted commands resolve only from retained
+                    # launch inputs. Never rely on Windows parent PATH lookup.
+                    absolute = self.child_context.resolve_executable(effective_argv[0], cwd=cwd)
+                    effective_argv = [absolute, *effective_argv[1:]]
+                    resolution = {**resolution, "resolved_argv": effective_argv}
                 env = self._safe_env(workspace_id)
                 options = {}
                 if resolution["python_binding"]:
@@ -138,6 +148,10 @@ class CommandRunner:
                 "stdout_original_bytes": out_bytes,
                 "stderr_original_bytes": err_bytes,
             }
+        except OSError:
+            if self.child_context is not None:
+                raise RuntimeError("child_launch_failed") from None
+            raise
 
         stdout, stdout_truncated, stdout_bytes = _clip(
             proc.stdout, self.settings.max_output_bytes // 2

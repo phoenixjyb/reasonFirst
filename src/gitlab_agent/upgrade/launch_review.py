@@ -26,7 +26,7 @@ KNOWN_LEGACY_BLOBS = {
 }
 KNOWN_TARGET_BLOBS = {
     "bridge_http.py": "0e4ba620f267a3d32c0027dd006c531a090129e4",
-    "bridge_mcp.py": "d6c36f5fd6c3ff8c8039885163fbe7ba0fe481ad",
+    "bridge_mcp.py": "93ba879b957e211887bde114ac7107d21695a5ee",
 }
 UNRESOLVED = (
     "loaded_launchd_definition_and_effective_environment",

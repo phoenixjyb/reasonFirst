@@ -53,6 +53,7 @@ class PolicyRecordingApp(MaintenanceFakeApp):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.child_context = kwargs.get("child_context")
         self.resume_calls = []
         self.turn_calls = []
 
@@ -343,11 +344,10 @@ class ControllerServiceBindingTests(unittest.TestCase):
     def test_missing_and_matching_saved_policy_resume_and_continue_with_exact_retained_policy(self):
         controller = self.bound_controller()
         selected = self.configuration.codex_policy
-        process = SimpleNamespace(returncode=0, stdout='{"agent_prompt":"synthetic continuation"}', stderr="")
         with (
             patch.object(AgentSettings, "load", side_effect=AssertionError("unexpected policy reload")),
             patch.object(controller_module, "AppServerClient", PolicyRecordingApp),
-            patch.object(controller_module.subprocess, "run", return_value=process) as command,
+            patch.object(controller, "_run_json", return_value={"agent_prompt": "synthetic continuation"}) as command,
         ):
             for label in ("missing", "matching"):
                 with self.subTest(policy=label):
@@ -491,6 +491,7 @@ class ManagedServiceBindingTests(unittest.IsolatedAsyncioTestCase):
             core = Mock(name="selected-owned-core")
             core._reasonfirst_controller = controller
             core._reasonfirst_service_configuration = controller.service_configuration
+            core._reasonfirst_child_context = controller.child_context
             core.streamable_http_app.return_value = SimpleNamespace(routes=[
                 SimpleNamespace(path=launch.path), SimpleNamespace(path="/healthz"),
             ])

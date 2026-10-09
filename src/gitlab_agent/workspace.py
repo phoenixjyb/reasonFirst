@@ -107,8 +107,17 @@ class WorkspaceManager:
         settings: AgentSettings,
         *,
         url_resolver: Callable[[str], str] | None = None,
+        child_context=None,
     ) -> None:
+        if child_context is not None:
+            from .upgrade.service_children import ServiceChildBindingError, ServiceChildContext
+            authority = getattr(child_context, "configuration", None)
+            selected = authority if type(authority) is AgentSettings else getattr(authority, "settings", None)
+            if type(child_context) is not ServiceChildContext or selected is not settings:
+                raise ServiceChildBindingError("invalid_child_context")
+            child_context.revalidate()
         self.settings = settings
+        self.child_context = child_context
         self.root = settings.workspace_root.resolve()
         self.repos_dir = self.root / "repos"
         self.worktrees_dir = self.root / "worktrees"
@@ -313,7 +322,7 @@ class WorkspaceManager:
 
     @contextmanager
     def _git_auth_env(self, *, require_token: bool) -> Iterator[dict[str, str]]:
-        env = os.environ.copy()
+        env = self.child_context.environment_copy() if self.child_context is not None else os.environ.copy()
 
         # Internal GitLab instances commonly need to bypass a host-wide
         # ALL_PROXY/HTTP_PROXY/HTTPS_PROXY (e.g. Clash/Surge/V2Ray). Match the
@@ -439,7 +448,12 @@ class WorkspaceManager:
                 env["GIT_AUTHOR_EMAIL"] = self.settings.git_author_email
                 env["GIT_COMMITTER_EMAIL"] = self.settings.git_author_email
 
-            git_argv = ["git"]
+            if self.child_context is not None:
+                cwd = cwd if cwd is not None else self.child_context.working_directory
+                executable = self.child_context.resolve_executable("git", cwd=cwd)
+            else:
+                executable = "git"
+            git_argv = [executable]
             if auth:
                 git_argv.extend(self._git_credential_config(auth_url))
             if not self.settings.git_trust_env:
@@ -447,19 +461,26 @@ class WorkspaceManager:
                 git_argv.extend(["-c", "http.proxy="])
             git_argv.extend(args)
 
-            proc = subprocess.run(
-                git_argv,
-                cwd=cwd,
-                input=input_text,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                timeout=max(30, self.settings.command_timeout_seconds),
-                check=False,
-            )
+            try:
+                proc = subprocess.run(
+                    git_argv,
+                    cwd=cwd,
+                    input=input_text,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                    timeout=max(30, self.settings.command_timeout_seconds),
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                if self.child_context is not None:
+                    raise RuntimeError("child_launch_failed") from None
+                raise
 
         if check and proc.returncode != 0:
+            if self.child_context is not None:
+                raise RuntimeError("child_command_failed")
             stdout, _, _ = _clip(proc.stdout, 12000)
             stderr, _, _ = _clip(proc.stderr, 12000)
             raise RuntimeError(

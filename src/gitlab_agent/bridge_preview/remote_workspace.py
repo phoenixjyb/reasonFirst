@@ -46,10 +46,12 @@ class RemoteWorkspaceManager:
         max_command_timeout_seconds: int = 300,
         max_output_bytes: int = 120000,
         max_file_bytes: int = 1000000,
+        child_context=None,
     ) -> None:
         if target.type != "ssh":
             raise RemoteWorkspaceError("RemoteWorkspaceManager requires an SSH target")
         self.target = target
+        self.child_context = child_context
         self.gitlab_host = str(gitlab_host or "").strip().lower()
         self.git_username = str(git_username or "")
         self.git_password = str(git_password or "")
@@ -61,8 +63,14 @@ class RemoteWorkspaceManager:
     def _ssh(self, command: str, *, timeout: int = 120, check: bool = True) -> subprocess.CompletedProcess[str]:
         # Send the shell script through stdin so OpenSSH cannot corrupt quoting
         # by rebuilding a remote `sh -lc <script>` command string.
+        options = {}
+        executable = "ssh"
+        if self.child_context is not None:
+            executable = self.child_context.resolve_executable("ssh")
+            options = {"env": self.child_context.environment_copy(),
+                       "cwd": self.child_context.working_directory}
         argv = [
-            "ssh", "-T",
+            executable, "-T",
             "-o", "BatchMode=yes",
             "-o", f"ConnectTimeout={self.target.ssh_connect_timeout}",
             "--", self.target.host,
@@ -76,10 +84,23 @@ class RemoteWorkspaceManager:
                 capture_output=True,
                 timeout=timeout,
                 check=False,
+                **options,
             )
         except subprocess.TimeoutExpired as exc:
+            if self.child_context is not None:
+                raise RemoteWorkspaceError("child_timeout") from None
             raise RemoteWorkspaceError(f"SSH command timed out on {self.target.host}") from exc
+        except OSError:
+            if self.child_context is not None:
+                raise RemoteWorkspaceError("child_launch_failed") from None
+            raise
+        if self.child_context is not None and proc.returncode != 0:
+            # check=False callers (including credential-assisted fetch retries)
+            # may inspect status, but must not export raw failed SSH/Git output.
+            proc = subprocess.CompletedProcess(proc.args, proc.returncode, "", "child_command_failed")
         if check and proc.returncode != 0:
+            if self.child_context is not None:
+                raise RemoteWorkspaceError("child_command_failed")
             raise RemoteWorkspaceError(
                 f"SSH command failed on {self.target.host} (exit {proc.returncode}): {proc.stderr[-3000:]}"
             )
@@ -93,6 +114,9 @@ class RemoteWorkspaceManager:
             "printf 'codex='; command -v " + shlex.quote(self.target.remote_codex) + " || true",
         ])
         proc = self._ssh(cmd, timeout=30, check=False)
+        if self.child_context is not None and proc.returncode != 0:
+            return {"ok": False, "target": self.target.to_dict(), "stdout": "",
+                    "stderr": "child_probe_failed", "returncode": proc.returncode}
         return {
             "ok": proc.returncode == 0,
             "target": self.target.to_dict(),
@@ -178,6 +202,8 @@ class RemoteWorkspaceManager:
             )
             auth_forwarded = True
         if fetch.returncode != 0:
+            if self.child_context is not None:
+                raise RemoteWorkspaceError("child_command_failed") from None
             raise RemoteWorkspaceError(
                 "Remote Git fetch failed. SSH login and GitLab repository authentication are separate. "
                 f"git stderr: {fetch.stderr[-2500:]}"

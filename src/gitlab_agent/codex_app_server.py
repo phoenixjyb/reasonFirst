@@ -20,6 +20,39 @@ class AppServerError(RuntimeError):
     pass
 
 
+def _child_failure(code):
+    from .upgrade.service_children import ServiceChildBindingError
+    raise ServiceChildBindingError(code) from None
+
+
+def _require_child_context(context):
+    from .upgrade.service_children import ServiceChildBindingError, ServiceChildContext
+    if type(context) is not ServiceChildContext:
+        _child_failure("invalid_child_context")
+    try:
+        context.revalidate()
+    except ServiceChildBindingError:
+        raise
+    except Exception:
+        _child_failure("invalid_child_context")
+    return context
+
+
+def _child_cwd(context, cwd):
+    if cwd is None:
+        return context.working_directory
+    try:
+        selected = Path(cwd)
+        if not selected.is_absolute():
+            _child_failure("invalid_child_context")
+        selected = selected.resolve(strict=True)
+        if not selected.is_dir():
+            _child_failure("invalid_child_context")
+        return selected
+    except Exception:
+        _child_failure("invalid_child_context")
+
+
 def resolve_codex_binary() -> str:
     explicit = os.getenv("CODEX_BRIDGE_CODEX_BIN", "").strip()
     candidates: list[str] = []
@@ -71,7 +104,7 @@ def resolve_desktop_or_codex_binary() -> str:
             return str(path.resolve())
     return resolve_codex_binary()
 
-def _reasonfirst_mcp_configured(codex_bin: str, *, cwd: str | None = None) -> bool:
+def _reasonfirst_mcp_configured(codex_bin: str, *, cwd: str | None = None, child_context=None) -> bool:
     """Return whether the effective Codex config contains a valid ReasonFirst MCP.
 
     Current Codex rejects a CLI override that creates only
@@ -79,17 +112,25 @@ def _reasonfirst_mcp_configured(codex_bin: str, *, cwd: str | None = None) -> bo
     Probe the effective config first, in the worker cwd, so project-local Codex
     configuration participates in the same way it will for the app-server.
     """
+    if child_context is not None:
+        _require_child_context(child_context)
+        cwd = _child_cwd(child_context, cwd)
+        codex_bin = child_context.resolve_executable(codex_bin, cwd=cwd)
     try:
         proc = subprocess.run(
             [codex_bin, "mcp", "get", "reasonfirst", "--json"],
             cwd=cwd or None,
-            env=os.environ.copy(),
+            env=(os.environ.copy() if child_context is None else child_context.environment_copy()),
             text=True,
             capture_output=True,
             timeout=20,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except Exception as exc:
+        if child_context is not None:
+            _child_failure("child_probe_failed")
+        if not isinstance(exc, (OSError, subprocess.TimeoutExpired)):
+            raise
         raise AppServerError(
             f"Could not inspect Codex ReasonFirst MCP configuration: {exc}"
         ) from exc
@@ -101,6 +142,8 @@ def _reasonfirst_mcp_configured(codex_bin: str, *, cwd: str | None = None) -> bo
     if proc.returncode != 0:
         if "No MCP server named 'reasonfirst' found." in combined:
             return False
+        if child_context is not None:
+            _child_failure("child_probe_failed")
         raise AppServerError(
             "Could not inspect Codex ReasonFirst MCP configuration: "
             + (combined[-2000:] or f"exit {proc.returncode}")
@@ -109,12 +152,16 @@ def _reasonfirst_mcp_configured(codex_bin: str, *, cwd: str | None = None) -> bo
     try:
         data = json.loads(output)
     except json.JSONDecodeError as exc:
+        if child_context is not None:
+            _child_failure("child_probe_failed")
         raise AppServerError(
             "Codex 'mcp get reasonfirst --json' returned invalid JSON"
         ) from exc
     transport = data.get("transport") if isinstance(data, dict) else None
     transport_type = transport.get("type") if isinstance(transport, dict) else None
     if transport_type not in {"stdio", "streamable_http"}:
+        if child_context is not None:
+            _child_failure("child_probe_failed")
         raise AppServerError(
             "Codex ReasonFirst MCP exists but has no valid transport"
         )
@@ -163,12 +210,19 @@ class AppServerClient:
         server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
         transport_lost_handler: Callable[[], None] | None = None,
         request_timeout: float = 60.0,
+        child_context=None,
+        cwd: str | Path | None = None,
     ) -> None:
         if any(hook is not None and not callable(hook) for hook in (
             server_request_tracker, transport_lost_handler,
         )):
             raise AppServerError("invalid_activity_hook")
-        self.codex_bin = codex_bin or (resolve_codex_binary() if launch_argv is None and unix_socket is None else "")
+        self._child_context = (_require_child_context(child_context)
+                               if child_context is not None else None)
+        self._launch_cwd = (_child_cwd(child_context, cwd) if child_context is not None else None)
+        self.codex_bin = codex_bin or (
+            (child_context.resolve_codex_binary() if child_context is not None else resolve_codex_binary())
+            if launch_argv is None and unix_socket is None else "")
         self.event_handler = event_handler
         self.server_request_handler = server_request_handler
         self.approval_request_handler = approval_request_handler
@@ -192,8 +246,8 @@ class AppServerClient:
         try:
             self._open_transport(unix_socket, launch_argv)
             self._initialize()
-        except BaseException:
-            if self._activity_enabled():
+        except BaseException as exc:
+            if self._activity_enabled() or self._child_context is not None:
                 try:
                     self._notify_transport_lost()
                 except BaseException:
@@ -203,10 +257,24 @@ class AppServerClient:
                 except BaseException:
                     self._stderr_tail.append("activity_start_cleanup_failed")
                 del self._stderr_tail[:-20]
+            if self._child_context is not None:
+                from .upgrade.service_children import ServiceChildBindingError
+                if isinstance(exc, ServiceChildBindingError):
+                    raise
+                _child_failure("child_launch_failed")
             raise
 
+    @property
+    def child_context(self):
+        return getattr(self, "_child_context", None)
+
     def _open_transport(self, unix_socket, launch_argv) -> None:
+        context = self.child_context
+        if context is not None:
+            context.revalidate()
         if unix_socket:
+            if context is not None and Path(unix_socket) != context.managed_app_server_socket():
+                _child_failure("invalid_child_context")
             self._connect_unix_socket(unix_socket)
             self._reader = threading.Thread(
                 target=self._read_ws_loop,
@@ -217,6 +285,13 @@ class AppServerClient:
             self._reader.start()
         else:
             argv = list(launch_argv or [self.codex_bin or resolve_codex_binary(), "app-server"])
+            launch_options = {}
+            if context is not None:
+                if (not argv or len(argv) > 64 or any(type(value) is not str or "\0" in value for value in argv)
+                        or sum(len(value) for value in argv) > 65536):
+                    _child_failure("invalid_child_context")
+                argv[0] = context.resolve_executable(argv[0], cwd=self._launch_cwd)
+                launch_options = {"env": context.environment_copy(), "cwd": self._launch_cwd}
             try:
                 self.proc = subprocess.Popen(
                     argv,
@@ -225,8 +300,11 @@ class AppServerClient:
                     stderr=subprocess.PIPE,
                     text=True,
                     bufsize=1,
+                    **launch_options,
                 )
             except OSError as exc:
+                if context is not None:
+                    _child_failure("child_launch_failed")
                 raise AppServerError(f"Failed to launch Codex app-server: {argv!r}: {exc}") from exc
             if self.proc.stdin is None or self.proc.stdout is None or self.proc.stderr is None:
                 raise AppServerError("Failed to open codex app-server stdio pipes")
@@ -243,9 +321,9 @@ class AppServerClient:
             self._reader.start()
             self._stderr_reader.start()
 
-    def _cleanup_failed_initialization(self) -> None:
-        # The constructor has not returned a handle to its owner. Do not use
-        # close()'s _closed short circuit, and do not stop an attached worker.
+    def _cleanup_failed_initialization(self) -> bool:
+        # Also used for bound close: an EOF/closed flag or observation drift
+        # must not hide an owned child. An attached external worker is not stopped.
         self._closed = True
         failed = False
         try:
@@ -301,6 +379,8 @@ class AppServerClient:
         if failed or not reaped or not readers_stopped:
             self._stderr_tail.append("activity_start_cleanup_failed")
             del self._stderr_tail[:-20]
+            return False
+        return True
 
     @classmethod
     def global_config_local(
@@ -312,6 +392,7 @@ class AppServerClient:
         approval_request_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
         transport_lost_handler: Callable[[], None] | None = None,
+        child_context=None,
     ) -> "AppServerClient":
         """Launch a dedicated local app-server using the user's normal Codex config.
 
@@ -324,9 +405,26 @@ class AppServerClient:
         self-invocation. Do not synthesize a transport-less MCP entry when it is
         absent, because current Codex rejects that as an invalid transport.
         """
-        codex_bin = resolve_desktop_or_codex_binary()
+        launch_options = {}
+        if child_context is None:
+            codex_bin = resolve_desktop_or_codex_binary()
+            configured = _reasonfirst_mcp_configured(codex_bin, cwd=cwd)
+        else:
+            _require_child_context(child_context)
+            selected_cwd = _child_cwd(child_context, cwd)
+            codex_bin = child_context.resolve_codex_binary(prefer_desktop=True)
+            try:
+                configured = _reasonfirst_mcp_configured(
+                    codex_bin, cwd=selected_cwd, child_context=child_context,
+                )
+            except Exception as exc:
+                from .upgrade.service_children import ServiceChildBindingError
+                if isinstance(exc, ServiceChildBindingError):
+                    raise
+                _child_failure("child_probe_failed")
+            launch_options = {"child_context": child_context, "cwd": selected_cwd}
         argv = [codex_bin]
-        if _reasonfirst_mcp_configured(codex_bin, cwd=cwd):
+        if configured:
             argv.extend([
                 "--config",
                 "mcp_servers.reasonfirst.enabled=false",
@@ -339,6 +437,7 @@ class AppServerClient:
             server_request_handler=server_request_handler,
             approval_request_handler=approval_request_handler,
             **cls._activity_hooks(server_request_tracker, transport_lost_handler),
+            **launch_options,
         )
 
     @classmethod
@@ -351,7 +450,39 @@ class AppServerClient:
         server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
         transport_lost_handler: Callable[[], None] | None = None,
         required: bool = False,
+        child_context=None,
     ) -> "AppServerClient":
+        if child_context is not None:
+            _require_child_context(child_context)
+            sock = child_context.managed_app_server_socket()
+            try:
+                available = sock.exists()
+            except Exception:
+                _child_failure("child_endpoint_unavailable")
+            if available:
+                try:
+                    return cls(
+                        unix_socket=str(sock), backend_name="desktop-managed",
+                        event_handler=event_handler, server_request_handler=server_request_handler,
+                        approval_request_handler=approval_request_handler,
+                        child_context=child_context,
+                        **cls._activity_hooks(server_request_tracker, transport_lost_handler),
+                    )
+                except Exception:
+                    # A sticky observation failure is never a fallback choice.
+                    child_context.revalidate()
+                    if required:
+                        _child_failure("child_endpoint_unavailable")
+            if required:
+                _child_failure("child_endpoint_unavailable")
+            return cls(
+                codex_bin=child_context.resolve_codex_binary(prefer_desktop=True),
+                backend_name="standalone-local", event_handler=event_handler,
+                server_request_handler=server_request_handler,
+                approval_request_handler=approval_request_handler,
+                child_context=child_context,
+                **cls._activity_hooks(server_request_tracker, transport_lost_handler),
+            )
         sock = managed_app_server_socket()
         if sock.exists():
             try:
@@ -410,18 +541,28 @@ class AppServerClient:
         server_request_tracker: Callable[[dict[str, Any]], Callable[[bool], None]] | None = None,
         transport_lost_handler: Callable[[], None] | None = None,
         connect_timeout: int = 8,
+        child_context=None,
     ) -> "AppServerClient":
+        if child_context is not None:
+            _require_child_context(child_context)
+            if (type(host) is not str or type(remote_codex) is not str
+                    or type(connect_timeout) is not int):
+                _child_failure("invalid_child_context")
         host = str(host).strip()
         if not host or host.startswith("-"):
+            if child_context is not None:
+                _child_failure("invalid_child_context")
             raise AppServerError("Invalid SSH host")
         remote_codex = str(remote_codex).strip() or "codex"
         if any(ch.isspace() for ch in remote_codex):
+            if child_context is not None:
+                _child_failure("invalid_child_context")
             raise AppServerError("remote_codex must be a single executable name/path")
         remote_command = "sh -lc " + shlex.quote(
             "exec " + shlex.quote(remote_codex) + " app-server"
         )
         argv = [
-            "ssh",
+            "ssh" if child_context is None else child_context.resolve_executable("ssh"),
             "-T",
             "-o", "BatchMode=yes",
             "-o", f"ConnectTimeout={max(1, min(int(connect_timeout), 30))}",
@@ -436,6 +577,7 @@ class AppServerClient:
             server_request_handler=server_request_handler,
             approval_request_handler=approval_request_handler,
             **cls._activity_hooks(server_request_tracker, transport_lost_handler),
+            **({"child_context": child_context} if child_context is not None else {}),
         )
 
     @staticmethod
@@ -472,7 +614,7 @@ class AppServerClient:
         try:
             self.event_handler(event)
         except BaseException as exc:
-            if self._activity_enabled():
+            if self._activity_enabled() or self.child_context is not None:
                 self._activity_hook_failed()
                 return
             if not isinstance(exc, Exception):
@@ -543,13 +685,25 @@ class AppServerClient:
         return True, finish_once
 
     def _read_stderr(self) -> None:
+        context = self.child_context
+        if context is not None:
+            context._check_pid()
         if self.proc is None or self.proc.stderr is None:
             return
-        for line in self.proc.stderr:
-            text = line.rstrip("\r\n")
-            if text:
-                self._stderr_tail.append(text[:2000])
-                del self._stderr_tail[:-20]
+        try:
+            for line in self.proc.stderr:
+                # Raw child diagnostics can contain inherited environment values.
+                # Bound clients drain them without retaining or publishing them.
+                if context is None:
+                    text = line.rstrip("\r\n")
+                    if text:
+                        self._stderr_tail.append(text[:2000])
+                        del self._stderr_tail[:-20]
+        except Exception:
+            if context is None:
+                raise
+            self._stderr_tail.append("child_stream_failed")
+            self._notify_transport_lost()
 
     def _is_running(self) -> bool:
         if self._closed:
@@ -559,7 +713,12 @@ class AppServerClient:
         return self.proc is not None and self.proc.poll() is None
 
     def _write(self, message: dict[str, Any]) -> None:
+        context = self.child_context
+        if context is not None:
+            context._check_pid()
         try:
+            if context is not None:
+                context.summary()
             if not self._is_running():
                 raise AppServerError(
                     f"codex app-server is not running (backend={self.backend_name}, stderr_tail={self._stderr_tail[-5:]})"
@@ -574,6 +733,8 @@ class AppServerClient:
                     self.proc.stdin.flush()
         except BaseException:
             self._notify_transport_lost()
+            if context is not None:
+                _child_failure("child_binding_failed")
             raise
 
     @staticmethod
@@ -708,7 +869,8 @@ class AppServerClient:
                     "params": {
                         "requestId": rid,
                         "method": method,
-                        "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+                        "error": ("child_binding_failed" if self.child_context is not None
+                                  else f"{type(exc).__name__}: {str(exc)[:1000]}"),
                     },
                 })
         finally:
@@ -750,8 +912,9 @@ class AppServerClient:
                             "contentItems": [{
                                 "type": "inputText",
                                 "text": (
-                                    "ReasonFirst tool error: "
-                                    f"{type(exc).__name__}: {str(exc)[:2000]}"
+                                    "ReasonFirst tool error: child_binding_failed"
+                                    if self.child_context is not None else
+                                    f"ReasonFirst tool error: {type(exc).__name__}: {str(exc)[:2000]}"
                                 ),
                             }],
                             "success": False,
@@ -832,6 +995,8 @@ class AppServerClient:
                 "stderr_tail": self._stderr_tail[-5:],
             }
         }
+        if self.child_context is not None:
+            error = {"error": {"code": -32099, "message": "child_transport_closed"}}
         with self._pending_lock:
             waiters = list(self._pending.values())
         for waiter in waiters:
@@ -841,6 +1006,8 @@ class AppServerClient:
                 pass
 
     def _read_stdio_loop(self) -> None:
+        if self.child_context is not None:
+            self.child_context._check_pid()
         assert self.proc is not None and self.proc.stdout is not None
         try:
             for line in self.proc.stdout:
@@ -852,10 +1019,16 @@ class AppServerClient:
                 except json.JSONDecodeError:
                     self._notify_transport_lost()
                     self._emit_event({"method": "bridge/protocolError", "params": {"message": "invalid JSON from app-server"}})
+        except Exception:
+            if self.child_context is None:
+                raise
+            self._stderr_tail.append("child_stream_failed")
         finally:
             self._mark_closed()
 
     def _read_ws_loop(self) -> None:
+        if self.child_context is not None:
+            self.child_context._check_pid()
         try:
             assert self.ws is not None
             for raw in self.ws:
@@ -867,11 +1040,27 @@ class AppServerClient:
                     self._notify_transport_lost()
                     self._emit_event({"method": "bridge/protocolError", "params": {"message": "invalid JSON from managed app-server"}})
         except Exception as exc:
-            self._stderr_tail.append(f"managed socket reader error: {type(exc).__name__}: {str(exc)[:1000]}")
+            self._stderr_tail.append("child_stream_failed" if self.child_context is not None else
+                                     f"managed socket reader error: {type(exc).__name__}: {str(exc)[:1000]}")
         finally:
             self._mark_closed()
 
     def request(self, method: str, params: dict[str, Any] | None = None, *, timeout: float | None = None) -> Any:
+        context = self.child_context
+        if context is None:
+            return self._request(method, params, timeout=timeout)
+        context._check_pid()
+        try:
+            context.summary()
+            return self._request(method, params, timeout=timeout)
+        except BaseException as exc:
+            self._notify_transport_lost()
+            from .upgrade.service_children import ServiceChildBindingError
+            if isinstance(exc, ServiceChildBindingError):
+                raise
+            _child_failure("child_binding_failed")
+
+    def _request(self, method: str, params: dict[str, Any] | None = None, *, timeout: float | None = None) -> Any:
         with self._pending_lock:
             rid = self._next_id
             self._next_id += 1
@@ -1321,6 +1510,17 @@ class AppServerClient:
         return result if isinstance(result, dict) else {}
 
     def close(self) -> None:
+        if self.child_context is not None:
+            # Cleanup must remain possible after a selected executable drifts.
+            # Only PID authority is checked before touching owned handles.
+            self.child_context._check_pid()
+            try:
+                self._notify_transport_lost()
+                if not self._cleanup_failed_initialization():
+                    _child_failure("child_binding_failed")
+                return
+            except BaseException:
+                _child_failure("child_binding_failed")
         if self._closed:
             self._notify_transport_lost()
             return

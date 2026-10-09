@@ -26,13 +26,15 @@ class HistoryScanError(RuntimeError):
 
 def _bounded_git(
     worktree: Path, args: list[str], *, deadline: float, max_bytes: int,
+    child_context=None,
 ) -> bytes:
     """Read fixed Git plumbing output without unbounded communicate() buffering."""
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise HistoryScanError("History scan timed out; coverage is incomplete")
+    retained = child_context.environment_copy() if child_context is not None else os.environ
     env = {
-        k: v for k, v in os.environ.items()
+        k: v for k, v in retained.items()
         if not k.upper().startswith("GIT_")
         and not any(x in k.upper() for x in ("TOKEN", "SECRET", "PASSWORD", "API_KEY"))
     }
@@ -41,9 +43,11 @@ def _bounded_git(
         "GIT_NO_LAZY_FETCH": "1", "GIT_OPTIONAL_LOCKS": "0",
         "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
     })
+    executable = (child_context.resolve_executable("git", cwd=worktree)
+                  if child_context is not None else "git")
     try:
         proc = subprocess.Popen(
-            ["git", "--no-pager", "--no-replace-objects", "-c", "protocol.allow=never",
+            [executable, "--no-pager", "--no-replace-objects", "-c", "protocol.allow=never",
              "-c", "core.quotePath=true", *args],
             cwd=worktree, env=env, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -98,6 +102,7 @@ def scan_history_secrets(
     *, worktree: Path, base_sha: str, head_sha: str,
     timeout_seconds: int = 300, max_commits: int = MAX_HISTORY_COMMITS,
     max_bytes: int = MAX_HISTORY_BYTES,
+    child_context=None,
 ) -> dict[str, object]:
     """Scan a conservative superset of outgoing commits, never a cached pushed flag.
 
@@ -114,7 +119,8 @@ def scan_history_secrets(
     deadline = time.monotonic() + min(timeout_seconds, 300)
 
     def git(args: list[str], cap: int = 4096) -> bytes:
-        return _bounded_git(worktree, args, deadline=deadline, max_bytes=cap)
+        options = {"child_context": child_context} if child_context is not None else {}
+        return _bounded_git(worktree, args, deadline=deadline, max_bytes=cap, **options)
 
     if git(["rev-parse", "--is-shallow-repository"]).strip() != b"false":
         raise HistoryScanError("Shallow history cannot establish complete scan coverage")

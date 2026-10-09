@@ -5,6 +5,8 @@
 to one HTTP server that it creates and owns. HTTP requests, controller work,
 and maintenance reservation use the same admission object. An optional immutable
 configuration binds selected parent policy to that exact owner and controller.
+Configured owners also retain the local inputs supplied to their covered child
+launches.
 
 The owner lives in `src/gitlab_agent/upgrade/service_managed.py`. It is a Python
 embedding API, not a new CLI command, MCP tool, public administration route, or
@@ -22,11 +24,12 @@ PID, saved registration, pairing digest, or disposable startup object as proof
 of ownership.
 
 For a configured owner, the controller and shared core must retain the exact
-`ManagedServiceConfiguration` object supplied to the owner. Matching public
-digests do not authorize substituting another object. The exact admission gate
+`ManagedServiceConfiguration` object supplied to the owner and the exact child
+context captured by that owner. Matching public digests or equal context values
+do not authorize substituting another object. The exact admission gate
 determines cleanup ownership: a controller using another gate is rejected before
 adoption and is not closed. A controller enrolled in this owner's gate remains
-its cleanup responsibility even when a configuration or state-path mismatch
+its cleanup responsibility even when a configuration, child-context or state-path mismatch
 prevents startup.
 
 Construction, startup, serving, and cleanup are distinct lifecycle states. The
@@ -49,8 +52,8 @@ to the creating process.
 | --- | --- |
 | `capture_service_configuration(settings, bridge_config, *, bridge_config_path, state_dir, ...)` | Detach already-resolved settings, target policy and explicit service options into an immutable selected-policy object. |
 | `ManagedBridgeService(launch, *, configuration=None)` | Select an explicit `HTTPLaunch` and optionally the exact selected-policy object; create a new service. |
-| `await service.start()` | Construct the enrolled controller and owned listener; publish the running state after readiness and any configured binding checks succeed. |
-| `service.maintenance_snapshot()` | Return bounded service/ledger diagnostics and retained observation metadata; perform no runtime file reread. |
+| `await service.start()` | Capture configured child inputs and runtime observations before the listener, construct the enrolled controller, and publish running only after readiness and binding checks succeed. |
+| `service.maintenance_snapshot()` | Return bounded service/ledger diagnostics and retained observation metadata; perform no runtime or executable file reread. |
 | `service.try_enter_maintenance()` | Revalidate a configured binding, then atomically reserve the running owner's controller if all tracked activity is known complete. |
 | `service.leave_maintenance(lease)` | Revalidate a configured binding, then release the exact current in-process `MaintenanceLease`. |
 | `await service.aclose()` | Close admission first, then clean up owned server/controller resources. |
@@ -125,7 +128,7 @@ source configuration files do not reload these selected values.
 
 | Selected input | Controller behavior with a configuration binding |
 | --- | --- |
-| Agent settings and workspace root | Direct settings, local configuration-report and workspace-root helpers consume the retained settings. |
+| Agent settings and workspace root | Direct helpers and the private ReasonFirst child entry point consume the retained settings, without loading another `.env` file. |
 | Codex worker request | Effective policy, session resume and continuation use the retained worker policy. This does not prove backend enforcement. |
 | Named and stored execution targets | Named requests resolve from the selected targets. A stored target must match a selected target's canonical record, including its validation policy. |
 | `gitlab_auth_mode` | Accepts `auto`, `api` or `git-only`. `auto` uses the retained API credential's presence; the direct mode helper does not reload the ambient override. |
@@ -156,16 +159,56 @@ metadata and arbitrary unused configuration fields are excluded. Two objects
 can therefore have the same public digest and different private settings; live
 binding requires object identity, not digest equality alone.
 
-Subprocesses and AppServer clients still have their existing environment and
-binary-selection behavior. Provider state, external configuration files, CA
-bundle contents, Git trust/configuration and backend enforcement remain outside
-this selected-policy claim. Retaining a CA path or an environment-trust boolean
-does not freeze the referenced files or the surrounding process environment.
+The local child-launch binding described below supplies retained process inputs.
+Provider state, external configuration files, CA bundle contents, native Git and
+SSH configuration, remote runtime state and backend enforcement remain outside
+the selected-policy claim. Retaining a CA path or an environment-trust boolean
+does not freeze the referenced files.
 
 This object is separate from the disposable startup observation state. A
 disposable controller continues to refuse every tool call and cannot be combined
 with live admission. Ordinary controllers and owners created without
 `configuration` keep their existing loading behavior.
+
+## Selected local child-launch inputs
+
+A configured owner captures a private `ServiceChildContext` before creating its
+listener. The context belongs to its creating PID and exact configuration
+object, and retains a detached environment, an absolute working directory and
+the Python invocation selected for local ReasonFirst children. Returned
+environment views are independent copies. Later changes to `os.environ` or the
+parent working directory do not replace the captured values, and launching one
+owner's work does not temporarily modify process globals for another owner.
+
+Controller operations that use a ReasonFirst CLI child pass already-resolved
+settings through the bounded private `upgrade.service_child` entry point. The
+child bypasses ordinary settings and `.env` discovery. The environment is
+supplied separately to the process; credentials are not placed in command-line
+arguments. Python isolated mode excludes the captured working directory and
+`PYTHONPATH` from module discovery. Each helper captures its inherited environment
+into its own child-local context for descendants; executable caches and process
+identity are not transferred across processes. This is an internal execution
+channel, not a new user-facing CLI, MCP tool, or service-administration endpoint.
+
+Local Git, history inspection, validation and the locally launched SSH client
+receive the retained launch context as well. Executable selection is lazy and
+uses that context; covered launches use explicit absolute executable paths.
+Selected executable files are observed and checked for drift. Codex configuration
+probes and owned AppServer processes use the selected local environment and
+working directory. Cached clients must continue to belong to the same context.
+The controller checks the selected context on covered use paths; the owner also
+revalidates it before publishing running and at both maintenance transitions.
+An observed context or executable mismatch closes admission permanently. A later
+file restoration or successful child response does not refresh the baseline.
+
+This binds the local inputs supplied by ReasonFirst. It does not establish what
+an executable subsequently loads or starts. Codex/provider configuration files,
+additional MCP services, native Git hooks, filters, trust stores and included
+configuration, SSH configuration and host-key/agent state, remote shell
+environments, remote binaries and container images, and already-running Desktop
+daemons remain external. A local validation command is still the existing
+structured host runner; the context does not turn it into a sandbox. File
+observations do not prove loaded-code identity or make process creation atomic.
 
 ## Current-process runtime observation
 
@@ -185,9 +228,10 @@ owner. Wrong-process use is rejected before acquiring its inherited owner lock.
 These are bounded, repeated observations of selected files and process-local
 references. They are not an atomic filesystem snapshot, proof of the code already
 loaded in memory, whole-runtime integrity, or the identity of an independently
-prepared runtime. There is no background drift watcher or runtime reread on
-every HTTP request. The retained observation shown in diagnostics is historical;
-maintenance transitions perform the fresh checks described above.
+prepared runtime. There is no background drift watcher or reread of this
+current-process file set on every HTTP request. Covered child paths perform their
+separate per-use checks. The retained observation shown in diagnostics is
+historical; maintenance transitions perform the fresh checks described above.
 
 ## HTTP profile and compatibility
 
@@ -248,6 +292,11 @@ cleanup. Unexpected server exit also closes admission. Only owned sockets,
 tasks, and controller clients are cleanup targets; an occupied port or another
 listener is never taken over.
 
+A bound AppServer client becomes an owned cleanup target only after its exact
+child context is accepted. A foreign factory result or cache replacement is
+rejected and is not closed. Replacing a cache entry does not discard the original
+owned client's cleanup handle.
+
 A cleanup timeout or failure remains a separate outcome. Stopping the listener
 does not prove that controller callbacks, a coding worker, or a remote container
 have finished. Outstanding counters and unknown activity remain visible; cleanup
@@ -257,6 +306,9 @@ approval decisions and Desktop-owned workers is retained.
 Configuration capture errors use finite `ServiceConfigurationError` codes. The
 owner reports `configuration_binding_failed` for a failed selected-policy check
 and `runtime_binding_failed` for failed runtime capture or revalidation.
+`child_binding_failed` covers invalid child context capture, identity mismatch,
+selected executable drift and a helper-reported child context failure. Ordinary
+child command failures retain their separate classification.
 `controller_binding_failed` and `core_binding_failed` identify mismatched startup
 objects. A bound controller or gate closed outside the owner also makes the
 configuration binding fail permanently. Raw configuration values, runtime paths
@@ -273,15 +325,22 @@ identifiers, and raw exception text.
 | --- | --- |
 | `resolved_policy_bound` | True only while this configured owner is running with its exact controller/core configuration and viable gate. |
 | `current_process_bound` | True only while that live binding also retains its internally captured current-process observation. It is not a fresh disk-integrity result from the snapshot call. |
+| `child_inputs_bound` | True only while this running owner, controller and core retain the exact captured child context and a viable gate. It does not verify child runtime or provider configuration. |
 | `configuration_digest` | Historical digest of the selected projection and launch, or `null` when none was captured. |
 | `runtime_observation` | Historical bounded summary of selected runtime observations, including its digest and module count, or `null` when none was captured. |
+| `child_observation` | Bounded `owned-local-child-inputs` summary with retention booleans and selected executable count, or `null` when none was captured. It contains no raw environment, environment digest, paths or credential indicators. |
 
-Closing the owner makes both live binding flags false. Successfully captured
+The child summary leaves `child_runtime_verified`,
+`provider_configuration_verified`, `remote_runtime_verified`,
+`desktop_daemon_verified` and `activation_authorized` false. Its counts report
+selected observations; they do not enumerate a transitive process tree.
+
+Closing the owner makes all three live binding flags false. Successfully captured
 digests and observation metadata remain available afterward as historical
-evidence. Unconfigured owners leave these new binding flags false and the two
-observation fields `null`.
+evidence. Unconfigured owners leave these binding flags false, the configuration
+digest `null` and both observation fields `null`.
 
-The following broader flags remain false even when both live binding flags are
+The following broader flags remain false even when all three live binding flags are
 true: `effective_configuration_verified`, `recovered_state_verified`,
 `external_producers_quiesced`, `global_idle_verified`,
 `runtime_identity_verified`, `activation_authorized`, `ready_for_activation`
@@ -296,7 +355,7 @@ Static deployment records, native loaded-job samples, startup claims, and this
 owner's live local reservation remain separate evidence. Existing
 [launch-review blockers](LAUNCH_REVIEW.md) are not removed by this integration.
 The reviewed `bridge_mcp.py` source pin covers its explicit subscription option
-and configuration-reference retention; it does not add this owner to an approved
+and configuration/child-context reference retention; it does not add this owner to an approved
 service launcher.
 
 ## Verification
@@ -304,16 +363,25 @@ service launcher.
 Focused tests cover owner identity and lifecycle, immutable selected-policy
 consumption, foreign and stale bindings, runtime drift, real request/response
 gaps, protocol rejection, task/lease races, transport uncertainty, and cleanup.
+Child integration tests exercise the real controller helper routes, independent
+owners, retained settings in preview and direct finish, foreign client cleanup,
+sticky child failures, and ordinary controller compatibility. Direct backend
+tests cover local Git, validation, approved Python, history and local SSH inputs.
 The real-wire fixture in `tests/test_managed_http_integration.py` uses isolated
 synthetic configuration, both Bridge modes, and ordinary shared-core catalogs
 as its comparison source. It does not contact a coding backend or GitLab.
 
-The installation harness executes the same 12-case fixture from the clean wheel
+The installation harness executes the same 14-case fixture from the clean wheel
 and the source environment, checking module origins in each route. The fixture
-includes configured-owner cases in both modes. Its strict report requires
-`selected_policy_binding_exercised` and `runtime_observation_exercised`, together
-with the existing real-MCP and maintenance-admission evidence; skipped or
-incomplete acceptance is not success. `working_service_touched` and
+includes configured-owner cases and real `reasonfirst_files`/`reasonfirst_read`
+HTTP calls in both modes. These calls continue to use the selected workspace
+after `.env`, environment and parent working-directory changes, with a shadow
+package in the captured child directory to exercise isolated module discovery.
+Four additional report-validator cases enforce the report contract. Its strict
+report requires `selected_policy_binding_exercised`,
+`runtime_observation_exercised` and `child_launch_binding_exercised` to be exactly
+true, together with the existing real-MCP and maintenance-admission evidence;
+skipped or incomplete acceptance is not success. `working_service_touched` and
 `activation_tested` remain false. These checks exercise a newly owned HTTP
 runtime; they do not establish a working user's service adoption, authentication,
 reboot recovery, or rollback.

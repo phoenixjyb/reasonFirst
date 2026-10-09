@@ -46,6 +46,7 @@ from .remote_workspace import RemoteWorkspaceManager
 if TYPE_CHECKING:
     from gitlab_agent.upgrade.startup_state import ManagedStartupState
     from gitlab_agent.upgrade.service_configuration import ManagedServiceConfiguration
+    from gitlab_agent.upgrade.service_children import ServiceChildContext
 
 
 class BridgeError(RuntimeError):
@@ -143,11 +144,14 @@ def _admitted_operation(*, kind: str = "operation", uncertain_on_error: bool = F
             try:
                 return fn(self, *args, **kwargs)
             except BaseException as exc:
+                from gitlab_agent.upgrade.service_children import ServiceChildBindingError
                 uncertain = (
                     uncertain_on_error
                     or isinstance(exc, BridgeOperationUncertain)
                     or not isinstance(exc, (BridgeError, AdmissionError))
                 )
+                if isinstance(exc, ServiceChildBindingError):
+                    self._fail_child_binding()
                 raise
             finally:
                 admission.finish_operation(reservation, uncertain=uncertain)
@@ -162,7 +166,9 @@ class BridgeController:
         managed_startup: ManagedStartupState | None = None,
         admission: ControllerAdmission | None = None,
         service_configuration: ManagedServiceConfiguration | None = None,
+        child_context: ServiceChildContext | None = None,
     ) -> None:
+        from gitlab_agent.upgrade.service_children import ServiceChildContext, capture_service_children
         if service_configuration is not None:
             from gitlab_agent.upgrade.service_configuration import ManagedServiceConfiguration
             if type(service_configuration) is not ManagedServiceConfiguration:
@@ -171,6 +177,12 @@ class BridgeController:
                 raise BridgeError("service_configuration_conflict")
             if admission is None:
                 raise BridgeError("service_configuration_requires_admission")
+        elif child_context is not None:
+            raise BridgeError("child_binding_failed")
+        if child_context is not None and (
+                type(child_context) is not ServiceChildContext
+                or child_context.configuration is not service_configuration):
+            raise BridgeError("child_binding_failed")
         if admission is not None:
             if type(admission) is not ControllerAdmission:
                 raise BridgeError("invalid_controller_admission")
@@ -187,7 +199,12 @@ class BridgeController:
                 raise BridgeError("invalid_managed_startup_state")
         self._managed_startup = managed_startup
         self._service_configuration = service_configuration
+        self._child_context = child_context
         try:
+            if service_configuration is not None:
+                if self._child_context is None:
+                    self._child_context = capture_service_children(service_configuration)
+                self._ensure_child_binding()
             selected = self._selected_policy()
             self.state_dir = _private_state_dir(selected.state_dir) if selected is not None else _private_state_dir()
             self.state_file = self.state_dir / "state.json"
@@ -204,6 +221,7 @@ class BridgeController:
             self._state = self._load_state()
             self.bridge_config = selected.bridge_configuration() if selected is not None else load_bridge_config()
             self._apps: dict[str, AppServerClient] = {}
+            self._owned_child_apps: list[AppServerClient] = []
             self._app_current_thread: dict[str, str] = {}
             self._approval_waiters: dict[str, threading.Event] = {}
             self._approval_results: dict[str, dict[str, Any]] = {}
@@ -221,6 +239,82 @@ class BridgeController:
     def service_configuration(self) -> ManagedServiceConfiguration | None:
         return self._service_configuration
 
+    @property
+    def child_context(self) -> ServiceChildContext | None:
+        return self._child_context
+
+    def _fail_child_binding(self) -> None:
+        if self._admission is not None:
+            self._admission.mark_unknown("transport_lost")
+            self._admission.close()
+        raise BridgeError("child_binding_failed") from None
+
+    def _ensure_child_binding(self) -> None:
+        if self._service_configuration is None:
+            return
+        from gitlab_agent.upgrade.service_children import ServiceChildBindingError, ServiceChildContext
+        try:
+            if (type(self._child_context) is not ServiceChildContext
+                    or self._child_context.configuration is not self._service_configuration):
+                raise ServiceChildBindingError("invalid_child_context")
+            self._child_context.revalidate()
+        except BaseException:
+            self._fail_child_binding()
+
+    def _module_command(self, module: str, *args: str) -> list[str]:
+        if self._service_configuration is None:
+            return _module_command(module, *args)
+        self.assert_tool_admitted()
+        return [self._child_context.python_invocation, "-m", module, *args]
+
+    def _run_json(self, argv: list[str], *, timeout: int = 360,
+                  allow_failure_json: bool = False) -> dict[str, Any]:
+        if self._service_configuration is None:
+            options = {"allow_failure_json": True} if allow_failure_json else {}
+            return _run_json(argv, timeout=timeout, **options)
+        from gitlab_agent.upgrade.service_child import (
+            ServiceChildError, encode_child_request, decode_child_response,
+        )
+        from gitlab_agent.upgrade.service_children import ServiceChildBindingError
+        self._ensure_child_binding()
+        context = self._child_context
+        if (type(argv) is not list or len(argv) < 3
+                or argv[:2] != [context.python_invocation, "-m"]):
+            raise BridgeError("invalid_child_request")
+        try:
+            request = encode_child_request(self._service_configuration.settings, argv[2], argv[3:])
+            proc = subprocess.run(
+                [context.python_invocation, "-I", "-B", "-m", "gitlab_agent.upgrade.service_child"],
+                input=request, capture_output=True, timeout=timeout, check=False,
+                cwd=context.working_directory, env=context.environment_copy(),
+            )
+            data = decode_child_response(proc.stdout, proc.returncode)
+        except ServiceChildBindingError:
+            self._fail_child_binding()
+        except subprocess.TimeoutExpired:
+            raise BridgeOperationUncertain("child_timeout") from None
+        except OSError:
+            raise BridgeError("child_launch_failed") from None
+        except ServiceChildError as exc:
+            if exc.code == "child_context_failed":
+                self._fail_child_binding()
+            raise BridgeError(exc.code) from None
+        if proc.returncode != 0 and not allow_failure_json:
+            raise BridgeError("child_command_failed")
+        return data
+
+    def _resolve_codex_binary(self) -> str:
+        if self._service_configuration is None:
+            return resolve_codex_binary()
+        self._ensure_child_binding()
+        return self._child_context.resolve_codex_binary()
+
+    def _managed_app_server_socket(self) -> Path:
+        if self._service_configuration is None:
+            return managed_app_server_socket()
+        self._ensure_child_binding()
+        return self._child_context.managed_app_server_socket()
+
     def _selected_policy(self):
         # These contexts share selected-policy accessors, not admission rights.
         # The disposable context continues to reject every tool below.
@@ -235,6 +329,18 @@ class BridgeController:
         # startup observer may enumerate the exact catalog but execute no tool.
         if self._managed_startup is not None:
             raise BridgeError("startup_observation_only")
+        if self._service_configuration is not None or self._child_context is not None:
+            from gitlab_agent.upgrade.service_children import ServiceChildContext
+            try:
+                if (type(self._child_context) is not ServiceChildContext
+                        or self._service_configuration is None
+                        or self._child_context.configuration is not self._service_configuration):
+                    self._fail_child_binding()
+                # Cached authority/validity only; file checks happen at covered
+                # launch, cached backend reuse and owner maintenance boundaries.
+                self._child_context.summary()
+            except BaseException:
+                self._fail_child_binding()
 
     def _require_admission(self) -> ControllerAdmission:
         if self._admission is None:
@@ -478,6 +584,7 @@ class BridgeController:
                 max_command_timeout_seconds=settings.command_timeout_seconds,
                 max_output_bytes=settings.max_output_bytes,
                 max_file_bytes=settings.max_file_bytes,
+                **({"child_context": self._child_context} if self._child_context is not None else {}),
             )
         except Exception:
             if self._selected_policy() is not None:
@@ -766,12 +873,23 @@ class BridgeController:
     def _get_app_locked(
         self, target: ExecutionTarget, *, cwd: str | None = None,
     ) -> tuple[str, AppServerClient]:
+        self._ensure_child_binding()
+        if self._child_context is not None:
+            worker_directory = Path(cwd) if cwd is not None else self._child_context.working_directory
+            if not worker_directory.is_absolute():
+                raise BridgeError("child_binding_failed")
+            cwd = str(worker_directory)
         key = self._app_key(target)
-        if target.codex_backend in {"global-config-local", "desktop-proxy"}:
-            resolved_cwd = str(Path(cwd).expanduser().resolve()) if cwd else ""
+        if (target.codex_backend in {"global-config-local", "desktop-proxy"}
+                or (self._child_context is not None and target.codex_backend == "desktop-preferred")):
+            resolved_cwd = (cwd if self._child_context is not None else
+                            str(Path(cwd).expanduser().resolve()) if cwd else "")
             key = f"{key}|cwd={resolved_cwd}"
         existing = self._apps.get(key)
         if existing is not None:
+            if (self._child_context is not None
+                    and getattr(existing, "child_context", None) is not self._child_context):
+                self._fail_child_binding()
             return key, existing
         generation = uuid.uuid4().hex if self._admission is not None else None
         if generation is not None:
@@ -786,13 +904,15 @@ class BridgeController:
             app_key, msg, admission_app_key=source,
         )
         activity_hooks = {}
+        if self._child_context is not None:
+            activity_hooks["child_context"] = self._child_context
         if self._admission is not None:
-            activity_hooks = {
+            activity_hooks.update({
                 "server_request_tracker": lambda msg: self._track_server_request(
                     msg, app_key=key, generation=generation,
                 ),
                 "transport_lost_handler": lambda: self._admission.mark_unknown("transport_lost"),
-            }
+            })
         if target.type == "ssh" and target.codex_backend == "remote-ssh":
             app = AppServerClient.remote_ssh(
                 target.host,
@@ -833,6 +953,7 @@ class BridgeController:
                 server_request_handler=request_handler,
                 approval_request_handler=approval_handler,
                 **activity_hooks,
+                **({"cwd": cwd} if self._child_context is not None else {}),
                 backend_name="standalone-local",
             )
         else:
@@ -844,6 +965,12 @@ class BridgeController:
                 approval_request_handler=approval_handler,
                 **activity_hooks,
             )
+        if (self._child_context is not None
+                and getattr(app, "child_context", None) is not self._child_context):
+            # A mismatched return is not authority to close a foreign client.
+            self._fail_child_binding()
+        if self._child_context is not None:
+            self._owned_child_apps.append(app)
         self._apps[key] = app
         return key, app
 
@@ -1091,7 +1218,7 @@ class BridgeController:
     def _allowed_workspace_root(self) -> Path:
         if self._service_configuration is not None:
             return self._service_configuration.settings.workspace_root
-        data = _run_json(_module_command("gitlab_agent.actual_coder_cli", "config"), timeout=60)
+        data = self._run_json(self._module_command("gitlab_agent.actual_coder_cli", "config"), timeout=60)
         root = data.get("workspace_root")
         if not isinstance(root, str) or not root:
             raise BridgeError("actual-coder config returned no workspace_root")
@@ -1109,7 +1236,7 @@ class BridgeController:
         if self._service_configuration is not None:
             from gitlab_agent.cli import _safe_config
             return _safe_config(self._service_configuration.settings)
-        return _run_json(_module_command("gitlab_agent.actual_coder_cli", "config"), timeout=60)
+        return self._run_json(self._module_command("gitlab_agent.actual_coder_cli", "config"), timeout=60)
 
     def _git_only_mode(self) -> bool:
         if self._service_configuration is not None:
@@ -1132,20 +1259,20 @@ class BridgeController:
             "config_file": str(self._service_configuration.bridge_config_path
                                if self._service_configuration is not None else config_path()),
             "codex_bin": None,
-            "desktop_managed_socket": str(managed_app_server_socket()),
-            "desktop_managed_socket_exists": managed_app_server_socket().exists(),
+            "desktop_managed_socket": str(self._managed_app_server_socket()),
+            "desktop_managed_socket_exists": self._managed_app_server_socket().exists(),
             "reasonfirst": {},
             "targets": {},
         }
-        try: result["codex_bin"] = resolve_codex_binary()
+        try: result["codex_bin"] = self._resolve_codex_binary()
         except Exception as exc: result["ok"] = False; result["codex_error"] = str(exc)
         try:
             cfg = self._reasonfirst_config()
             result["gitlab_auth_mode"] = "git-only" if not bool(cfg.get("api_token_set")) else "api+git"
             result["git_credential_configured"] = bool(cfg.get("git_token_set"))
-            argv = _module_command("gitlab_agent.actual_coder_cli", "doctor", "--offline")
+            argv = self._module_command("gitlab_agent.actual_coder_cli", "doctor", "--offline")
             if self._git_only_mode(): argv.append("--git-only")
-            rf = _run_json(argv, timeout=60, allow_failure_json=True)
+            rf = self._run_json(argv, timeout=60, allow_failure_json=True)
             result["reasonfirst"] = rf
             if not bool(rf.get("ok")): result["ok"] = False
         except Exception as exc:
@@ -1175,19 +1302,19 @@ class BridgeController:
             )
             if target.codex_backend != "remote-ssh":
                 try:
-                    result["local_codex_bin"] = resolve_codex_binary()
+                    result["local_codex_bin"] = self._resolve_codex_binary()
                 except Exception as exc:
                     result["local_codex_error"] = str(exc)
                     result["ok"] = False
-                result["managed_socket"] = str(managed_app_server_socket())
-                result["managed_socket_exists"] = managed_app_server_socket().exists()
+                result["managed_socket"] = str(self._managed_app_server_socket())
+                result["managed_socket_exists"] = self._managed_app_server_socket().exists()
             return result
         return {
             "ok": True,
             "target": target.to_dict(),
-            "codex_bin": resolve_codex_binary(),
-            "managed_socket": str(managed_app_server_socket()),
-            "managed_socket_exists": managed_app_server_socket().exists(),
+            "codex_bin": self._resolve_codex_binary(),
+            "managed_socket": str(self._managed_app_server_socket()),
+            "managed_socket_exists": self._managed_app_server_socket().exists(),
             "desktop_preferred": target.codex_backend in {"desktop-preferred", "desktop-required"},
         }
 
@@ -1257,7 +1384,7 @@ class BridgeController:
         project: str,
         ref: str,
     ) -> dict[str, Any]:
-        argv = _module_command(
+        argv = self._module_command(
             "gitlab_agent.actual_coder_cli",
             "project-config",
             project,
@@ -1265,7 +1392,7 @@ class BridgeController:
             ref,
             "--validate",
         )
-        result = _run_json(argv, timeout=180)
+        result = self._run_json(argv, timeout=180)
         effective = result.get("effective")
         if not isinstance(effective, dict):
             raise BridgeError(
@@ -1276,13 +1403,13 @@ class BridgeController:
     @_admitted_operation()
     def project_preflight(self, project: str, *, ref: str = "") -> dict[str, Any]:
         if self._git_only_mode():
-            argv = _module_command("gitlab_agent.actual_coder_cli", "project-config", project, "--validate")
+            argv = self._module_command("gitlab_agent.actual_coder_cli", "project-config", project, "--validate")
             if ref: argv += ["--ref", ref]
-            report = _run_json(argv, timeout=180)
+            report = self._run_json(argv, timeout=180)
             return {"ok": True, "mode": "git-only", "project": project, "project_config": report}
-        argv = _module_command("gitlab_agent.project_access", project)
+        argv = self._module_command("gitlab_agent.project_access", project)
         if ref: argv += ["--ref", ref]
-        report = _run_json(argv, timeout=60, allow_failure_json=True)
+        report = self._run_json(argv, timeout=60, allow_failure_json=True)
         if not bool(report.get("ok")): raise BridgeError(f"Project access preflight failed: {report}")
         return report
 
@@ -1339,7 +1466,7 @@ class BridgeController:
             }
 
         preflight = self.project_preflight(project, ref=base_ref)
-        argv = _module_command(
+        argv = self._module_command(
             "gitlab_agent.actual_coder_cli",
             "start",
             project,
@@ -1361,7 +1488,7 @@ class BridgeController:
                 argv += ["--non-goal", value]
         if self._git_only_mode(): argv.append("--git-only")
         if base_ref: argv += ["--base-ref", base_ref]
-        prepared = _run_json(argv, timeout=180)
+        prepared = self._run_json(argv, timeout=180)
         workspace = prepared.get("workspace")
         if not isinstance(workspace, dict): raise BridgeError("actual-coder start returned no workspace")
         wid = str(workspace.get("workspace_id") or ""); worktree = self._assert_worktree_allowed(str(prepared.get("worktree_path") or ""))
@@ -1379,16 +1506,16 @@ class BridgeController:
         wid = self._workspace_id(workspace_id=workspace_id, thread_id=thread_id); rec = self._workspace_record(wid)
         if rec.get("kind") == "ssh":
             target = self._target_from_dict(rec["target"]); return {"ok": True, "workspace": self._remote_manager(target).status(rec)}
-        return {"ok": True, "workspace": _run_json(_module_command("gitlab_agent.actual_coder_cli", "status", wid), timeout=60)}
+        return {"ok": True, "workspace": self._run_json(self._module_command("gitlab_agent.actual_coder_cli", "status", wid), timeout=60)}
 
     @_admitted_operation()
     def files(self, *, workspace_id: str = "", thread_id: str = "", path: str = ".", recursive: bool = False, max_entries: int = 300) -> dict[str, Any]:
         wid = self._workspace_id(workspace_id=workspace_id, thread_id=thread_id); rec = self._workspace_record(wid)
         if rec.get("kind") == "ssh":
             target = self._target_from_dict(rec["target"]); data = self._remote_manager(target).list_files(rec, path, recursive=recursive, max_entries=max_entries); return {"ok": True, "workspace_id": wid, **data}
-        argv = _module_command("gitlab_agent.actual_coder_cli", "files", wid, path, "--max-entries", str(max(1,min(int(max_entries),500))))
+        argv = self._module_command("gitlab_agent.actual_coder_cli", "files", wid, path, "--max-entries", str(max(1,min(int(max_entries),500))))
         if recursive: argv.append("--recursive")
-        return {"ok": True, **_run_json(argv, timeout=60)}
+        return {"ok": True, **self._run_json(argv, timeout=60)}
 
     @_admitted_operation()
     def read(self, *, workspace_id: str = "", thread_id: str = "", path: str, start_line: int = 1, end_line: int = 0, max_chars: int = 32000) -> dict[str, Any]:
@@ -1396,7 +1523,7 @@ class BridgeController:
         if rec.get("kind") == "ssh":
             target = self._target_from_dict(rec["target"]); result = self._remote_manager(target).read_file(rec, path)
         else:
-            result = _run_json(_module_command("gitlab_agent.actual_coder_cli", "read", wid, path), timeout=60)
+            result = self._run_json(self._module_command("gitlab_agent.actual_coder_cli", "read", wid, path), timeout=60)
         content = str(result.get("content") or ""); lines = content.splitlines(); start=max(1,int(start_line)); end=int(end_line) if int(end_line)>0 else len(lines); end=max(start,min(end,len(lines))) if lines else 0
         numbered="\n".join(f"{idx}: {line}" for idx,line in enumerate(lines[start-1:end] if lines else [], start=start)); cap=max(1000,min(int(max_chars),40000)); clipped=redact(numbered,cap)
         return {"ok": True, "workspace_id": wid, "path": path, "total_lines": len(lines), "start_line": start if lines else 0, "end_line": end, "truncated": bool(result.get("truncated")) or len(numbered)>len(clipped), "content": clipped}
@@ -1406,7 +1533,7 @@ class BridgeController:
         wid=self._workspace_id(workspace_id=workspace_id, thread_id=thread_id); rec=self._workspace_record(wid)
         if rec.get("kind") == "ssh":
             target=self._target_from_dict(rec["target"]); result=self._remote_manager(target).diff(rec)
-        else: result=_run_json(_module_command("gitlab_agent.actual_coder_cli","diff",wid),timeout=120)
+        else: result=self._run_json(self._module_command("gitlab_agent.actual_coder_cli","diff",wid),timeout=120)
         text=redact(str(result.get("diff") or ""),36000)
         return {"ok": True, "workspace_id": wid, "base_sha": result.get("base_sha") or rec.get("base_sha"), "truncated": bool(result.get("truncated")) or len(str(result.get("diff") or ""))>len(text), "diff": text, "untracked": result.get("untracked", [])}
 
@@ -1495,11 +1622,11 @@ class BridgeController:
                 prompt = self._remote_prompt(rec, goal)
                 codex_cwd = remote_worktree
         else:
-            workspace = _run_json(_module_command("gitlab_agent.actual_coder_cli", "status", wid), timeout=60)
+            workspace = self._run_json(self._module_command("gitlab_agent.actual_coder_cli", "status", wid), timeout=60)
             remote_worktree = self._assert_worktree_allowed(str(workspace.get("worktree_path") or ""))
             codex_cwd = remote_worktree
-            handoff = _run_json(
-                _module_command("gitlab_agent.actual_coder_cli", "resume", wid, "--agent", "codex", "--goal", goal),
+            handoff = self._run_json(
+                self._module_command("gitlab_agent.actual_coder_cli", "resume", wid, "--agent", "codex", "--goal", goal),
                 timeout=120,
             )
             prompt = str(handoff.get("agent_prompt") or "").strip()
@@ -1619,8 +1746,8 @@ class BridgeController:
             else:
                 prompt = self._remote_prompt(rec, goal)
         else:
-            handoff = _run_json(
-                _module_command("gitlab_agent.actual_coder_cli", "resume", str(session["workspace_id"]), "--agent", "codex", "--goal", goal),
+            handoff = self._run_json(
+                self._module_command("gitlab_agent.actual_coder_cli", "resume", str(session["workspace_id"]), "--agent", "codex", "--goal", goal),
                 timeout=120,
             )
             prompt = str(handoff.get("agent_prompt") or "")
@@ -1996,7 +2123,7 @@ class BridgeController:
     def artifacts(self, *, workspace_id: str = "", thread_id: str = "", path: str = ".", changed_only: bool = True, max_entries: int = 80, max_text_chars: int = 20000, max_visual_previews: int = 2) -> dict[str, Any]:
         wid=self._workspace_id(workspace_id=workspace_id,thread_id=thread_id); rec=self._workspace_record(wid); since=int(rec.get("created_at") or 0)
         if rec.get("kind") != "ssh":
-            status=_run_json(_module_command("gitlab_agent.actual_coder_cli","status",wid),timeout=60); worktree=Path(self._assert_worktree_allowed(str(status.get("worktree_path") or ""))); result=scan_artifacts(worktree,relative_path=path,since_epoch=since,changed_only=changed_only,max_entries=max_entries,max_text_chars=max_text_chars,max_visual_previews=max_visual_previews)
+            status=self._run_json(self._module_command("gitlab_agent.actual_coder_cli","status",wid),timeout=60); worktree=Path(self._assert_worktree_allowed(str(status.get("worktree_path") or ""))); result=scan_artifacts(worktree,relative_path=path,since_epoch=since,changed_only=changed_only,max_entries=max_entries,max_text_chars=max_text_chars,max_visual_previews=max_visual_previews)
             for item in result.get("items",[]):
                 if isinstance(item,dict) and isinstance(item.get("content"),str): item["content"]=redact(str(item["content"]),40000)
             return {"ok":True,"workspace_id":wid,**result}
@@ -2020,7 +2147,7 @@ class BridgeController:
         wid=self._workspace_id(workspace_id=workspace_id,thread_id=thread_id); rec=self._workspace_record(wid)
         if rec.get("kind") == "ssh":
             target=self._target_from_dict(rec["target"]); data=self._remote_manager(target).read_bytes_b64(rec,path,max_bytes=max_bytes); return {"workspace_id":wid,"remote":True,"path":path,"size":data["size"],"base64":data["base64"],"target":target.to_dict()}
-        status=_run_json(_module_command("gitlab_agent.actual_coder_cli","status",wid),timeout=60); worktree=Path(self._assert_worktree_allowed(str(status.get("worktree_path") or ""))); return {"workspace_id":wid,**artifact_file(worktree,path,max_bytes=max_bytes)}
+        status=self._run_json(self._module_command("gitlab_agent.actual_coder_cli","status",wid),timeout=60); worktree=Path(self._assert_worktree_allowed(str(status.get("worktree_path") or ""))); return {"workspace_id":wid,**artifact_file(worktree,path,max_bytes=max_bytes)}
 
     @_admitted_operation()
     def review_bundle(self, *, thread_id: str, artifact_path: str = ".") -> dict[str, Any]:
@@ -2038,8 +2165,8 @@ class BridgeController:
         rec=self._workspace_record(str(self._session(thread_id)["workspace_id"]))
         if rec.get("kind")=="ssh" or self._git_only_mode():
             raise BridgeError("CI inspection requires GitLab API authentication and a local ActualCoder workspace")
-        return _run_json(
-            _module_command("gitlab_agent.actual_coder_cli","ci",str(rec["workspace_id"])),
+        return self._run_json(
+            self._module_command("gitlab_agent.actual_coder_cli","ci",str(rec["workspace_id"])),
             timeout=120,
             allow_failure_json=True,
         )
@@ -2049,12 +2176,12 @@ class BridgeController:
         rec=self._workspace_record(str(self._session(thread_id)["workspace_id"]))
         if rec.get("kind")=="ssh":
             raise BridgeError("EvidencePack inspection is currently supported only for local ActualCoder workspaces")
-        argv=_module_command("gitlab_agent.actual_coder_cli","evidence",str(rec["workspace_id"]))
+        argv=self._module_command("gitlab_agent.actual_coder_cli","evidence",str(rec["workspace_id"]))
         if from_ci:
             if self._git_only_mode():
                 raise BridgeError("CI-backed EvidencePack requires GitLab API authentication")
             argv.append("--from-ci")
-        return _run_json(argv,timeout=180,allow_failure_json=True)
+        return self._run_json(argv,timeout=180,allow_failure_json=True)
 
     @_admitted_operation()
     def finish_preview(
@@ -2074,7 +2201,7 @@ class BridgeController:
                 allow_protected=allow_protected,
                 allow_secret_match=allow_secret_match,
             )
-        argv = _module_command(
+        argv = self._module_command(
             "gitlab_agent.actual_coder_cli",
             "finish",
             str(session["workspace_id"]),
@@ -2086,7 +2213,7 @@ class BridgeController:
             argv.append("--allow-protected")
         if allow_secret_match:
             argv.append("--allow-secret-match")
-        result = _run_json(
+        result = self._run_json(
             argv,
             timeout=600,
             allow_failure_json=True,
@@ -2166,7 +2293,8 @@ class BridgeController:
             )
 
         settings=self._settings_for_operation()
-        manager=WorkspaceManager(settings)
+        manager=WorkspaceManager(settings, **({"child_context": self._child_context}
+                                             if self._child_context is not None else {}))
         runner=CommandRunner(settings,manager)
         plan=build_finish_plan(
             settings=settings,
@@ -2324,7 +2452,10 @@ class BridgeController:
             self._admission.close()
             self._controller_closed = True
         with self._app_lock if self._admission is not None else nullcontext():
-            for app in list(self._apps.values()):
+            owned = (list(self._owned_child_apps) if self._service_configuration is not None
+                     else list(self._apps.values()))
+            for app in owned:
                 try: app.close()
                 except Exception: pass
             self._apps.clear()
+            self._owned_child_apps.clear()
