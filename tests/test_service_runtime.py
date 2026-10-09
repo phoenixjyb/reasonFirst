@@ -264,19 +264,55 @@ class ServiceRuntimeTests(unittest.TestCase):
             self.assert_code("runtime_file_changed", lambda: r._observe_file(self.config, 100))
 
     def test_path_replacement_after_read_is_rejected(self):
+        replacement = self.root / "replacement.py"
+        replacement.write_bytes(self.config.read_bytes())
+        original_open, original_close = os.open, os.close
+        opened = []
+
+        def named_open(path, flags):
+            fd = original_open(replacement if opened else path, flags)
+            opened.append(fd)
+            return fd
+
+        with patch.object(r.os, "open", side_effect=named_open), \
+                patch.object(r.os, "close", wraps=original_close) as close:
+            self.assert_code("runtime_file_changed", lambda: r._observe_file(self.config, 100))
+        self.assertEqual(len(opened), 2)
+        self.assertCountEqual([call.args[0] for call in close.call_args_list], opened)
+
+    def test_named_stat_mode_and_ctime_differences_do_not_cause_false_drift(self):
         original_stat = os.stat
+        named = original_stat(self.config)
+        changed = SimpleNamespace(**{key: getattr(named, key) for key in (
+            "st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")})
+        changed.st_mode |= 0o111
+        changed.st_ctime_ns += 1
 
         def named_stat(path, *args, **kwargs):
-            result = original_stat(path, *args, **kwargs)
             if Path(path) == self.config and kwargs.get("follow_symlinks") is False:
-                changed = SimpleNamespace(**{key: getattr(result, key) for key in (
-                    "st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")})
-                changed.st_ino += 1
                 return changed
-            return result
+            return original_stat(path, *args, **kwargs)
 
         with patch.object(r.os, "stat", side_effect=named_stat):
-            self.assert_code("runtime_file_changed", lambda: r._observe_file(self.config, 100))
+            observed = r._observe_file(self.config, 100)
+        self.assertNotEqual(observed.identity, r._identity(changed))
+        self.assertEqual(observed, r._observe_file(self.config, 100))
+
+    def test_second_open_failure_closes_the_original_descriptor(self):
+        original_open, original_close = os.open, os.close
+        opened = []
+
+        def named_open(path, flags):
+            if opened:
+                raise OSError("synthetic-secret")
+            fd = original_open(path, flags)
+            opened.append(fd)
+            return fd
+
+        with patch.object(r.os, "open", side_effect=named_open), \
+                patch.object(r.os, "close", wraps=original_close) as close:
+            self.assert_code("runtime_file_unavailable", lambda: r._observe_file(self.config, 100))
+        close.assert_called_once_with(opened[0])
 
     def test_sdk_versions_must_match_the_reviewed_listener_versions(self):
         with patch.object(r.importlib.metadata, "version", side_effect=("2.3.0", "0.54.0")):

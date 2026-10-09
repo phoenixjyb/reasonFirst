@@ -91,7 +91,7 @@ class _FileObservation:
 
 def _observe_file(path, limit):
     """Read one stable regular file with a byte limit and retained descriptor."""
-    fd = None
+    fd = named_fd = None
     try:
         resolved = path.resolve(strict=True)
         flags = os.O_RDONLY
@@ -114,9 +114,18 @@ def _observe_file(path, limit):
                 _fail("runtime_file_limit")
             digest.update(chunk)
         after = os.fstat(fd)
-        named = os.stat(resolved, follow_symlinks=False)
-        if (_identity(before) != _identity(after) or _identity(after) != _identity(named)
-                or size != before.st_size or path.resolve(strict=True) != resolved):
+        if _identity(before) != _identity(after) or size != before.st_size:
+            _fail("runtime_file_changed")
+        # Compare handle metadata consistently. CPython 3.12 Windows path stat
+        # adds execute bits for .exe names and substitutes creation time for
+        # ctime; fstat reports neither adjustment. Retain both handles so the
+        # name must still designate the exact file read, without dropping any
+        # identity field to accommodate those API differences.
+        named_fd = os.open(resolved, flags)
+        os.set_inheritable(named_fd, False)
+        named = os.fstat(named_fd)
+        if (_identity(after) != _identity(named)
+                or path.resolve(strict=True) != resolved):
             _fail("runtime_file_changed")
         return _FileObservation(resolved, _identity(after), digest.hexdigest())
     except ServiceRuntimeError:
@@ -124,8 +133,12 @@ def _observe_file(path, limit):
     except Exception:
         _fail("runtime_file_unavailable")
     finally:
-        if fd is not None:
-            os.close(fd)
+        try:
+            if named_fd is not None:
+                os.close(named_fd)
+        finally:
+            if fd is not None:
+                os.close(fd)
 
 
 @dataclass(frozen=True, repr=False, slots=True)
