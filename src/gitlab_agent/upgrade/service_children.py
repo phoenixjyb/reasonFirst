@@ -31,6 +31,7 @@ _CODES = frozenset({
     "child_environment_limit", "child_executable_unavailable",
     "child_executable_changed", "child_selection_limit", "child_endpoint_unavailable",
     "child_probe_failed", "child_launch_failed", "child_binding_failed",
+    "child_trust_unavailable", "child_trust_failed",
 })
 
 
@@ -137,6 +138,10 @@ class ServiceChildContext:
     _lock: object
     _selections: dict
     _endpoint: Path | None
+    _api_trust: object | None
+    _api_trust_anchor: object | None
+    _api_trust_observation: dict | None
+    _allow_api_trust_selection: bool
     _failure: str | None
     _summary: dict
 
@@ -192,10 +197,142 @@ class ServiceChildContext:
         self._check_pid()
         with self._lock:
             self._check_valid_locked()
+            self._check_api_trust_locked()
             return dict(self._summary)
+
+    def _selected_settings_locked(self):
+        if type(self._configuration) is ManagedServiceConfiguration:
+            return self._configuration.settings
+        if type(self._configuration) is AgentSettings:
+            return self._configuration
+        self._invalidate_locked("invalid_child_context")
+
+    def _require_api_settings_locked(self, settings):
+        if settings is not self._selected_settings_locked():
+            self._invalidate_locked("child_trust_failed")
+
+    def _check_api_trust_locked(self):
+        from .service_trust import ServiceAPITrust
+
+        if self._api_trust is not self._api_trust_anchor:
+            self._invalidate_locked("child_trust_failed")
+        trust = self._api_trust
+        if trust is None:
+            return None
+        try:
+            if (type(trust) is not ServiceAPITrust
+                    or trust.settings is not self._selected_settings_locked()):
+                self._invalidate_locked("child_trust_failed")
+            # This is cached authority evidence, not a file read.
+            trust.summary()
+        except Exception:
+            self._invalidate_locked("child_trust_failed")
+        return trust
+
+    @property
+    def api_trust(self):
+        self._check_pid()
+        with self._lock:
+            self._check_valid_locked()
+            return self._check_api_trust_locked()
+
+    def api_trust_summary(self):
+        """Historical selected-material evidence, including after invalidation."""
+        self._check_pid()
+        with self._lock:
+            return (dict(self._api_trust_observation)
+                    if self._api_trust_observation is not None else None)
+
+    def select_api_trust(self, settings):
+        """Select once in the owning parent; helpers only use transferred input."""
+        from .service_trust import ServiceAPITrust, capture_api_trust
+
+        self._check_pid()
+        with self._lock:
+            self._check_valid_locked()
+            self._require_api_settings_locked(settings)
+            self._revalidate_locked()
+            trust = self._check_api_trust_locked()
+            if trust is not None:
+                return trust
+            if not self._allow_api_trust_selection:
+                self._invalidate_locked("child_trust_failed")
+            try:
+                candidate = capture_api_trust(settings)
+            except Exception:
+                # Like an optional executable unavailable before selection,
+                # an unused/invalid CA must not poison unrelated local work.
+                _fail("child_trust_unavailable")
+            try:
+                if type(candidate) is not ServiceAPITrust or candidate.settings is not settings:
+                    self._invalidate_locked("child_trust_failed")
+                summary = candidate.summary()
+            except Exception:
+                self._invalidate_locked("child_trust_failed")
+            object.__setattr__(self, "_api_trust", candidate)
+            object.__setattr__(self, "_api_trust_anchor", candidate)
+            object.__setattr__(self, "_api_trust_observation", dict(summary))
+            return candidate
+
+    def _guard_api_request(self, settings, trust):
+        self._check_pid()
+        with self._lock:
+            self._check_valid_locked()
+            self._require_api_settings_locked(settings)
+            if self._check_api_trust_locked() is not trust:
+                self._invalidate_locked("child_trust_failed")
+            self._revalidate_locked()
+
+    def _fail_api_trust(self):
+        self._check_pid()
+        with self._lock:
+            self._invalidate_locked("child_trust_failed")
+
+    def api_client_options(self, settings, *, asynchronous=False):
+        """Construct fresh TLS options from this context's exact retained input."""
+        from ..tls import api_client_options
+        from .service_trust import ServiceAPITrustError
+
+        if type(asynchronous) is not bool:
+            self._fail_api_trust()
+        trust = self.select_api_trust(settings)
+        try:
+            options = api_client_options(
+                settings.gitlab_base_url, verify_ssl=settings.api_verify_ssl,
+                ca_bundle=settings.api_ca_bundle, asynchronous=asynchronous,
+                retained_trust=trust,
+            )
+        except ServiceAPITrustError:
+            self._fail_api_trust()
+        hooks = tuple(options["event_hooks"]["request"])
+
+        def guard(request):
+            self._guard_api_request(settings, trust)
+            try:
+                for hook in hooks:
+                    hook(request)
+            except ServiceAPITrustError:
+                self._fail_api_trust()
+
+        async def aguard(request):
+            self._guard_api_request(settings, trust)
+            try:
+                for hook in hooks:
+                    await hook(request)
+            except ServiceAPITrustError:
+                self._fail_api_trust()
+
+        options["event_hooks"]["request"] = [aguard if asynchronous else guard]
+        return options
 
     def _revalidate_locked(self):
         self._check_valid_locked()
+        trust = self._check_api_trust_locked()
+        if trust is not None:
+            try:
+                trust.revalidate()
+            except Exception:
+                self._invalidate_locked("child_trust_failed")
         try:
             if not self._cwd.is_dir():
                 self._invalidate_locked("child_binding_failed")
@@ -380,7 +517,7 @@ class ServiceChildContext:
             return self._endpoint
 
 
-def _capture(configuration):
+def _capture(configuration, *, api_trust=None):
     pid = os.getpid()
     try:
         environment = _environment_snapshot()
@@ -398,6 +535,9 @@ def _capture(configuration):
             "_cwd": cwd, "_home": home, "_python": _ExecutableSelection(invocation, observed),
             "_windows": _WINDOWS, "_platform": sys.platform, "_lock": threading.RLock(),
             "_selections": {}, "_endpoint": None, "_failure": None,
+            "_api_trust": api_trust, "_api_trust_anchor": api_trust,
+            "_api_trust_observation": None,
+            "_allow_api_trust_selection": type(configuration) is ManagedServiceConfiguration,
             "_summary": {
                 "schema_version": 1, "scope": "owned-local-child-inputs",
                 "environment_retained": True, "working_directory_retained": True,
@@ -409,6 +549,9 @@ def _capture(configuration):
         }
         for name, value in fields.items():
             object.__setattr__(context, name, value)
+        trust = context._check_api_trust_locked()
+        if trust is not None:
+            object.__setattr__(context, "_api_trust_observation", dict(trust.summary()))
         return context
     except ServiceChildBindingError:
         raise
@@ -423,8 +566,8 @@ def capture_service_children(configuration):
     return _capture(configuration)
 
 
-def capture_helper_children(settings):
+def capture_helper_children(settings, *, api_trust=None):
     """Retain an authenticated helper's inherited inputs after request decoding."""
     if type(settings) is not AgentSettings:
         _fail("invalid_child_context")
-    return _capture(settings)
+    return _capture(settings, api_trust=api_trust)

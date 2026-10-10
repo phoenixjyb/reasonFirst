@@ -294,7 +294,11 @@ async def check_project_access(
         report.update(ProjectAccessError("timeout", stage=stage).result())
     except httpx.HTTPError as exc:
         report.update(transport_failure(exc, stage).result())
-    except (OSError, ValueError, RuntimeError):
+    except (OSError, ValueError, RuntimeError) as exc:
+        from .upgrade.service_children import ServiceChildBindingError
+        from .upgrade.service_trust import ServiceAPITrustError
+        if isinstance(exc, (ServiceChildBindingError, ServiceAPITrustError)):
+            raise
         # Configuration and client construction failures may include secrets/paths.
         report.update(ProjectAccessError("configuration_error", stage=stage).result())
     return report
@@ -321,11 +325,20 @@ def main(
         settings = AgentSettings.load() if resolved_settings is None else resolved_settings
 
         def factory():
+            if child_context is not None:
+                from .upgrade.service_children import ServiceChildBindingError, ServiceChildContext
+                if type(child_context) is not ServiceChildContext:
+                    raise ServiceChildBindingError("invalid_child_context")
+            options = (
+                child_context.api_client_options(settings, asynchronous=True)
+                if child_context is not None
+                else api_client_options(settings.gitlab_base_url, verify_ssl=settings.api_verify_ssl,
+                                        ca_bundle=settings.api_ca_bundle, asynchronous=True)
+            )
             return httpx.AsyncClient(
                 headers={"PRIVATE-TOKEN": settings.api_token, "Accept": "application/json"},
                 timeout=10, trust_env=settings.api_trust_env,
-                **api_client_options(settings.gitlab_base_url, verify_ssl=settings.api_verify_ssl,
-                                     ca_bundle=settings.api_ca_bundle, asynchronous=True),
+                **options,
             )
 
         result = asyncio.run(check_project_access(
@@ -340,10 +353,10 @@ def main(
             if settings.allowed_projects else not settings.require_write_allowlist
         )
     except (OSError, ValueError, RuntimeError) as exc:
-        if child_context is not None:
-            from .upgrade.service_children import ServiceChildBindingError
-            if isinstance(exc, ServiceChildBindingError):
-                raise
+        from .upgrade.service_children import ServiceChildBindingError
+        from .upgrade.service_trust import ServiceAPITrustError
+        if isinstance(exc, (ServiceChildBindingError, ServiceAPITrustError)):
+            raise
         result = ProjectAccessError("configuration_error", stage="configuration").result()
     result["mcp_connection_checked"] = False
     print(json.dumps(result, indent=2, ensure_ascii=False))

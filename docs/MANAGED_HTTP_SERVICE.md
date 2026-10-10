@@ -6,7 +6,8 @@ to one HTTP server that it creates and owns. HTTP requests, controller work,
 and maintenance reservation use the same admission object. An optional immutable
 configuration binds selected parent policy to that exact owner and controller.
 Configured owners also retain the local inputs supplied to their covered child
-launches.
+launches. On the first covered GitLab API use, they additionally retain the
+selected API trust material and bind its later use to the same child context.
 
 The owner lives in `src/gitlab_agent/upgrade/service_managed.py`. It is a Python
 embedding API, not a new CLI command, MCP tool, public administration route, or
@@ -53,7 +54,7 @@ to the creating process.
 | `capture_service_configuration(settings, bridge_config, *, bridge_config_path, state_dir, ...)` | Detach already-resolved settings, target policy and explicit service options into an immutable selected-policy object. |
 | `ManagedBridgeService(launch, *, configuration=None)` | Select an explicit `HTTPLaunch` and optionally the exact selected-policy object; create a new service. |
 | `await service.start()` | Capture configured child inputs and runtime observations before the listener, construct the enrolled controller, and publish running only after readiness and binding checks succeed. |
-| `service.maintenance_snapshot()` | Return bounded service/ledger diagnostics and retained observation metadata; perform no runtime or executable file reread. |
+| `service.maintenance_snapshot()` | Return bounded service/ledger diagnostics and retained observation metadata; perform no runtime, executable or API trust-file reread. |
 | `service.try_enter_maintenance()` | Revalidate a configured binding, then atomically reserve the running owner's controller if all tracked activity is known complete. |
 | `service.leave_maintenance(lease)` | Revalidate a configured binding, then release the exact current in-process `MaintenanceLease`. |
 | `await service.aclose()` | Close admission first, then clean up owned server/controller resources. |
@@ -160,10 +161,12 @@ can therefore have the same public digest and different private settings; live
 binding requires object identity, not digest equality alone.
 
 The local child-launch binding described below supplies retained process inputs.
-Provider state, external configuration files, CA bundle contents, native Git and
-SSH configuration, remote runtime state and backend enforcement remain outside
-the selected-policy claim. Retaining a CA path or an environment-trust boolean
-does not freeze the referenced files.
+The separate API trust binding retains the CA material used by covered GitLab API
+clients after their first selection. Provider state, other external configuration
+files, native Git and SSH configuration, remote runtime state and backend
+enforcement remain outside the selected-policy claim. Retaining a CA path or an
+environment-trust boolean in the policy object alone does not freeze the
+referenced files.
 
 This object is separate from the disposable startup observation state. A
 disposable controller continues to refuse every tool call and cannot be combined
@@ -209,6 +212,55 @@ environments, remote binaries and container images, and already-running Desktop
 daemons remain external. A local validation command is still the existing
 structured host runner; the context does not turn it into a sandbox. File
 observations do not prove loaded-code identity or make process creation atomic.
+
+## Selected GitLab API trust material
+
+API trust selection is lazy. Creating a configured owner, starting its listener,
+performing local inspection, or using an offline, Git-only or no-token helper
+does not require an API trust bundle. Before a helper that can use the GitLab API
+is launched, the parent inspects its actual parsed arguments and selects the
+trust material that the operation needs. A direct bound API client can make the
+same first selection. Later covered API uses retain that exact selection.
+
+The private `ServiceAPITrust` object retains bounded PEM bytes for the selected
+certifi public roots and, when configured, the additional `api_ca_bundle` file.
+It also retains coherent observations of the selected files. The object belongs
+to its creating process and the exact selected `AgentSettings`; an equal public
+summary or equal settings values do not authorize substitution. The original
+policy capture remains free of configuration-file reads.
+
+Covered synchronous `GitLabAPI` clients, asynchronous project preflight and the
+CLI Doctor paths create fresh TLS contexts from those retained bytes. They keep
+hostname checking, required certificate verification, public roots plus the
+selected additional CA, and the existing credential-destination and redirect
+guards. They do not reuse a caller-mutable SSL context or select new trust from
+an ambient CA path. Native Git and SSH use separate trust mechanisms and are
+outside this binding.
+
+The versioned private helper request carries the parent-selected material and
+its file observations through stdin, with separate limits for command/settings
+data and trust data. Nothing is written to a trust cache or placed in child
+arguments or environment variables. A helper reconstructs a process-local trust
+object bound to its exact decoded settings. It checks the transferred baseline;
+it cannot rediscover the same paths and accept their current contents as a new
+selection. This transfer does not establish child runtime identity.
+
+An unavailable or invalid trust bundle before the first successful selection
+fails that API operation. The owner can continue local work, and a later API
+attempt can make its first successful selection. Once material has been selected,
+observed changes, loss of the selected files, or object substitution are permanent
+binding failures. The covered context checks selected trust before further use;
+API request guards check it before sending requests, and the owner checks it at
+both maintenance transitions. A failure closes admission, and restoring the
+files does not reopen it or refresh the baseline.
+
+The claim is limited to retained inputs consumed by covered Python GitLab API
+TLS clients. It is not peer-authentication evidence from a snapshot, a complete
+provider configuration inventory, native Git/SSH trust verification, or proof
+of global idle or activation readiness. There is no background file watcher.
+Repeated file checks do not make the filesystem or network operation atomic;
+the retained bytes ensure that constructing a new covered TLS context does not
+silently load replacement trust material.
 
 ## Current-process runtime observation
 
@@ -307,8 +359,12 @@ Configuration capture errors use finite `ServiceConfigurationError` codes. The
 owner reports `configuration_binding_failed` for a failed selected-policy check
 and `runtime_binding_failed` for failed runtime capture or revalidation.
 `child_binding_failed` covers invalid child context capture, identity mismatch,
-selected executable drift and a helper-reported child context failure. Ordinary
-child command failures retain their separate classification.
+selected executable or API trust drift and a helper-reported child context
+failure. A selected trust failure is classified internally as
+`child_trust_failed`; trust capture and material validation use finite
+`ServiceAPITrustError` codes. Failure before any successful trust selection
+remains an API-operation failure and does not close the owner. Ordinary child
+command failures retain their separate classification.
 `controller_binding_failed` and `core_binding_failed` identify mismatched startup
 objects. A bound controller or gate closed outside the owner also makes the
 configuration binding fail permanently. Raw configuration values, runtime paths
@@ -326,21 +382,30 @@ identifiers, and raw exception text.
 | `resolved_policy_bound` | True only while this configured owner is running with its exact controller/core configuration and viable gate. |
 | `current_process_bound` | True only while that live binding also retains its internally captured current-process observation. It is not a fresh disk-integrity result from the snapshot call. |
 | `child_inputs_bound` | True only while this running owner, controller and core retain the exact captured child context and a viable gate. It does not verify child runtime or provider configuration. |
+| `api_trust_bound` | True only after API trust has been selected and while the running owner retains that exact trust through its child context and viable gate. It is not a fresh peer or file check performed by the snapshot. |
 | `configuration_digest` | Historical digest of the selected projection and launch, or `null` when none was captured. |
 | `runtime_observation` | Historical bounded summary of selected runtime observations, including its digest and module count, or `null` when none was captured. |
 | `child_observation` | Bounded `owned-local-child-inputs` summary with retention booleans and selected executable count, or `null` when none was captured. It contains no raw environment, environment digest, paths or credential indicators. |
+| `api_trust_observation` | Cached `selected-gitlab-api-trust-v1` summary with material-retention and current-process booleans and a selected bundle count of one or two, or `null` before selection. It contains no file paths, PEM, certificate identities or trust-material hashes. |
 
 The child summary leaves `child_runtime_verified`,
 `provider_configuration_verified`, `remote_runtime_verified`,
 `desktop_daemon_verified` and `activation_authorized` false. Its counts report
 selected observations; they do not enumerate a transitive process tree.
 
-Closing the owner makes all three live binding flags false. Successfully captured
+The API trust summary leaves `tls_peer_verified`,
+`provider_configuration_verified`, `native_git_trust_verified`,
+`native_ssh_trust_verified` and `activation_authorized` false. Its bundle count
+describes the selected inputs, not the number of certificates or verified peers.
+The existing child summary retains its version and scope.
+
+Closing the owner makes all four live binding flags false. Successfully captured
 digests and observation metadata remain available afterward as historical
 evidence. Unconfigured owners leave these binding flags false, the configuration
-digest `null` and both observation fields `null`.
+digest `null` and all observation fields `null`. A configured owner that has not
+selected API trust keeps `api_trust_bound` false and `api_trust_observation` null.
 
-The following broader flags remain false even when all three live binding flags are
+The following broader flags remain false even when all four live binding flags are
 true: `effective_configuration_verified`, `recovered_state_verified`,
 `external_producers_quiesced`, `global_idle_verified`,
 `runtime_identity_verified`, `activation_authorized`, `ready_for_activation`
@@ -367,20 +432,30 @@ Child integration tests exercise the real controller helper routes, independent
 owners, retained settings in preview and direct finish, foreign client cleanup,
 sticky child failures, and ordinary controller compatibility. Direct backend
 tests cover local Git, validation, approved Python, history and local SSH inputs.
+API trust tests cover lazy selection, exact settings and object ownership,
+independent owners, transferred helper material, first-selection failures,
+sticky file drift, request guards, both maintenance transitions, private cached
+snapshots and historical evidence after close. They use fresh synthetic CA and
+loopback HTTPS fixtures, including rejection before a dummy credential request
+is sent when a selected trust binding has failed.
 The real-wire fixture in `tests/test_managed_http_integration.py` uses isolated
 synthetic configuration, both Bridge modes, and ordinary shared-core catalogs
-as its comparison source. It does not contact a coding backend or GitLab.
+as its comparison source. It does not contact a coding backend or a real GitLab
+service.
 
-The installation harness executes the same 14-case fixture from the clean wheel
+The installation harness executes the same 16-case fixture from the clean wheel
 and the source environment, checking module origins in each route. The fixture
 includes configured-owner cases and real `reasonfirst_files`/`reasonfirst_read`
 HTTP calls in both modes. These calls continue to use the selected workspace
 after `.env`, environment and parent working-directory changes, with a shadow
 package in the captured child directory to exercise isolated module discovery.
+Both modes also exercise bound API trust with fresh synthetic CA material and a
+loopback HTTPS preflight, including rejection after selected trust-file drift.
 Four additional report-validator cases enforce the report contract. Its strict
 report requires `selected_policy_binding_exercised`,
-`runtime_observation_exercised` and `child_launch_binding_exercised` to be exactly
-true, together with the existing real-MCP and maintenance-admission evidence;
+`runtime_observation_exercised`, `child_launch_binding_exercised` and
+`api_trust_binding_exercised` to be exactly true, together with the existing
+real-MCP and maintenance-admission evidence;
 skipped or incomplete acceptance is not success. `working_service_touched` and
 `activation_tested` remain false. These checks exercise a newly owned HTTP
 runtime; they do not establish a working user's service adoption, authentication,

@@ -1601,6 +1601,8 @@ def main(
         {"settings_loader": lambda: resolved_settings}
         if resolved_settings is not None else {}
     )
+    if child_context is not None:
+        doctor_options["api_factory"] = lambda settings: GitLabAPI(settings, child_context=child_context)
 
     try:
         if args.command == "doctor":
@@ -1623,7 +1625,10 @@ def main(
             if child_context is not None else WorkspaceManager(settings)
         )
         runner = CommandRunner(settings, manager)
-        gitlab_api = GitLabAPI(settings)
+        gitlab_api = (
+            GitLabAPI(settings, child_context=child_context)
+            if child_context is not None else GitLabAPI(settings)
+        )
 
         if args.command in {"python", "validate"}:
             result, code = handle_command(args, settings, manager, runner)
@@ -2118,10 +2123,10 @@ def main(
         print("Interrupted", file=sys.stderr)
         return 130
     except Exception as exc:
-        if child_context is not None:
-            from .upgrade.service_children import ServiceChildBindingError
-            if isinstance(exc, ServiceChildBindingError):
-                raise
+        from .upgrade.service_children import ServiceChildBindingError
+        from .upgrade.service_trust import ServiceAPITrustError
+        if isinstance(exc, (ServiceChildBindingError, ServiceAPITrustError)):
+            raise
         _print({"ok": False, "error": str(exc), "type": type(exc).__name__})
         return 1
 

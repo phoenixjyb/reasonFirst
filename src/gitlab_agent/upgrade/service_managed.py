@@ -166,6 +166,26 @@ def _child_summary(context):
     return dict(summary)
 
 
+def _api_trust_summary(context):
+    """Validate only cached, non-identifying TLS material evidence."""
+    summary = context.api_trust_summary()
+    if summary is None:
+        return None
+    positive = {"material_retained", "current_process_only"}
+    negative = {"tls_peer_verified", "provider_configuration_verified",
+                "native_git_trust_verified", "native_ssh_trust_verified", "activation_authorized"}
+    if (type(summary) is not dict
+            or set(summary) != positive | negative | {"schema_version", "scope", "selected_bundle_count"}
+            or type(summary["schema_version"]) is not int or summary["schema_version"] != 1
+            or type(summary["scope"]) is not str or summary["scope"] != "selected-gitlab-api-trust-v1"
+            or type(summary["selected_bundle_count"]) is not int
+            or not 1 <= summary["selected_bundle_count"] <= 2
+            or any(summary[name] is not True for name in positive)
+            or any(summary[name] is not False for name in negative)):
+        raise ServiceError("child_binding_failed")
+    return dict(summary)
+
+
 def _runtime_summary(observation):
     """Validate bounded public evidence before adopting any service resources."""
     digest, summary = observation.digest, observation.summary()
@@ -369,7 +389,9 @@ class ManagedBridgeService:
         self._runtime_observation = None
         self._runtime_summary = None
         self._child_context = None
+        self._child_context_anchor = None
         self._child_summary = None
+        self._api_trust_summary = None
         self._pid = os.getpid()
         self._lock = threading.RLock()
         self._loop = None
@@ -406,11 +428,13 @@ class ManagedBridgeService:
         controller, core = self._controller, self._core
         try:
             if (type(self._child_context) is not ServiceChildContext
+                    or self._child_context is not self._child_context_anchor
                     or self._child_context.configuration is not self._configuration
                     or getattr(controller, "child_context", None) is not self._child_context
                     or getattr(core, "_reasonfirst_child_context", None) is not self._child_context):
                 raise ServiceError("child_binding_failed")
             self._child_summary = _child_summary(self._child_context)
+            self._api_trust_summary = _api_trust_summary(self._child_context)
         except BaseException:
             self._failed_locked("child_binding_failed")
             raise ServiceError("child_binding_failed") from None
@@ -430,10 +454,12 @@ class ManagedBridgeService:
         if self._configuration is None:
             return
         try:
-            if type(self._child_context) is not ServiceChildContext:
+            if (type(self._child_context) is not ServiceChildContext
+                    or self._child_context is not self._child_context_anchor):
                 raise ServiceError("child_binding_failed")
             self._child_context.revalidate()
             self._child_summary = _child_summary(self._child_context)
+            self._api_trust_summary = _api_trust_summary(self._child_context)
         except BaseException:
             self._failed_locked("child_binding_failed")
             raise ServiceError("child_binding_failed") from None
@@ -469,6 +495,14 @@ class ManagedBridgeService:
     def maintenance_snapshot(self):
         self._check_pid()
         with self._lock:
+            # Selection is lazy and can precede a failed helper. Keep its
+            # original bounded summary even if failure/close follows before
+            # the first successful live snapshot. No files are read here.
+            if type(self._child_context_anchor) is ServiceChildContext:
+                try:
+                    self._api_trust_summary = _api_trust_summary(self._child_context_anchor)
+                except Exception:
+                    pass
             listener = False
             if self._state == "running":
                 try:
@@ -491,6 +525,9 @@ class ManagedBridgeService:
                 "child_inputs_bound": bound and self._child_context is not None,
                 "child_observation": (dict(self._child_summary)
                                       if self._child_summary is not None else None),
+                "api_trust_bound": bound and self._api_trust_summary is not None,
+                "api_trust_observation": (dict(self._api_trust_summary)
+                                          if self._api_trust_summary is not None else None),
                 "configuration_digest": self._configuration_digest,
                 # Historical point-in-time file observation; no disk reads in
                 # this diagnostic snapshot and no loaded-code attestation.
@@ -585,6 +622,7 @@ class ManagedBridgeService:
                         raise ServiceError("child_binding_failed")
                     self._child_summary = _child_summary(context)
                     self._child_context = context
+                    self._child_context_anchor = context
                 except Exception:
                     raise ServiceError("child_binding_failed") from None
                 try:
