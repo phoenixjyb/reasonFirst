@@ -14,8 +14,32 @@ from .tls import api_client_options
 class GitLabAPI:
     """Small synchronous GitLab API helper for local CLI workflows."""
 
-    def __init__(self, settings: AgentSettings) -> None:
+    def __init__(self, settings: AgentSettings, *, child_context=None) -> None:
         self.settings = settings
+        self.child_context = child_context
+        self._retained_binding = (settings, child_context) if child_context is not None else None
+        self._binding_failed = False
+        self._assert_child_binding()
+
+    def _assert_child_binding(self):
+        if self._retained_binding is None and self.child_context is None and not self._binding_failed:
+            return None
+        from .upgrade.service_children import ServiceChildBindingError, ServiceChildContext
+        from .upgrade.service_configuration import ManagedServiceConfiguration
+        if self._binding_failed or self._retained_binding is None:
+            self._binding_failed = True
+            raise ServiceChildBindingError("invalid_child_context")
+        settings, context = self._retained_binding
+        if (self.settings is not settings or self.child_context is not context
+                or type(context) is not ServiceChildContext):
+            self._binding_failed = True
+            raise ServiceChildBindingError("invalid_child_context")
+        authority = context.configuration
+        if not (authority is settings or (
+                type(authority) is ManagedServiceConfiguration and authority.settings is settings)):
+            self._binding_failed = True
+            raise ServiceChildBindingError("invalid_child_context")
+        return context
 
     def _headers(self) -> dict[str, str]:
         if not self.settings.api_token:
@@ -29,15 +53,21 @@ class GitLabAPI:
         }
 
     def _client(self) -> httpx.Client:
-        return httpx.Client(
-            headers=self._headers(),
-            trust_env=self.settings.api_trust_env,
-            timeout=30.0,
-            **api_client_options(
+        context = self._assert_child_binding()
+        headers = self._headers()
+        options = (
+            context.api_client_options(self.settings) if context is not None
+            else api_client_options(
                 self.settings.gitlab_base_url,
                 verify_ssl=self.settings.api_verify_ssl,
                 ca_bundle=getattr(self.settings, "api_ca_bundle", None),
-            ),
+            )
+        )
+        return httpx.Client(
+            headers=headers,
+            trust_env=self.settings.api_trust_env,
+            timeout=30.0,
+            **options,
         )
 
     def get_json(

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import ExitStack, chdir, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, chdir, contextmanager, redirect_stderr, redirect_stdout
+from dataclasses import replace
 import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import io
 import json
@@ -21,13 +23,14 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import gitlab_agent
-from gitlab_agent import bridge_http, bridge_mcp
+from gitlab_agent import bridge_http, bridge_mcp, doctor, gitlab_api, project_access, tls
 from gitlab_agent.bridge_preview import admission, controller
 from gitlab_agent.bridge_preview.bridge_config import ExecutionTarget
 from gitlab_agent.config import AgentSettings
-from gitlab_agent.upgrade import service_child, service_children, service_configuration, service_managed, service_runtime
+from gitlab_agent.upgrade import service_child, service_children, service_configuration, service_managed, service_runtime, service_trust
 from gitlab_agent.worker_policy import default_worker_policy
 from mcp import Client
 import mcp
@@ -45,6 +48,63 @@ SELECTED_ROUTE: str | None = None
 SELECTED_ROOT: Path | None = None
 
 
+def local_authority(root):
+    # The installed-wheel acceptance runs with -I, so load the synthetic test
+    # fixture explicitly without adding the checkout to the import path.
+    spec = importlib.util.spec_from_file_location(
+        "managed_tls_fixture", Path(__file__).with_name("tls_fixtures.py"),
+    )
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    root.mkdir()
+    return fixture.LocalAuthority(root)
+
+
+@contextmanager
+def synthetic_gitlab(authority):
+    """Fresh HTTPS metadata only; no real provider, credentials or writes."""
+    requests, controls = [], {"replace_ca": False}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            path = urlsplit(self.path).path
+            requests.append({"path": path, "token": self.headers.get("PRIVATE-TOKEN", "")})
+            if path == "/api/v4/projects/synthetic%2Fproject/pipelines":
+                if controls["replace_ca"]:
+                    authority.ca_path.write_text("changed synthetic CA material\n", encoding="ascii")
+                data = []
+            elif path == "/api/v4/projects/synthetic%2Fproject":
+                data = {"id": 1, "path_with_namespace": "synthetic/project", "default_branch": "main"}
+            elif path == "/api/v4/projects/synthetic%2Fproject/repository/commits/main":
+                data = {"id": "a" * 40}
+            elif path == "/api/v4/user":
+                data = {"id": 1, "username": "synthetic-api-user"}
+            else:
+                self.send_error(404)
+                return
+            body = json.dumps(data).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    server.socket = authority.server_context().wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    try:
+        yield f"https://127.0.0.1:{server.server_port}", requests, controls
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def modern_message(payload):
     return {**payload, "params": {
         **payload.get("params", {}),
@@ -58,7 +118,8 @@ def modern_message(payload):
 def verify_origins(route: str, expected: Path) -> None:
     expected = expected.resolve(strict=True)
     modules = (gitlab_agent, bridge_http, bridge_mcp, admission, controller,
-               service_child, service_children, service_configuration, service_managed, service_runtime)
+               service_child, service_children, service_configuration, service_managed, service_runtime,
+               service_trust, tls, gitlab_api, doctor, project_access)
     for module in modules:
         origin = Path(module.__file__).resolve(strict=True)
         if not origin.is_relative_to(expected):
@@ -209,6 +270,8 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(snapshot["resolved_policy_bound"], configuration is not None)
         self.assertIs(snapshot["current_process_bound"], configuration is not None)
         self.assertIs(snapshot["child_inputs_bound"], configuration is not None)
+        self.assertIs(snapshot["api_trust_bound"], False)
+        self.assertIsNone(snapshot["api_trust_observation"])
         if configuration is not None:
             self.assertEqual(snapshot["configuration_digest"], configuration.configuration_digest(launch))
             self.assertEqual(snapshot["runtime_observation"]["scope"], service_runtime.SCOPE)
@@ -445,6 +508,7 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("retained child fixture", json.dumps(reading.model_dump(mode="json")))
             await self.wait_until(lambda: service.maintenance_snapshot()["admission"]["idle_observed"])
             self.assertTrue(service.maintenance_snapshot()["child_inputs_bound"])
+            self.assertIsNone(service.maintenance_snapshot()["api_trust_observation"])
             lease = service.try_enter_maintenance()
             service.leave_maintenance(lease)
             self.no_commands.assert_not_called()
@@ -458,6 +522,113 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bound_full_chat_helpers_keep_settings_and_launch_inputs(self):
         await self.bound_helper_cycle("full-chat")
+
+    async def bound_api_trust_cycle(self, mode):
+        from gitlab_agent.workspace import WorkspaceManager, WorkspaceState
+        authority = local_authority(self.root / "private TLS")
+        public = local_authority(self.root / "public TLS")
+        original_ca = authority.ca_path.read_bytes()
+        token = "synthetic-managed-api-token"
+        with synthetic_gitlab(authority) as (url, requests, controls), \
+                patch.object(service_trust.certifi, "where", return_value=str(public.ca_path)):
+            settings = replace(AgentSettings.load(), gitlab_base_url=url, api_token=token,
+                               api_ca_bundle=authority.ca_path)
+            configuration = service_configuration.capture_service_configuration(
+                settings, controller.load_bridge_config(), bridge_config_path=self.bridge_file,
+                state_dir=self.state, gitlab_auth_mode="api",
+            )
+            # No trust selection at startup or for a local read, even when the
+            # selected optional CA file is temporarily unavailable.
+            authority.ca_path.unlink()
+            service = await self.start_service(mode, configuration=configuration)
+            ctrl = self.seed_session(service)
+            manager = WorkspaceManager(configuration.settings, child_context=service._child_context)
+            wid = "ab123456cdef"
+            worktree = manager.worktrees_dir / wid
+            worktree.mkdir()
+            manager._run_git(["-c", "init.defaultBranch=main", "init"], cwd=worktree)
+            manager._run_git([
+                "-c", "user.name=Synthetic Fixture", "-c", "user.email=fixture@example.invalid",
+                "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + str(self.root / "no-hooks"),
+                "commit", "--allow-empty", "-m", "Synthetic TLS fixture",
+            ], cwd=worktree)
+            sha = manager._run_git(["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+            (worktree / "selected.txt").write_text("local read needs no CA\n", encoding="utf-8")
+            manager._save_state(WorkspaceState(
+                workspace_id=wid, project="synthetic/project", repo_path=str(worktree),
+                worktree_path=str(worktree), base_ref="main", base_sha=sha,
+                branch="main", created_at="fixture",
+            ))
+            ctrl._state["workspaces"][wid] = {
+                "workspace_id": wid, "kind": "local", "target": configuration.configured_target().to_dict(),
+            }
+            ctrl._state["sessions"]["synthetic-thread"]["workspace_id"] = wid
+            async with Client(self.url, mode="auto", read_timeout_seconds=8) as client:
+                reading = await client.call_tool("reasonfirst_read", {"workspace_id": wid, "path": "selected.txt"})
+                self.assertFalse(reading.is_error)
+                unavailable = await client.call_tool("reasonfirst_ci", {"thread_id": "synthetic-thread"})
+                self.assertTrue(unavailable.is_error)
+                self.assertEqual(requests, [])
+                self.assertIsNone(service.maintenance_snapshot()["api_trust_observation"])
+                self.assertTrue(service.maintenance_snapshot()["admission"]["admission_open"])
+                reading = await client.call_tool("reasonfirst_read", {"workspace_id": wid, "path": "selected.txt"})
+                self.assertFalse(reading.is_error)
+
+                authority.ca_path.write_bytes(original_ca)
+                result = await client.call_tool("reasonfirst_ci", {"thread_id": "synthetic-thread"})
+                self.assertFalse(result.is_error)
+                self.assertIn("pipeline_not_found", json.dumps(result.model_dump(mode="json")))
+                self.assertEqual(len(requests), 1)
+                selected = service._child_context.api_trust
+                snapshot = service.maintenance_snapshot()
+                self.assertTrue(snapshot["api_trust_bound"])
+                summary = snapshot["api_trust_observation"]
+                self.assertEqual(summary, selected.summary())
+                self.assertEqual(summary["selected_bundle_count"], 2)
+                for name in FALSE_FLAGS:
+                    self.assertIs(snapshot[name], False)
+                for value in (token, str(authority.ca_path), str(public.ca_path), "BEGIN CERTIFICATE"):
+                    self.assertNotIn(value, json.dumps(summary))
+
+                # Exercise the async preflight helper and a direct parent
+                # client against the exact same retained trust selection.
+                with patch.object(service_trust.certifi, "where", side_effect=AssertionError("trust reselected")):
+                    preflight = await asyncio.to_thread(ctrl.project_preflight, "synthetic/project")
+                    self.assertTrue(preflight["ok"])
+                    parent = gitlab_api.GitLabAPI(configuration.settings, child_context=service._child_context)
+                    user = await asyncio.to_thread(parent.get_json, "/user")
+                    self.assertEqual(user["username"], "synthetic-api-user")
+                self.assertIs(service._child_context.api_trust, selected)
+                self.assertEqual(len(requests), 4)
+                self.assertTrue(all(item["token"] == token for item in requests))
+
+                # The file changes after TLS authentication while a helper is
+                # receiving its final response. Post-command revalidation must
+                # reject the completed result and close admission permanently.
+                controls["replace_ca"] = True
+                failed = await client.call_tool("reasonfirst_ci", {"thread_id": "synthetic-thread"})
+                self.assertTrue(failed.is_error)
+                self.assertEqual(len(requests), 5)
+
+            snapshot = service.maintenance_snapshot()
+            self.assertFalse(snapshot["api_trust_bound"])
+            self.assertFalse(snapshot["child_inputs_bound"])
+            self.assertFalse(snapshot["admission"]["admission_open"])
+            self.assertEqual(snapshot["api_trust_observation"], summary)
+            authority.ca_path.write_bytes(original_ca)
+            status, _ = await self.raw()
+            self.assertEqual(status, 503)
+            self.assertEqual(len(requests), 5)
+            await service.aclose()
+            self.assertEqual(service.maintenance_snapshot()["api_trust_observation"], summary)
+            self.no_commands.assert_not_called()
+            self.no_workers.assert_not_called()
+
+    async def test_bound_read_only_api_trust_survives_helper_transfer_and_fails_on_drift(self):
+        await self.bound_api_trust_cycle("read-only")
+
+    async def test_bound_full_chat_api_trust_survives_helper_transfer_and_fails_on_drift(self):
+        await self.bound_api_trust_cycle("full-chat")
 
     async def test_protocol_and_method_guards_on_real_listener(self):
         await self.start_service()
@@ -689,6 +860,7 @@ class NativeReportTests(unittest.TestCase):
             "real_mcp_calls_exercised": True, "all_tools_denied_during_maintenance": True,
             "selected_policy_binding_exercised": True, "runtime_observation_exercised": True,
             "child_launch_binding_exercised": True,
+            "api_trust_binding_exercised": True,
             "working_service_touched": False, "activation_tested": False,
         }
 
@@ -707,6 +879,7 @@ class NativeReportTests(unittest.TestCase):
             {"tests_run": True}, {"module_origins_verified": 1},
             {"selected_policy_binding_exercised": False}, {"runtime_observation_exercised": 1},
             {"child_launch_binding_exercised": False},
+            {"api_trust_binding_exercised": False},
             {"tests_run": 1}, {"skipped": 1}, {"errors": 1},
             {"working_service_touched": True}, {"activation_tested": True},
             {"modes": ["full-chat"]}, {"route": "packaged"},
@@ -728,6 +901,7 @@ class NativeReportTests(unittest.TestCase):
             "all_tools_denied_during_maintenance": False,
             "selected_policy_binding_exercised": False, "runtime_observation_exercised": False,
             "child_launch_binding_exercised": False,
+            "api_trust_binding_exercised": False,
         })
         self.assertEqual(self.validate(payload, returncode=1), payload)
         with self.assertRaises(RuntimeError):
@@ -778,6 +952,7 @@ def native_main(argv):
         "selected_policy_binding_exercised": ok,
         "runtime_observation_exercised": ok,
         "child_launch_binding_exercised": ok,
+        "api_trust_binding_exercised": ok,
         "working_service_touched": False, "activation_tested": False,
     }, sort_keys=True))
     return 0 if ok else 1

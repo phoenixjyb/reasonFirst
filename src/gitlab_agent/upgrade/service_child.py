@@ -20,11 +20,13 @@ from typing import Any
 from ..config import AgentSettings
 from ..secret_scan import redact_sensitive_text
 from .service_configuration import _SETTING_FIELDS, _settings as _validate_settings
+from .service_trust import MAX_TRUST_PAYLOAD_BYTES
 
 
-REQUEST_PROTOCOL = "reasonfirst-managed-child-request-v1"
+REQUEST_PROTOCOL = "reasonfirst-managed-child-request-v2"
 RESPONSE_PROTOCOL = "reasonfirst-managed-child-response-v1"
-MAX_REQUEST_BYTES = 1024 * 1024
+MAX_BASE_REQUEST_BYTES = 1024 * 1024
+MAX_REQUEST_BYTES = MAX_BASE_REQUEST_BYTES + MAX_TRUST_PAYLOAD_BYTES
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_STDERR_BYTES = 64 * 1024
 _MAX_ARGUMENTS = 256
@@ -69,8 +71,8 @@ def _unique_object(pairs):
     return result
 
 
-def _integer_text(value: str) -> int:
-    if len(value) > 24:
+def _integer_text(value: str, *, maximum: int = 24) -> int:
+    if len(value) > maximum:
         raise ValueError()
     return int(value)
 
@@ -100,12 +102,13 @@ def _json_tree(value: Any, code: str) -> None:
             _fail(code)
 
 
-def _load_json(raw: bytes, *, maximum: int, code: str) -> Any:
+def _load_json(raw: bytes, *, maximum: int, code: str, integer_chars: int = 24) -> Any:
     if type(raw) is not bytes or not raw or len(raw) > maximum:
         _fail(code)
     try:
         result = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,
-                            parse_int=_integer_text, parse_constant=_constant)
+                            parse_int=lambda text: _integer_text(text, maximum=integer_chars),
+                            parse_constant=_constant)
         _json_tree(result, code)
         return result
     except ServiceChildError:
@@ -138,7 +141,7 @@ class _ManagedParser(argparse.ArgumentParser):
         pass
 
 
-def _command(module: str, argv: list[str]) -> str:
+def _parsed_command(module: str, argv: list[str]) -> tuple[str, argparse.Namespace]:
     if type(module) is not str or module not in {_ACTUAL_CODER, _PROJECT_ACCESS}:
         _fail("child_command_rejected")
     if type(argv) is not list or not 1 <= len(argv) <= _MAX_ARGUMENTS:
@@ -154,8 +157,8 @@ def _command(module: str, argv: list[str]) -> str:
     try:
         if module == _PROJECT_ACCESS:
             from ..project_access import _build_parser
-            _build_parser(parser_class=_ManagedParser).parse_args(argv)
-            return "project-access"
+            args = _build_parser(parser_class=_ManagedParser).parse_args(argv)
+            return "project-access", args
         from ..cli import _build_parser
         args = _build_parser(prog="actual-coder", parser_class=_ManagedParser).parse_args(argv)
         if args.command not in _COMMANDS:
@@ -170,11 +173,35 @@ def _command(module: str, argv: list[str]) -> str:
             _fail("child_command_rejected")
         if args.command == "project-config" and args.file is not None:
             _fail("child_command_rejected")
-        return args.command
+        return args.command, args
     except ServiceChildError:
         raise
     except (Exception, SystemExit):
         _fail("child_command_rejected")
+
+
+def _command(module: str, argv: list[str]) -> str:
+    return _parsed_command(module, argv)[0]
+
+
+def helper_requires_api_trust(settings: AgentSettings, module: str, argv: list[str]) -> bool:
+    """Select trust before an admitted helper that can use the GitLab API.
+
+    Use the real parser for both capability selection and the existing launch
+    restrictions. Missing-token and explicitly offline/Git-only routes keep
+    their existing behavior without forcing an unused CA file to be available.
+    """
+    _settings_wire(settings)
+    command, args = _parsed_command(module, argv)
+    if not settings.api_token:
+        return False
+    if command == "doctor":
+        return not args.offline and not args.git_only
+    if command == "start":
+        return not args.offline_doctor and not args.git_only
+    if command in {"evidence", "resume"}:
+        return args.from_ci
+    return command in {"project-access", "ci"}
 
 
 def _settings_wire(settings: AgentSettings) -> dict:
@@ -230,27 +257,54 @@ class _ChildRequest:
     module: str
     argv: tuple[str, ...]
     command: str
+    api_trust: object | None
 
 
-def encode_child_request(settings: AgentSettings, module: str, argv: list[str]) -> bytes:
+def encode_child_request(
+    settings: AgentSettings, module: str, argv: list[str], *, api_trust=None,
+) -> bytes:
     """Return private pipe bytes; do not log, persist, or place them in argv/env."""
     values = _settings_wire(settings)
     _command(module, argv)
-    return _encode({"protocol": REQUEST_PROTOCOL, "settings": values,
-                    "module": module, "argv": list(argv)},
+    base = {"protocol": REQUEST_PROTOCOL, "settings": values,
+            "module": module, "argv": list(argv)}
+    _encode(base, maximum=MAX_BASE_REQUEST_BYTES, code="child_request_limit")
+    payload = None
+    if api_trust is not None:
+        from .service_trust import ServiceAPITrust, ServiceAPITrustError, encode_api_trust
+        try:
+            if type(api_trust) is not ServiceAPITrust or api_trust.settings is not settings:
+                _fail("child_context_failed")
+            payload = encode_api_trust(api_trust)
+        except ServiceAPITrustError:
+            _fail("child_context_failed")
+        _encode(payload, maximum=MAX_TRUST_PAYLOAD_BYTES, code="child_request_limit")
+    return _encode({**base, "api_trust": payload},
                    maximum=MAX_REQUEST_BYTES, code="child_request_limit")
 
 
 def _decode_request(raw: bytes) -> _ChildRequest:
     if type(raw) is bytes and len(raw) > MAX_REQUEST_BYTES:
         _fail("child_request_limit")
-    value = _load_json(raw, maximum=MAX_REQUEST_BYTES, code="child_invalid_request")
-    if (type(value) is not dict or set(value) != {"protocol", "settings", "module", "argv"}
+    # The transferred native file observations allow 128-bit identity values.
+    # Keep response parsing and every settings field's own bounds unchanged.
+    value = _load_json(raw, maximum=MAX_REQUEST_BYTES, code="child_invalid_request", integer_chars=40)
+    if (type(value) is not dict or set(value) != {"protocol", "settings", "module", "argv", "api_trust"}
             or type(value["protocol"]) is not str or value["protocol"] != REQUEST_PROTOCOL):
         _fail("child_invalid_request")
+    base = {key: item for key, item in value.items() if key != "api_trust"}
+    _encode(base, maximum=MAX_BASE_REQUEST_BYTES, code="child_request_limit")
     settings = _settings_value(value["settings"])
     command = _command(value["module"], value["argv"])
-    return _ChildRequest(settings, value["module"], tuple(value["argv"]), command)
+    api_trust = None
+    if value["api_trust"] is not None:
+        _encode(value["api_trust"], maximum=MAX_TRUST_PAYLOAD_BYTES, code="child_request_limit")
+        from .service_trust import ServiceAPITrustError, decode_api_trust
+        try:
+            api_trust = decode_api_trust(settings, value["api_trust"])
+        except ServiceAPITrustError:
+            _fail("child_context_failed")
+    return _ChildRequest(settings, value["module"], tuple(value["argv"]), command, api_trust)
 
 
 class _BoundedText(io.TextIOBase):
@@ -381,11 +435,12 @@ def _run_request(raw: bytes) -> tuple[bytes, int]:
         # Redirection is confined to this dedicated helper process, never used
         # by the parent encoder/decoder or a concurrent HTTP handler.
         with redirect_stdout(stdout), redirect_stderr(stderr):
+            from .service_children import capture_helper_children, ServiceChildBindingError
+            from .service_trust import ServiceAPITrustError
+            binding_error_type = (ServiceChildBindingError, ServiceAPITrustError)
             request = _decode_request(raw)
             try:
-                from .service_children import capture_helper_children, ServiceChildBindingError
-                binding_error_type = ServiceChildBindingError
-                child_context = capture_helper_children(request.settings)
+                child_context = capture_helper_children(request.settings, api_trust=request.api_trust)
             except Exception:
                 _fail("child_context_failed")
             if request.module == _ACTUAL_CODER:
@@ -396,6 +451,9 @@ def _run_request(raw: bytes) -> tuple[bytes, int]:
                 from ..project_access import main as access_main
                 exit_code = access_main(list(request.argv), resolved_settings=request.settings,
                                         child_context=child_context)
+            # A CLI diagnostic may catch an operation failure. Invalidating the
+            # retained context must still reach the parent admission gate.
+            child_context.revalidate()
         if stdout.exceeded or stderr.exceeded:
             _fail("child_output_limit")
         if type(exit_code) is not int or not 0 <= exit_code <= 255:

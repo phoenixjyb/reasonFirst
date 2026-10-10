@@ -29,6 +29,8 @@ MANAGED_HTTP_CASES = frozenset({
     "test_bound_read_only_policy_and_runtime",
     "test_bound_full_chat_helpers_keep_settings_and_launch_inputs",
     "test_bound_read_only_helpers_keep_settings_and_launch_inputs",
+    "test_bound_read_only_api_trust_survives_helper_transfer_and_fails_on_drift",
+    "test_bound_full_chat_api_trust_survives_helper_transfer_and_fails_on_drift",
     "test_disconnect_keeps_work_counted_and_then_unknown",
     "test_full_chat_catalog_and_maintenance_cycle",
     "test_http_and_controller_work_block_maintenance_until_reply",
@@ -64,6 +66,7 @@ def _managed_http_report(raw: bytes, *, route: str, returncode: int) -> dict[str
         "all_tools_denied_during_maintenance", "working_service_touched", "activation_tested",
         "selected_policy_binding_exercised", "runtime_observation_exercised",
         "child_launch_binding_exercised",
+        "api_trust_binding_exercised",
     }
     count_fields = {"tests_run", "expected_tests", "failures", "errors", "skipped"}
     if (type(payload) is not dict
@@ -94,6 +97,7 @@ def _managed_http_report(raw: bytes, *, route: str, returncode: int) -> dict[str
                 "all_tools_denied_during_maintenance",
                 "selected_policy_binding_exercised", "runtime_observation_exercised",
                 "child_launch_binding_exercised",
+                "api_trust_binding_exercised",
             ))
             or (ok and (payload["tests_run"] != payload["expected_tests"]
                         or any(payload[key] != 0 for key in ("failures", "errors", "skipped"))

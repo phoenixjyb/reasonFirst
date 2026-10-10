@@ -5,7 +5,8 @@
 HTTP 服务。HTTP 请求、controller 工作和维护预留使用同一个 admission
 对象。可选的不可变配置对象进一步把选定的父进程策略绑定到这个确切的
 owner 和 controller。配置了绑定的 owner 还会保留其覆盖的本地子进程
-启动输入。
+启动输入，并在首次使用覆盖范围内的 GitLab API 时保留选定的 API 信任材料，
+将后续使用绑定到同一个 child context。
 
 实现位于 `src/gitlab_agent/upgrade/service_managed.py`。这是 Python 嵌入式
 API，没有新增公共 CLI、MCP 工具、HTTP 管理路由或服务安装器。
@@ -45,7 +46,7 @@ TCP 连接成功或 `/healthz` 成功都不能替代这个所有权检查。
 | `capture_service_configuration(settings, bridge_config, *, bridge_config_path, state_dir, ...)` | 将已经解析的设置、target 策略和显式服务选项复制为不可变的选定策略对象。 |
 | `ManagedBridgeService(launch, *, configuration=None)` | 选择显式 `HTTPLaunch`，可选地传入确切的选定策略对象，创建新服务。 |
 | `await service.start()` | 在 listener 创建前捕获配置绑定的子进程输入和 runtime 观测，创建已启用门控的 controller；就绪及绑定检查通过后，才进入 running 状态。 |
-| `service.maintenance_snapshot()` | 返回有界服务及 ledger 诊断、已保留的观测元数据，不重新读取 runtime 或可执行文件。 |
+| `service.maintenance_snapshot()` | 返回有界服务及 ledger 诊断、已保留的观测元数据，不重新读取 runtime、可执行文件或 API 信任文件。 |
 | `service.try_enter_maintenance()` | 重新验证配置了绑定的 owner，再在所有已追踪活动均已确认结束时原子预留维护。 |
 | `service.leave_maintenance(lease)` | 重新验证配置了绑定的 owner，再释放当前原始的进程内 `MaintenanceLease`。 |
 | `await service.aclose()` | 先关闭准入，再清理自己持有的 server/controller 资源。 |
@@ -139,10 +140,11 @@ SHA-256，包含选定的非秘密策略、引用和实际 HTTP launch。凭据�
 该 projection。因此两个对象可能拥有相同公共 digest，但持有不同私有设置；
 运行中的绑定要求对象身份一致，不能只比较 digest。
 
-下文的本地子进程启动绑定提供保留的进程输入。provider 状态、外部配置文件、
-CA bundle 内容、原生 Git 与 SSH 配置、远端 runtime 状态和 backend 策略执行
-仍在选定策略声明之外。保留 CA 路径或环境信任布尔值，不会冻结所引用的
-文件内容。
+下文的本地子进程启动绑定提供保留的进程输入。独立的 API 信任绑定在首次
+选择之后，保留覆盖范围内的 GitLab API client 实际使用的 CA 材料。
+provider 状态、其他外部配置文件、原生 Git 与 SSH 配置、远端 runtime 状态
+和 backend 策略执行仍在选定策略声明之外。仅在策略对象中保留 CA 路径或
+环境信任布尔值，不会冻结所引用的文件内容。
 
 该对象独立于一次性启动观测状态。disposable controller 仍拒绝所有工具调用，
 不能与 live admission 组合。普通 controller 以及省略 `configuration` 创建
@@ -180,6 +182,44 @@ trust store 及 include 配置、SSH 配置与 host-key/agent 状态、远端 sh
 外部状态。本地 validation 仍是原有的结构化宿主命令 runner；context 不会
 把它变成 sandbox。文件观测也不证明已加载代码身份，不能使进程创建成为
 原子操作。
+
+## 选定的 GitLab API 信任材料
+
+API 信任材料按需选择。创建配置了绑定的 owner、启动 listener、执行本地
+检查，或使用 offline、Git-only、无 API token 的 helper，都不要求预先加载
+API trust bundle。启动可能调用 GitLab API 的 helper 之前，父进程根据实际
+解析后的参数选择该操作所需的信任材料；直接创建的绑定 API client 也可以
+触发首次选择。此后，覆盖的 API 操作持续使用同一次选择。
+
+私有 `ServiceAPITrust` 对象保留选定 certifi 公共根证书的有界 PEM 字节，
+以及配置了 `api_ca_bundle` 时该附加 CA 文件的字节，并保留对这些文件的
+一致性观测。它归属于创建进程与确切的选定 `AgentSettings`；公共摘要相同
+或 settings 值相同，都不能授权替换对象。原始策略捕获仍不读取配置文件。
+
+覆盖的同步 `GitLabAPI` client、异步项目预检和 CLI Doctor 路径从保留的
+字节创建全新的 TLS context，维持 hostname 检查、强制证书验证、公共根证书
+加选定附加 CA，以及既有的凭据目的地址和重定向防护。它们不复用调用方
+可修改的 SSL context，也不会根据环境中的 CA 路径重新选择信任来源。
+原生 Git 与 SSH 有各自的信任机制，不属于此绑定范围。
+
+带版本的私有 helper 请求通过 stdin 传递父进程选定的材料与文件观测，分别
+限制 command/settings 数据和信任数据的大小。不写入信任缓存，不把材料
+放进子进程参数或环境变量。helper 重建属于本进程、绑定到确切解码 settings
+的信任对象，并检查传入基线；它不能重新发现同一路径，再把当前文件内容
+当成一次新选择。这种传递不证明子进程 runtime 身份。
+
+首次成功选择之前，bundle 不可用或格式无效只使本次 API 操作失败。owner
+仍能执行本地工作，后续 API 尝试也可以完成首次成功选择。一旦材料被选定，
+观察到文件改变、丢失或对象被替换，都会成为永久绑定失败。context 在后续
+覆盖的使用之前检查已选定信任；API request guard 在发送请求之前检查；
+owner 在两个维护转换处检查。失败会关闭准入，恢复文件不能重新开放准入
+或刷新基线。
+
+这个声明只涉及覆盖的 Python GitLab API TLS client 所使用的保留输入，
+不表示 snapshot 已验证 TLS 对端，也不表示完整 provider 配置清单、原生
+Git/SSH 信任验证、全局空闲或 activation 就绪。没有后台文件 watcher。
+重复文件检查不能使文件系统或网络操作成为原子操作；保留的字节保证新建
+覆盖的 TLS context 时不会悄悄加载替换后的信任材料。
 
 ## 当前进程的 runtime 观测
 
@@ -263,8 +303,10 @@ coding worker 或远端容器已结束。计数与 unknown 证据持续保留，
 `configuration_binding_failed` 表示选定策略检查失败，用
 `runtime_binding_failed` 表示 runtime 捕获或重新验证失败；
 `child_binding_failed` 表示 child context 捕获无效、身份不匹配、选定可执行
-文件漂移，或 helper 报告了 child context 失败。普通子进程命令失败继续
-使用独立分类。
+文件或 API 信任材料漂移，或 helper 报告了 child context 失败。选定信任
+失败在内部归类为 `child_trust_failed`；信任捕获与材料验证使用有限集合的
+`ServiceAPITrustError` 错误码。首次成功选择之前的失败仍属于 API 操作失败，
+不会关闭 owner。普通子进程命令失败继续使用独立分类。
 `controller_binding_failed` 与 `core_binding_failed` 表示启动对象不匹配。
 绑定的 controller 或 gate 被外部关闭，也会使配置绑定永久失败。这些 owner
 错误不回显原始配置值、runtime 路径或底层异常文本。
@@ -280,19 +322,27 @@ worker/session 标识或原始异常文本。
 | `resolved_policy_bound` | 仅在配置了绑定的 owner 运行、controller/core 持有确切配置且 gate 仍有效时为 true。 |
 | `current_process_bound` | 仅在上述运行绑定同时持有内部捕获的当前进程观测时为 true；不表示本次 snapshot 调用完成了新的磁盘完整性检查。 |
 | `child_inputs_bound` | 仅在运行中的 owner、controller 与 core 持有确切的已捕获 child context 且 gate 有效时为 true；不验证子进程 runtime 或 provider 配置。 |
+| `api_trust_bound` | 仅在已选定 API 信任，且运行中的 owner 通过 child context 持有确切信任对象、gate 仍有效时为 true；不表示本次 snapshot 刷新了对端或文件检查。 |
 | `configuration_digest` | 选定 projection 与 launch 的历史 digest；未捕获时为 `null`。 |
 | `runtime_observation` | 选定 runtime 观测的有界历史摘要，包含 digest 和模块数；未捕获时为 `null`。 |
 | `child_observation` | `owned-local-child-inputs` 有界摘要，包含输入保留布尔值与选定可执行文件计数；未捕获时为 `null`。不包含原始环境、环境 digest、路径或凭据指标。 |
+| `api_trust_observation` | 已缓存的 `selected-gitlab-api-trust-v1` 摘要，包含材料保留、仅限当前进程的布尔值及一或两个选定 bundle 的计数；选择前为 `null`。不包含文件路径、PEM、证书身份或信任材料哈希。 |
 
 子进程摘要中的 `child_runtime_verified`、`provider_configuration_verified`、
 `remote_runtime_verified`、`desktop_daemon_verified` 和 `activation_authorized`
 保持 false。计数只表示已选择的观测，不枚举完整后代进程树。
 
-关闭 owner 后，三个运行绑定标志都变为 false。成功捕获的 digest 和观测
-元数据继续作为历史证据保留。未配置绑定的 owner 的这些标志为 false，
-configuration digest 与两个观测字段为 `null`。
+API 信任摘要中的 `tls_peer_verified`、`provider_configuration_verified`、
+`native_git_trust_verified`、`native_ssh_trust_verified` 和
+`activation_authorized` 保持 false。bundle 计数描述选定输入，不表示证书
+数量或已验证对端数量。既有 child 摘要的版本和范围保持不变。
 
-即使三个运行绑定标志都为 true，下列更广的标志仍保持 false：
+关闭 owner 后，四个运行绑定标志都变为 false。成功捕获的 digest 和观测
+元数据继续作为历史证据保留。未配置绑定的 owner 的这些标志为 false，
+configuration digest 与所有观测字段为 `null`。配置了绑定但尚未选定 API
+信任的 owner，`api_trust_bound` 为 false，`api_trust_observation` 为 `null`。
+
+即使四个运行绑定标志都为 true，下列更广的标志仍保持 false：
 `effective_configuration_verified`、`recovered_state_verified`、
 `external_producers_quiesced`、`global_idle_verified`、
 `runtime_identity_verified`、`activation_authorized`、`ready_for_activation`、
@@ -313,21 +363,30 @@ configuration digest 与两个观测字段为 `null`。
 绑定、runtime 漂移、真实请求/回复间隙、协议拒绝、task/lease 竞态、传输
 不确定性与清理。真实 HTTP fixture 位于
 `tests/test_managed_http_integration.py`，使用隔离的合成配置、两种 Bridge
-模式，并以普通共享 core catalog 为比较来源，不联系 coding backend 或 GitLab。
+模式，并以普通共享 core catalog 为比较来源，不联系 coding backend 或真实
+GitLab 服务。
 
 子进程集成测试覆盖真实 controller helper 路径、相互独立的 owner、preview
 与直接 finish 中保留的 settings、外来 client 清理边界、持续失败的 child
 绑定，以及普通 controller 兼容性。直接 backend 测试覆盖本地 Git、
 validation、已批准 Python、history 和本地 SSH 输入。
 
-安装 harness 分别从干净 wheel 与源码环境运行同一组 14 个 fixture 用例，
+API 信任测试覆盖按需选择、确切 settings 与对象所有权、独立 owner、跨进程
+传递的 helper 材料、首次选择失败、持续文件漂移、request guard、两个维护
+转换、私有缓存 snapshot 以及关闭后的历史证据。测试使用新建的合成 CA
+和 loopback HTTPS fixture，并验证信任绑定失败时，在发送合成凭据请求之前
+拒绝操作。
+
+安装 harness 分别从干净 wheel 与源码环境运行同一组 16 个 fixture 用例，
 并检查各自模块来源。其中包含两种模式的配置绑定 owner，以及真实的
 `reasonfirst_files`/`reasonfirst_read` HTTP 调用。这些调用在 `.env`、环境及
 父进程工作目录改变后仍使用选定 workspace，并在捕获的子进程目录放入
-同名 shadow package，以验证 isolated 模块查找。另有四个 report-validator
-用例约束报告格式。严格报告除原有真实 MCP 和维护准入证据外，还要求
-`selected_policy_binding_exercised`、`runtime_observation_exercised` 与
-`child_launch_binding_exercised` 都严格为 true；
+同名 shadow package，以验证 isolated 模块查找。两种模式还使用新建的合成
+CA 材料及 loopback HTTPS 预检，验证绑定 API 信任，并确认选定信任文件漂移
+后的操作被拒绝。另有四个 report-validator 用例约束报告格式。严格报告除
+原有真实 MCP 和维护准入证据外，还要求 `selected_policy_binding_exercised`、
+`runtime_observation_exercised`、`child_launch_binding_exercised` 与
+`api_trust_binding_exercised` 都严格为 true；
 跳过或不完整运行都不算成功。`working_service_touched` 和 `activation_tested`
 保持 false。这些检查验证新创建并持有的 HTTP runtime，不证明用户正在使用
 的服务已完成接管、身份认证、重启恢复或回滚验收。

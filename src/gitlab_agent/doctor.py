@@ -205,6 +205,10 @@ def run_doctor(
     try:
         settings = load_settings()
     except Exception as exc:
+        from .upgrade.service_children import ServiceChildBindingError
+        from .upgrade.service_trust import ServiceAPITrustError
+        if isinstance(exc, (ServiceChildBindingError, ServiceAPITrustError)):
+            raise
         _check(
             checks,
             "configuration",
@@ -439,6 +443,10 @@ def run_doctor(
                 username=username,
             )
         except Exception as exc:
+            from .upgrade.service_children import ServiceChildBindingError
+            from .upgrade.service_trust import ServiceAPITrustError
+            if isinstance(exc, (ServiceChildBindingError, ServiceAPITrustError)):
+                raise
             _check(
                 checks,
                 "gitlab_api_connectivity",

@@ -60,7 +60,7 @@ class _ChildFixture(unittest.TestCase):
 
     def invoke(self, *, argv=None, module=ACTUAL, settings=None, result=None, code=0, effect=None, raw=None):
         request = self.request(argv, settings=settings, module=module) if raw is None else raw
-        self.context = object()
+        self.context = SimpleNamespace(revalidate=Mock())
         self.calls = []
 
         def execute(arguments, **kwargs):
@@ -127,8 +127,10 @@ class ServiceChildTests(_ChildFixture):
         self.assert_code("child_request_limit", child._decode_request, b"x" * (child.MAX_REQUEST_BYTES + 1))
         for change in (
             lambda value: value.update(protocol="reasonfirst-selected-service-policy-v1"),
+            lambda value: value.update(protocol="reasonfirst-managed-child-request-v1"),
             lambda value: value.update(extra="private"),
             lambda value: value.pop("settings"),
+            lambda value: value.pop("api_trust"),
         ):
             self.assert_code("child_invalid_request", child._decode_request, self.changed_request(change))
 
@@ -209,6 +211,8 @@ class ServiceChildTests(_ChildFixture):
                 self.assertEqual(kwargs["resolved_settings"], self.settings)
                 self.assertIs(kwargs["child_context"], self.context)
                 self.assertIs(self.capture_calls[0].args[0], kwargs["resolved_settings"])
+                self.assertEqual(self.capture_calls[0].kwargs, {"api_trust": None})
+                self.context.revalidate.assert_called_once_with()
                 self.assertNotIn(self.settings.api_token.encode(), raw)
 
     def test_short_username_and_author_values_preserve_successful_result_schema(self):
@@ -375,7 +379,7 @@ class ResolvedCLIInjectionTests(_ChildFixture):
         self.assertEqual(code, 0)
         workspace_factory.assert_called_once_with(self.settings, child_context=context)
         runner_factory.assert_called_once_with(self.settings, manager)
-        api_factory.assert_called_once_with(self.settings)
+        api_factory.assert_called_once_with(self.settings, child_context=context)
 
     def test_both_managed_doctor_paths_receive_the_exact_settings_loader(self):
         observed = []

@@ -136,7 +136,7 @@ class ControllerChildBindingTests(unittest.TestCase):
         controller._state["sessions"][session["thread_id"]] = session
         return worktree, session
 
-    def expect_children(self, controller, requests, results):
+    def expect_children(self, controller, requests, results, *, api_trust_expected=False):
         """Mock only the external child and inspect what the real wrapper supplied."""
         calls = []
 
@@ -144,8 +144,15 @@ class ControllerChildBindingTests(unittest.TestCase):
             index = len(calls)
             self.assertLess(index, len(requests), "unexpected child launch")
             module, arguments = requests[index]
+            selected_trust = controller.child_context.api_trust
+            if api_trust_expected:
+                self.assertIsNotNone(selected_trust)
+                self.assertIs(selected_trust.settings, controller.service_configuration.settings)
+            else:
+                self.assertIsNone(selected_trust)
             self.assertEqual(kwargs.get("input"), service_child.encode_child_request(
                 controller.service_configuration.settings, module, arguments,
+                api_trust=selected_trust,
             ))
             self.assertEqual(argv[0], controller.child_context.python_invocation)
             self.assertIn("gitlab_agent.upgrade.service_child", argv)
@@ -199,7 +206,9 @@ class ControllerChildBindingTests(unittest.TestCase):
             ("gitlab_agent.actual_coder_cli", ["ci", WORKSPACE_ID]),
             ("gitlab_agent.actual_coder_cli", ["evidence", WORKSPACE_ID, "--from-ci"]),
         ]
-        external, calls = self.expect_children(controller, requests, [{"ok": True}] * 3)
+        external, calls = self.expect_children(
+            controller, requests, [{"ok": True}] * 3, api_trust_expected=True,
+        )
         with external, patch.dict(os.environ, {MARKER_NAME: "later", "RF_GITLAB_AUTH_MODE": "git-only"}):
             controller.project_preflight("synthetic/project", ref="main")
             controller.ci(thread_id="selected-thread")

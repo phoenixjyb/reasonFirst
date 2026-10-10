@@ -61,12 +61,19 @@ def ca_bundle_path(value: str | Path | None) -> Path | None:
 
 def verified_context(
     base_url: str, *, verify_ssl: bool = True, ca_bundle: str | Path | None = None,
+    retained_trust=None,
 ) -> ssl.SSLContext:
     """Keep public roots and optionally add a user-provided PEM trust bundle.
 
     CA selection is explicit and independent of HTTPX proxy/environment policy.
     We do not honor SSL_CERT_FILE/SSL_CERT_DIR implicitly, even with trust_env=True.
     """
+    if retained_trust is not None:
+        from .upgrade.service_trust import ServiceAPITrust, ServiceAPITrustError
+        if type(retained_trust) is not ServiceAPITrust:
+            raise ServiceAPITrustError("invalid_api_trust") from None
+        retained_trust.assert_options(base_url, verify_ssl, ca_bundle)
+        return retained_trust.ssl_context()
     validate_base_url(base_url)
     if verify_ssl is not True:
         raise ValueError(
@@ -99,6 +106,7 @@ def verified_context(
 def api_client_options(
     base_url: str, *, verify_ssl: bool = True,
     ca_bundle: str | Path | None = None, asynchronous: bool = False,
+    retained_trust=None,
 ) -> dict[str, Any]:
     """Options for both sync/async HTTPX, with pre-send destination checks.
 
@@ -106,11 +114,15 @@ def api_client_options(
     refused. Configure the final API endpoint; never infer credential authority
     from Location. Request hooks also reject explicit off-origin client reuse.
     """
+    context = verified_context(base_url, verify_ssl=verify_ssl, ca_bundle=ca_bundle,
+                               **({"retained_trust": retained_trust} if retained_trust is not None else {}))
     endpoint = httpx.URL(validate_base_url(base_url))
     prefix = endpoint.path.rstrip("/") + "/api/v4"
     origin = (endpoint.scheme, endpoint.host, endpoint.port)
 
     def guard_request(request: httpx.Request) -> None:
+        if retained_trust is not None:
+            retained_trust.revalidate()
         url = request.url
         if (
             (url.scheme, url.host, url.port) != origin
@@ -140,7 +152,7 @@ def api_client_options(
         guard_response(response)
 
     return {
-        "verify": verified_context(base_url, verify_ssl=verify_ssl, ca_bundle=ca_bundle),
+        "verify": context,
         "follow_redirects": False,
         "event_hooks": {
             "request": [aguard_request if asynchronous else guard_request],

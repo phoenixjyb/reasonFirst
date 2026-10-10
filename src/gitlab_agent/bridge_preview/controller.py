@@ -274,6 +274,7 @@ class BridgeController:
             return _run_json(argv, timeout=timeout, **options)
         from gitlab_agent.upgrade.service_child import (
             ServiceChildError, encode_child_request, decode_child_response,
+            helper_requires_api_trust,
         )
         from gitlab_agent.upgrade.service_children import ServiceChildBindingError
         self._ensure_child_binding()
@@ -282,14 +283,25 @@ class BridgeController:
                 or argv[:2] != [context.python_invocation, "-m"]):
             raise BridgeError("invalid_child_request")
         try:
-            request = encode_child_request(self._service_configuration.settings, argv[2], argv[3:])
+            settings = self._service_configuration.settings
+            if helper_requires_api_trust(settings, argv[2], argv[3:]):
+                context.select_api_trust(settings)
+            request = encode_child_request(
+                settings, argv[2], argv[3:], api_trust=context.api_trust,
+            )
             proc = subprocess.run(
                 [context.python_invocation, "-I", "-B", "-m", "gitlab_agent.upgrade.service_child"],
                 input=request, capture_output=True, timeout=timeout, check=False,
                 cwd=context.working_directory, env=context.environment_copy(),
             )
+            # A child result cannot refresh a parent trust/executable baseline
+            # or hide drift observed while the helper was running, including
+            # when its response is malformed or reports an ordinary error.
+            self._ensure_child_binding()
             data = decode_child_response(proc.stdout, proc.returncode)
-        except ServiceChildBindingError:
+        except ServiceChildBindingError as exc:
+            if exc.code == "child_trust_unavailable":
+                raise BridgeError("api_trust_unavailable") from None
             self._fail_child_binding()
         except subprocess.TimeoutExpired:
             raise BridgeOperationUncertain("child_timeout") from None
