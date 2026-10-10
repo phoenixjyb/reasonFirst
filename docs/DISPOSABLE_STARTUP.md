@@ -1,6 +1,6 @@
 # Disposable managed startup
 
-**Development source; not in the published v0.5.1 wheel.** This internal
+**Included in v0.5.2; absent from the v0.5.1 wheel.** This internal
 macOS/Linux adapter observes a newly launched, disposable prepared runtime. It
 does not adopt, replace, restart, or authorize an existing service. There is no
 new public CLI, MCP tool, setup transition, release, or activation command.

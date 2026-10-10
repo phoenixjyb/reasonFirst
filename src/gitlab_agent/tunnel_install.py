@@ -54,7 +54,7 @@ def _platform_tag(
 def _request_bytes(url: str) -> bytes:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "ReasonFirst-v0.5.1-installer"},
+        headers={"User-Agent": "ReasonFirst-v0.5.2-installer"},
     )
     with urllib.request.urlopen(request, timeout=60) as response:
         return response.read()

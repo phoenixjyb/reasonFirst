@@ -1,6 +1,6 @@
 # Controller maintenance admission
 
-**Development source; internal opt-in.** This gate coordinates enrolled work in
+**Included in v0.5.2; internal opt-in.** This gate coordinates enrolled work in
 one `BridgeController` instance. A successful maintenance reservation holds
 that controller's admission closed until its original lease is released or the
 controller closes. It does not establish global idle, adopt an existing service,

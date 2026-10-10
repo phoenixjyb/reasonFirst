@@ -1,6 +1,6 @@
 # Managed HTTP 服务 owner
 
-**开发源码；仅供内部显式集成。** `ManagedBridgeService` 将
+**v0.5.2 包含此功能；v0.5.1 wheel 不包含。仅供内部显式集成。** `ManagedBridgeService` 将
 [controller 维护准入](MAINTENANCE_ADMISSION_CN.md)连接到它自己创建并持有的
 HTTP 服务。HTTP 请求、controller 工作和维护预留使用同一个 admission
 对象。可选的不可变配置对象进一步把选定的父进程策略绑定到这个确切的

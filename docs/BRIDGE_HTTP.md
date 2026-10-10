@@ -1,6 +1,6 @@
 # Packaged Bridge HTTP transport
 
-**Development-source feature; not available in the published v0.5.1 wheel.**
+**Included in v0.5.2; not available in the v0.5.1 wheel.**
 This is the HTTP/shared-core portion of B2, not side-by-side runtime preparation,
 legacy-service activation, or a complete updater. The normal packaged
 `reasonfirst-bridge-mcp` remains stdio. No existing launcher is rewritten.

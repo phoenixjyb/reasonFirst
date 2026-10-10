@@ -2,93 +2,83 @@
 
 ## Unreleased
 
-- Add an internal managed HTTP service owner that binds one enrolled controller
-  to its owned listener and request lifetimes. The explicit MCP 2026-07-28 JSON
-  profile disables subscriptions, holds maintenance through the original local
-  lease, and preserves uncertainty on transport or cleanup failure. Native
-  installation fixtures exercise both wheel/source routes and both tool modes.
-  See [managed HTTP service](docs/MANAGED_HTTP_SERVICE.md) /
+## 0.5.2
+
+This patch release packages the changes merged after the frozen v0.5.1 source
+commit `9b0f488ab0dc2e836c10699b2b45c4bfd8009e9b`. Release availability requires the
+versioned tag, successful asset workflow and verified public downloads; source
+metadata and earlier integration CI are not publication evidence. See
+[English release notes](docs/RELEASE_NOTES_0.5.2.md) and
+[中文发布说明](docs/RELEASE_NOTES_0.5.2_CN.md).
+
+### Existing installation and operator tools
+
+- Reuse valid existing configuration before replaying onboarding. Add
+  `setup --reuse-existing`, `setup --reconfigure` and the detect-only
+  `reasonfirst status` alias. Reuse preserves grants, configuration bytes and
+  exported-variable precedence without starting services or manufacturing wizard
+  phases. Invalid or unreadable selected configuration is reported without
+  exposing its values (#96).
+- Separate installed CLI identity from uninspected running-service identity.
+  Static inventory recognizes the known macOS legacy/HTTP-sidecar registration;
+  missing `setup.yaml` no longer recommends duplicate tunnel setup when existing
+  configuration or deployment evidence is present. Windows/Linux service-manager
+  discovery remains explicitly uninspected (#96).
+- Add explicit create-only macOS `deployment plan/adopt/status` registration
+  snapshots, requiring the reviewed digest and `--yes` to record. Add the separate
+  loopback-only `reasonfirst-bridge-http` shared-core wrapper with explicit endpoint
+  and mode. It adds no HTTP authentication, `/control`, service registration or
+  automatic replacement of an existing listener (#97, #98).
+- Add explicitly approved offline side-by-side runtime preparation from an exact
+  reviewed wheel set on macOS/Linux, plus read-only macOS deployment/runtime
+  pairing and launcher/source review. Preserve the existing CLI and service;
+  retain unresolved compatibility and activation blockers. Windows preparation
+  and Linux/Windows deployment pairing are unsupported (#99–#101).
+- Add bounded native macOS loaded-job observation. Report unavailable
+  cwd/environment fields as unknown; the approved partial-observation scope does
+  not satisfy the original four-field verification or authorize activation (#102).
+
+### Opt-in service safeguards
+
+- Add an internal one-shot startup-claims codec with strict schemas, an
+  eight-second local deadline and replay rejection. Add a separate macOS/Linux
+  disposable prepared-runtime probe with an owned listener and shared MCP catalog
+  checks. Every disposable tool call remains denied; neither claims nor probe
+  results adopt an existing service or authorize activation (#103, #104).
+- Add opt-in controller maintenance admission with atomic reservations,
+  instance-bound leases and operation/turn/approval lifetime tracking. Busy or
+  unknown activity blocks maintenance. Ordinary controllers retain their existing
+  behavior unless explicitly enrolled (#105).
+- Add an internal managed HTTP service owner with an explicit MCP 2026-07-28
+  single-request JSON profile, subscriptions disabled and owned cleanup. Preserve
+  uncertainty on disconnect, failed send or incomplete cleanup rather than
+  manufacturing idle (#106).
+- Bind configured owners to selected policy, current-process runtime observations,
+  retained local child-launch inputs and selected GitLab API CA material. Covered
+  helpers consume retained settings/environment and API trust; observed binding
+  drift closes admission permanently for that owner. These bounded bindings do
+  not verify all provider/native Git/SSH configuration, loaded code, remote
+  runtimes, global idle or activation readiness (#107–#109).
+- Expand synthetic regressions and clean wheel/source installation fixtures for
+  both Bridge modes, real MCP calls, maintenance boundaries, child inputs and
+  loopback HTTPS trust. These tests do not establish live provider authentication,
+  working-service migration, reboot recovery or rollback. See
+  [managed HTTP scope](docs/MANAGED_HTTP_SERVICE.md) /
   [中文](docs/MANAGED_HTTP_SERVICE_CN.md).
 
-- Add an internal opt-in controller maintenance gate with atomic reservation,
-  instance-bound leases, full operation/turn/approval lifetime tracking, and
-  bounded diagnostic snapshots. Busy or unknown activity blocks maintenance;
-  unknown readiness keeps ordinary admission available when otherwise open.
-  Default behavior and permanent disposable tool denial are preserved. This
-  does not establish global idle, adopt a service, or authorize activation.
-  See [maintenance admission](docs/MAINTENANCE_ADMISSION.md) /
-  [中文](docs/MAINTENANCE_ADMISSION_CN.md).
+### Distribution and release preparation
 
-- Add an internal disposable managed-startup probe for reviewed macOS/Linux
-  prepared runtimes: bounded inherited pipes, selected non-secret policy from
-  captured startup objects, an owned listener and exact shared MCP catalog
-  checks. Tool admission remains closed and activation/compatibility gates stay
-  blocked. Unmanaged launch behavior and the existing claim codec are preserved.
-  See [disposable startup](docs/DISPOSABLE_STARTUP.md) /
-  [中文](docs/DISPOSABLE_STARTUP_CN.md).
-
-- Add an internal, one-shot startup-claims message codec/verifier with strict
-  schemas, an eight-second local deadline and replay rejection. Successful claim
-  comparison is explicitly not peer identity, effective configuration, managed
-  startup confirmation or activation. No command/service uses it automatically.
-  See [protocol scope](docs/STARTUP_CONFIRMATION.md) /
-  [中文](docs/STARTUP_CONFIRMATION_CN.md).
-
-- Add read-only launch/source and saved-policy inspection after deployment/runtime pairing. Pin known legacy HTTP and packaged HTTP source profiles, surface the legacy full-chat /control incompatibility, and require an exact review digest for recheck. Preserve unknown sidecar bootstrap, inherited environment, running core and active-work constraints as blockers. No service activation or release changes.
-
-
-- Add read-only macOS `reasonfirst-runtime deployment-plan/deployment-check` to
-  bind a matching saved deployment record and unchanged prepared runtime under
-  one review digest. Reject drift, unsafe/missing metadata and cross-host inputs;
-  preserve unknown `/control`, configuration/state and loaded-service identity.
-  No activation, association write or release. Linux/Windows pairing is explicitly
-  unsupported. See [pairing preflight](docs/DEPLOYMENT_PAIRING.md) /
-  [中文](docs/DEPLOYMENT_PAIRING_CN.md).
-
-- Add explicitly approved offline side-by-side runtime preparation from reviewed,
-  exact-hashed wheel inputs on macOS/Linux. Preserve the CLI and old service;
-  record installed interpreter/dependency/file identity separately from health.
-  No activation, cleanup, Windows storage adapter, release, or network downloader.
-  See [runtime preparation](docs/RUNTIME_PREPARATION.md) / [中文](docs/RUNTIME_PREPARATION_CN.md).
-
-- Add explicit `deployment plan/adopt/status` for a create-only snapshot of the
-  known macOS legacy/sidecar LaunchAgent. Require reviewed digest plus `--yes`,
-  preserve existing records, classify drift separately from health, and leave
-  runtime identity/configuration bindings uninspected. No runtime installation,
-  activation, service restart, setup-state fabrication or new release is included.
-  See [deployment records](docs/DEPLOYMENTS.md) / [中文](docs/DEPLOYMENTS_CN.md).
-
-- Offer read-only reuse of existing configuration before replaying onboarding;
-  add explicit `setup --reuse-existing` and `--reconfigure` controls. Preserve all
-  existing grants, configuration bytes and exported-variable precedence on reuse;
-  never write wizard phases or start services as a side effect. Classify invalid,
-  unreadable, unsupported and missing selected configuration without echoing values.
-- Add `reasonfirst status` as the detect-only inventory alias. Separate installed
-  CLI identity from uninspected running-service identity and bounded static evidence
-  for the known macOS legacy/sidecar LaunchAgent. Missing wizard records no longer
-  recommend duplicate tunnel setup when an existing configuration/deployment is
-  present. Windows/Linux service-manager discovery remains explicitly uninspected.
-- Clarify packaged, source/editable and legacy-service upgrades in both install
-  guides. This is not service adoption, activation, rollback or a new release;
-  published v0.5.1 artifacts and running installations are unchanged.
-
-- Add explicit workspace-scoped Python interpreter approval, offline installed-version
-  discovery, and validation-only preflight/execution. Keep the pinned project
-  command unchanged while recording requested and resolved argv; share approved
-  mappings with local worker handoffs and finish validation. Changed binaries or
-  venv configuration require re-approval, and changed bindings invalidate reviewed
-  finish snapshots. No automatic installation, PATH mutation, remote-machine mapping,
-  or new privileged MCP tool is introduced. See [Python runtime guide](docs/PYTHON_RUNTIME.md)
-  / [中文](docs/PYTHON_RUNTIME_CN.md).
-
-- Isolate credentials for authenticated managed Git operations from inherited
-  credential helpers and URL-specific usernames. Keep credential-source precedence,
-  temporary askpass, and noninteractive behavior without changing global Git config.
-- Add real Git credential-selection and loopback authenticated clone/fetch
-  regressions, including host-helper non-invocation and persistent-config checks.
-  Git reference access remains distinct from clone, worker, and write acceptance.
-  See [recovery guidance](docs/GIT_CREDENTIAL_RECOVERY.md) /
-  [中文](docs/GIT_CREDENTIAL_RECOVERY_CN.md).
+- Build release artifacts with `uv build --no-create-gitignore` so the normal
+  build directory matches the strict staging input allowlist. Preserve filename
+  collision guards, source identity checks and no-replacement uploads (#95).
+- Preserve the published v0.5.1 tag, assets and version-specific staging-recovery
+  workflow. That recovery workflow is not the v0.5.2 publication path.
+- Align package/runtime metadata, installation entry points and bilingual release
+  documentation at 0.5.2. Installing the new package does not update an already
+  running service or automatically migrate a legacy deployment.
+- Reconcile the Python-runtime and managed-Git credential entries below with the
+  published v0.5.1 source. They were already included in that release and are not
+  new 0.5.2 features.
 
 ## 0.5.1
 
@@ -120,6 +110,33 @@ See [English release notes](docs/RELEASE_NOTES_0.5.1.md) and
 - Compare clean-installed distribution/runtime versions against source metadata rather than a stale hard-coded 0.5.0 assertion; make CLI and current-release documentation tests version-aware and add mismatch/missing-version regressions.
 - Update bilingual README/site entry points and release-note navigation. Preserve the historical v0.5.0 release notes and all earlier changelog sections.
 - Require fresh validation of the version-bumped PR and resulting main commit before separately approved v0.5.1 publication. No new runtime feature, dependency upgrade, credential migration or repository-protection change is part of release preparation.
+
+### Additional fixes included in the published v0.5.1 source
+
+These changes preceded the frozen release commit
+`9b0f488ab0dc2e836c10699b2b45c4bfd8009e9b`. The Python-runtime and credential
+entries were previously left under Unreleased; their placement is corrected here
+without changing the published tag or artifacts.
+
+- Fix Windows tunnel command quoting/path escaping, UTF-8 JSON decoding and
+  interrupted-setup recovery, with native command-parser regressions (#90).
+- Isolate authenticated managed Git operations from inherited credential helpers
+  and URL-specific usernames while preserving credential-source precedence,
+  temporary askpass and noninteractive behavior. Add real credential-selection
+  and loopback authenticated clone/fetch regressions without modifying global Git
+  configuration (#91). See [credential recovery](docs/GIT_CREDENTIAL_RECOVERY.md).
+- Add workspace-scoped Python interpreter approval, offline installed-version
+  discovery and validation-only preflight/execution. Preserve pinned project
+  commands while recording requested/resolved argv, and share approved mappings
+  with worker handoffs and finish validation. Changed binaries or venv identity
+  require re-approval; changed bindings invalidate reviewed finish snapshots.
+  No automatic interpreter installation, PATH mutation or remote-machine mapping
+  is introduced (#92). See [Python runtime guide](docs/PYTHON_RUNTIME.md).
+- Include portable PowerShell/POSIX execution recipes in normal worker handoffs,
+  preserving original arguments, child exit status and timeout/output-completeness
+  evidence (#93).
+- Stage public `RELEASE.json` and `SHA256SUMS.txt`, check the exact release/tag
+  identity and reject existing target asset names before upload (#94).
 
 ## 0.5.0 - 2026-09-29
 

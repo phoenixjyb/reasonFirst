@@ -28,13 +28,19 @@
 !!! info "只有一条主闭环"
     ActualCoder 也可以被终端、CI、IDE 或其他客户端直接调用，适合测试、恢复和自动化；但这是次要运维能力，不是另一种并列产品模式。
 
-## v0.5.1 引导配置与安装
+## v0.5.2：复用配置，检查服务状态
 
-0.5.1 源码整合了五个 setup 切片：统一 `reasonfirst setup` 向导、先验证后授权的项目配置、worker 选择、打包只读 MCP、可选打包全聊天 Bridge、受管 tunnel runtime，以及基于记录状态的修复/恢复。**打包安装和源码安装都是正式支持的路径**，共用配置与状态；详细/手工指南继续保留。
+v0.5.2 为已有安装增加了更明确的操作入口：
 
-功能整合基线已通过十个 CI job，包括 Ubuntu、macOS 和 Windows 上真实的打包/源码安装 E2E。发布准备提交仍需重新验证；安装测试不等于 provider 登录或浏览器侧 ChatGPT 授权。只有维护者发布 `v0.5.1`、Release assets 工作流成功附加 wheel 后，才应使用发布包。源码版本号本身不代表发布包已可下载。
+- 用 `reasonfirst setup --reuse-existing` 复用有效的已有配置；需要修改时明确选择 `--reconfigure`。
+- 用 `reasonfirst status` 检查已安装 CLI、选定配置和已知的服务注册记录；正在运行的服务身份仍需单独核验。
+- 高级运维可在 macOS/Linux 上离线准备独立运行环境，并在 macOS 上审阅已知部署，为后续服务变更提供依据。
 
-[阅读 v0.5.1 发布说明](docs/RELEASE_NOTES_0.5.1_CN.md){ .md-button }
+**打包安装和源码安装都是正式支持的路径**，共用引导配置与保存状态。高级服务功能仍有各自的平台与兼容性边界；安装 v0.5.2 不会激活或迁移已有服务。
+
+只有 v0.5.2 的 GitHub Release 附件已发布、实际公开下载完成核验后，才应使用该版本 wheel。发布状态和与准确源码绑定的验证证据见发布说明；安装检查不代表 provider 已登录或浏览器侧 ChatGPT 已连接。
+
+[阅读 v0.5.2 发布说明](docs/RELEASE_NOTES_0.5.2_CN.md){ .md-button }
 [选择安装路径](docs/INSTALL_CN.md){ .md-button }
 
 ## v0.5.0 已验证基线

@@ -5,8 +5,9 @@ uses this unchanged primitive with owned pipes, captured policy and listener
 observations. This page describes the codec's own evidence boundary; its false
 attestation/activation flags and blockers remain unchanged.
 
-Development proposal on main `0fcc977a48d91195574c94370f1a966494a04bc4`.
-**Not in published v0.5.1. Not an automatic updater.**
+**Included in v0.5.2 as an internal protocol; absent from the v0.5.1 wheel.**
+It is not an automatic updater. The original protocol proposal used main
+`0fcc977a48d91195574c94370f1a966494a04bc4`.
 
 ## Why this exists
 

@@ -28,13 +28,19 @@
 !!! info "One primary loop"
     ActualCoder can also run directly from a terminal, CI job, IDE, or another client. That is useful for testing, recovery, and automation, but it is a secondary operational capability—not a separate product mode.
 
-## v0.5.1 guided setup and installation
+## v0.5.2 setup reuse and service checks
 
-The 0.5.1 source brings the five setup slices together: the canonical `reasonfirst setup` wizard, verified project grants and worker selection, packaged read MCP, optional packaged full-chat Bridge, managed tunnel runtimes, and recorded-state repair/resume. **Packaged and source installation remain first-class routes** to the same configuration and state. Detailed/manual guides are still supported.
+v0.5.2 adds clearer controls for existing installations:
 
-The integrated feature baseline passed all ten CI jobs, including real packaged/source install E2E on Ubuntu, macOS and Windows. Release preparation needs its own fresh validation; installation tests do not establish provider login or browser-side ChatGPT authorization. Use the release wheel only after a maintainer publishes `v0.5.1` and the Release assets workflow successfully attaches it. A source version alone does not establish release availability.
+- Reuse valid saved configuration with `reasonfirst setup --reuse-existing`; choose `--reconfigure` when you intend to change it.
+- Inspect the installed CLI, selected configuration and known saved deployment with `reasonfirst status`. Running-service identity remains a separate check.
+- Advanced operators can prepare a separate runtime offline on macOS/Linux and review the known macOS deployment before planning service changes.
 
-[Read the v0.5.1 release notes](docs/RELEASE_NOTES_0.5.1.md){ .md-button }
+**Packaged and source installation remain first-class routes** to the same guided setup and saved state. The advanced service features retain their platform and compatibility limits; installing v0.5.2 does not activate or migrate an existing service.
+
+Use the v0.5.2 wheel only after its GitHub Release assets are published and the public download has been checked. See the release notes for release status and evidence tied to the exact source. Installation checks do not verify provider login or the browser-side ChatGPT connection.
+
+[Read the v0.5.2 release notes](docs/RELEASE_NOTES_0.5.2.md){ .md-button }
 [Choose an installation route](docs/INSTALL.md){ .md-button }
 
 ## v0.5.0 validated baseline

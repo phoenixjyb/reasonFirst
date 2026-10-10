@@ -1,6 +1,6 @@
 # Record an existing deployment registration
 
-**Development-source feature; not available in the published v0.5.1 wheel.**
+**Included in v0.5.2; not available in the v0.5.1 wheel.**
 This is the first part of the deployment-identity work, not a general updater.
 The existing [install and update guide](INSTALL.md) still applies.
 

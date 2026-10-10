@@ -1,6 +1,6 @@
 # Review a saved deployment and prepared runtime together
 
-**Development-source feature; not in the published v0.5.1 wheel.** This B3a
+**Included in v0.5.2; not available in the v0.5.1 wheel.** This B3a
 preflight joins the identities established by deployment recording and offline
 runtime preparation. It does not establish their compatibility or switch a service.
 

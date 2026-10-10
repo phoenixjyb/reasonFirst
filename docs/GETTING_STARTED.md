@@ -1,6 +1,6 @@
 # First-time setup: from your Mac to a GitLab conversation in ChatGPT
 
-> **Detailed/manual operator guide.** For v0.5.1, normal users should start with [Install & update](INSTALL.md) and then run `reasonfirst setup`. This page remains fully supported as the detailed source/manual route and operational reference; it is not deprecated.
+> **Detailed/manual operator guide.** For v0.5.2, normal users should start with [Install & update](INSTALL.md) and then run `reasonfirst setup`. This page remains fully supported as the detailed source/manual route and operational reference; it is not deprecated.
 
 [简体中文](GETTING_STARTED_CN.md) · [Documentation index](README.md) · [Architecture](ARCHITECTURE.md) · [Daily tunnel operations](TUNNEL_LIFECYCLE.md)
 

@@ -52,10 +52,10 @@ For external users, start with the generic [fully chat-based E2E practice](docs/
 
 Both installation routes are first-class and converge on the same setup/state model.
 
-**Normal-user packaged route (after v0.5.1 publication and successful release-asset attachment):**
+**Normal-user packaged route (after v0.5.2 publication and successful release-asset attachment):**
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -133,7 +133,7 @@ Tests use temporary repositories, mocked services and loopback fixtures, not pro
 
 ## What is available on main
 
-The source/package version is **0.5.1**. This identifies the source, not proof of a published release or downloadable assets. After maintainer publication, the **v0.5.1** tag identifies the released commit; record the exact commit SHA as well as the package version in bug reports. See [0.5.1 release notes](docs/RELEASE_NOTES_0.5.1.md) and [CHANGELOG.md](CHANGELOG.md). The published v0.5.0 tag and its [historical release notes](docs/RELEASE_NOTES_0.5.0.md) remain the frozen earlier baseline.
+The source/package version is **0.5.2**. This identifies the source, not proof of a published release or downloadable assets. After maintainer publication, the **v0.5.2** tag identifies the released commit; record the exact commit SHA as well as the package version in bug reports. See [0.5.2 release notes](docs/RELEASE_NOTES_0.5.2.md) and [CHANGELOG.md](CHANGELOG.md). The published v0.5.1 and v0.5.0 tags remain frozen earlier baselines; their [0.5.1](docs/RELEASE_NOTES_0.5.1.md) and [0.5.0](docs/RELEASE_NOTES_0.5.0.md) release notes remain available.
 
 | Capability | Current scope |
 | --- | --- |
