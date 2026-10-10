@@ -236,7 +236,8 @@ class ServiceAPITrustTests(unittest.TestCase):
             result = real_read(fd, size)
             if not changed:
                 changed = True
-                self.public.write_bytes(self.other_pem)
+                # Growth avoids relying on same-size write timestamp visibility.
+                self.public.write_bytes(self.public_pem + b"\n")
             return result
         with patch.object(t.os, "read", side_effect=mutate):
             self.assert_code("api_trust_changed", self.capture)
