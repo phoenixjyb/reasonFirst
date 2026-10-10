@@ -45,6 +45,7 @@ from .remote_workspace import RemoteWorkspaceManager
 
 if TYPE_CHECKING:
     from gitlab_agent.upgrade.startup_state import ManagedStartupState
+    from gitlab_agent.upgrade.service_configuration import ManagedServiceConfiguration
 
 
 class BridgeError(RuntimeError):
@@ -86,6 +87,17 @@ def _private_state_dir(selected: Path | None = None) -> Path:
 
 def _module_command(module: str, *args: str) -> list[str]:
     return [sys.executable, "-m", module, *args]
+
+
+def _same_policy_value(actual: Any, expected: Any) -> bool:
+    """Compare canonical saved policy, allowing JSON's tuple-to-list conversion."""
+    if type(expected) is dict:
+        return (type(actual) is dict and actual.keys() == expected.keys()
+                and all(_same_policy_value(actual[key], value) for key, value in expected.items()))
+    if type(expected) in (tuple, list):
+        return (type(actual) in (tuple, list) and len(actual) == len(expected)
+                and all(_same_policy_value(left, right) for left, right in zip(actual, expected)))
+    return type(actual) is type(expected) and actual == expected
 
 
 def _run_json(argv: list[str], *, timeout: int = 360, allow_failure_json: bool = False) -> dict[str, Any]:
@@ -149,7 +161,16 @@ class BridgeController:
         *,
         managed_startup: ManagedStartupState | None = None,
         admission: ControllerAdmission | None = None,
+        service_configuration: ManagedServiceConfiguration | None = None,
     ) -> None:
+        if service_configuration is not None:
+            from gitlab_agent.upgrade.service_configuration import ManagedServiceConfiguration
+            if type(service_configuration) is not ManagedServiceConfiguration:
+                raise BridgeError("invalid_service_configuration")
+            if managed_startup is not None:
+                raise BridgeError("service_configuration_conflict")
+            if admission is None:
+                raise BridgeError("service_configuration_requires_admission")
         if admission is not None:
             if type(admission) is not ControllerAdmission:
                 raise BridgeError("invalid_controller_admission")
@@ -165,8 +186,10 @@ class BridgeController:
             if type(managed_startup) is not ManagedStartupState:
                 raise BridgeError("invalid_managed_startup_state")
         self._managed_startup = managed_startup
+        self._service_configuration = service_configuration
         try:
-            self.state_dir = _private_state_dir(managed_startup.state_dir) if managed_startup is not None else _private_state_dir()
+            selected = self._selected_policy()
+            self.state_dir = _private_state_dir(selected.state_dir) if selected is not None else _private_state_dir()
             self.state_file = self.state_dir / "state.json"
             self._lock = threading.RLock()
             self._app_lock = threading.RLock()
@@ -179,7 +202,7 @@ class BridgeController:
             if admission is not None and self.state_file.exists():
                 admission.mark_unknown("recovered_state_unverified")
             self._state = self._load_state()
-            self.bridge_config = managed_startup.bridge_configuration() if managed_startup is not None else load_bridge_config()
+            self.bridge_config = selected.bridge_configuration() if selected is not None else load_bridge_config()
             self._apps: dict[str, AppServerClient] = {}
             self._app_current_thread: dict[str, str] = {}
             self._approval_waiters: dict[str, threading.Event] = {}
@@ -193,6 +216,19 @@ class BridgeController:
     @property
     def managed_startup_state(self) -> ManagedStartupState | None:
         return self._managed_startup
+
+    @property
+    def service_configuration(self) -> ManagedServiceConfiguration | None:
+        return self._service_configuration
+
+    def _selected_policy(self):
+        # These contexts share selected-policy accessors, not admission rights.
+        # The disposable context continues to reject every tool below.
+        return self._service_configuration or self._managed_startup
+
+    def _bridge_configuration(self) -> dict[str, Any]:
+        selected = self._selected_policy()
+        return selected.bridge_configuration() if selected is not None else self.bridge_config
 
     def assert_tool_admitted(self) -> None:
         # This context has no activation/admission transition.  A disposable
@@ -294,8 +330,9 @@ class BridgeController:
         session["last_turn_status"] = "inProgress" if active else "unknown"
 
     def _settings_for_operation(self) -> AgentSettings:
-        if self._managed_startup is not None:
-            return self._managed_startup.settings
+        selected = self._selected_policy()
+        if selected is not None:
+            return selected.settings
         return AgentSettings.load()
 
     def _load_state(self) -> dict[str, Any]:
@@ -364,12 +401,24 @@ class BridgeController:
         return item
 
     def _target_from_dict(self, data: Any) -> ExecutionTarget:
-        config = self._managed_startup.bridge_configuration() if self._managed_startup is not None else self.bridge_config
+        config = self._bridge_configuration()
+        if self._service_configuration is not None:
+            if type(data) is not dict:
+                return self._service_configuration.configured_target(data)
+            # Saved target records are inputs, not authority to replace the
+            # selected host/repository/backend policy. The canonical stored
+            # shape has flat validation fields, unlike the YAML resolver.
+            for name in config["targets"]:
+                selected = self._service_configuration.configured_target(name)
+                if _same_policy_value(data, selected.to_dict()):
+                    return selected
+            raise BridgeError("service_target_mismatch")
         return resolve_target(data, config=config)
 
     def _requested_target(self, data: Any = None) -> ExecutionTarget:
-        if self._managed_startup is not None:
-            return self._managed_startup.configured_target(data)
+        selected = self._selected_policy()
+        if selected is not None:
+            return selected.configured_target(data)
         return resolve_configured_target(data, config=self.bridge_config)
 
     @staticmethod
@@ -377,9 +426,19 @@ class BridgeController:
         return resolve_worker_policy(AgentSettings.load(), "codex")
 
     def _effective_codex_policy(self) -> WorkerPolicy:
-        if self._managed_startup is not None:
-            return self._managed_startup.codex_policy
+        selected = self._selected_policy()
+        if selected is not None:
+            return selected.codex_policy
         return self._codex_policy()
+
+    def _session_codex_policy(self, session: dict[str, Any]) -> WorkerPolicy:
+        raw = session.get("worker_policy")
+        if self._service_configuration is not None:
+            selected = self._service_configuration.codex_policy
+            if raw is not None and not _same_policy_value(raw, selected.to_dict()):
+                raise BridgeError("service_worker_policy_mismatch")
+            return selected
+        return WorkerPolicy.from_dict(raw) if isinstance(raw, dict) else self._effective_codex_policy()
 
     def _bridge_mutation_lock(self, rec: dict[str, Any]):
         workspace_id = str(rec.get("workspace_id") or "")
@@ -421,7 +480,7 @@ class BridgeController:
                 max_file_bytes=settings.max_file_bytes,
             )
         except Exception:
-            if self._managed_startup is not None:
+            if self._selected_policy() is not None:
                 raise BridgeError("managed_configuration_failed") from None
             return RemoteWorkspaceManager(target)
 
@@ -448,6 +507,8 @@ class BridgeController:
         only the execution backend; the remote worktree, branch and base SHA stay
         untouched.
         """
+        if self._service_configuration is not None:
+            return target, False
         if rec.get("kind") != "ssh" or target.codex_backend != "remote-ssh":
             return target, False
         probe = self._remote_manager(target).probe()
@@ -491,6 +552,11 @@ class BridgeController:
         except ValueError:
             value = 300
         return max(30, min(value, 1800))
+
+    def _effective_approval_timeout_seconds(self) -> int:
+        if self._service_configuration is not None:
+            return self._service_configuration.approval_timeout_seconds
+        return self._approval_timeout_seconds()
 
     @staticmethod
     def _approval_key(thread_id: str, request_id: int) -> str:
@@ -550,7 +616,7 @@ class BridgeController:
             session["updated_at"] = int(time.time())
             self._save_state()
 
-        signaled = waiter.wait(self._approval_timeout_seconds())
+        signaled = waiter.wait(self._effective_approval_timeout_seconds())
 
         with self._lock:
             self._approval_waiters.pop(key, None)
@@ -591,7 +657,7 @@ class BridgeController:
             "pending": items,
             "count": len(items),
             "default": "deny_on_timeout",
-            "timeout_seconds": self._approval_timeout_seconds(),
+            "timeout_seconds": self._effective_approval_timeout_seconds(),
         }
 
     @_admitted_operation(kind="approval")
@@ -809,10 +875,17 @@ class BridgeController:
             "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH", "false"
         ).strip().lower() in {"1", "true", "yes", "on"}
 
+    def _effective_remote_push_enabled(self) -> bool:
+        if self._service_configuration is not None:
+            return False
+        return self._remote_push_enabled()
+
     @classmethod
     def _remote_dynamic_tools(
         cls,
         target: ExecutionTarget | None = None,
+        *,
+        remote_push: bool | None = None,
     ) -> list[dict[str, Any]]:
         def fn(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
             schema: dict[str, Any] = {
@@ -876,7 +949,7 @@ class BridgeController:
                     ["argv"],
                 )
             )
-        if cls._remote_push_enabled():
+        if (cls._remote_push_enabled() if remote_push is None else remote_push):
             tools.append(
                 fn(
                     "commit_push",
@@ -905,6 +978,8 @@ class BridgeController:
         args = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
         if namespace != "reasonfirst_remote":
             raise BridgeError(f"Unsupported dynamic tool namespace: {namespace!r}")
+        if tool == "commit_push" and self._service_configuration is not None:
+            raise BridgeError("service_remote_push_disabled")
         session = self._session(thread_id)
         if str(session.get("app_key") or "") != app_key:
             raise BridgeError("Dynamic tool request arrived on the wrong app-server")
@@ -991,6 +1066,8 @@ class BridgeController:
 
     @_admitted_operation()
     def _app_for_session(self, session: dict[str, Any]) -> tuple[str, AppServerClient]:
+        selected_policy = (self._session_codex_policy(session)
+                           if self._service_configuration is not None else None)
         target = self._target_from_dict(session.get("target") or "local")
         key, app = self._get_app(
             target,
@@ -998,12 +1075,7 @@ class BridgeController:
         )
         tid = str(session["thread_id"])
         if key not in self._app_current_thread or self._app_current_thread.get(key) != tid:
-            raw_policy = session.get("worker_policy")
-            policy = (
-                WorkerPolicy.from_dict(raw_policy)
-                if isinstance(raw_policy, dict)
-                else self._effective_codex_policy()
-            )
+            policy = selected_policy or self._session_codex_policy(session)
             verified = app.resume_thread(tid, policy=policy)
             if not bool(verified.get("satisfied", False)):
                 raise BridgeError(
@@ -1017,6 +1089,8 @@ class BridgeController:
         return key, app
 
     def _allowed_workspace_root(self) -> Path:
+        if self._service_configuration is not None:
+            return self._service_configuration.settings.workspace_root
         data = _run_json(_module_command("gitlab_agent.actual_coder_cli", "config"), timeout=60)
         root = data.get("workspace_root")
         if not isinstance(root, str) or not root:
@@ -1032,9 +1106,17 @@ class BridgeController:
         return str(path)
 
     def _reasonfirst_config(self) -> dict[str, Any]:
+        if self._service_configuration is not None:
+            from gitlab_agent.cli import _safe_config
+            return _safe_config(self._service_configuration.settings)
         return _run_json(_module_command("gitlab_agent.actual_coder_cli", "config"), timeout=60)
 
     def _git_only_mode(self) -> bool:
+        if self._service_configuration is not None:
+            mode = self._service_configuration.gitlab_auth_mode
+            if mode != "auto":
+                return mode == "git-only"
+            return not bool(self._service_configuration.settings.api_token)
         forced = os.getenv("RF_GITLAB_AUTH_MODE", "").strip().lower()
         if forced in {"git-only", "git_only", "password", "git"}: return True
         if forced in {"api", "token", "full"}: return False
@@ -1047,7 +1129,8 @@ class BridgeController:
             "reasonfirst_version": REASONFIRST_VERSION,
             "bridge": "preview",
             "config_schema": 4,
-            "config_file": str(config_path()),
+            "config_file": str(self._service_configuration.bridge_config_path
+                               if self._service_configuration is not None else config_path()),
             "codex_bin": None,
             "desktop_managed_socket": str(managed_app_server_socket()),
             "desktop_managed_socket_exists": managed_app_server_socket().exists(),
@@ -1067,11 +1150,12 @@ class BridgeController:
             if not bool(rf.get("ok")): result["ok"] = False
         except Exception as exc:
             result["ok"] = False; result["reasonfirst_error"] = str(exc)
-        targets = self.bridge_config.get("targets", {})
+        configuration = self._bridge_configuration()
+        targets = configuration.get("targets", {})
         if isinstance(targets, dict):
             for name in targets:
                 try:
-                    target = resolve_target(name, config=self.bridge_config)
+                    target = resolve_target(name, config=configuration)
                     if target.type == "ssh":
                         result["targets"][name] = self._remote_manager(target).probe()
                     else:
@@ -1403,7 +1487,9 @@ class BridgeController:
             if self._is_remote_proxy_target(target):
                 prompt = self._hybrid_remote_prompt(rec, goal)
                 codex_cwd = self._proxy_workspace(wid, rec)
-                dynamic_tools = self._remote_dynamic_tools(target)
+                dynamic_tools = self._remote_dynamic_tools(
+                    target, remote_push=self._effective_remote_push_enabled(),
+                )
                 sandbox_mode = "read-only"
             else:
                 prompt = self._remote_prompt(rec, goal)
@@ -1512,12 +1598,7 @@ class BridgeController:
         session, app = self._ensure_loaded(thread_id)
         rec = self._workspace_record(str(session["workspace_id"]))
         target = self._target_from_dict(session["target"])
-        raw_policy = session.get("worker_policy")
-        policy = (
-            WorkerPolicy.from_dict(raw_policy)
-            if isinstance(raw_policy, dict)
-            else self._codex_policy()
-        )
+        policy = self._session_codex_policy(session)
         current_policy_evidence = app.worker_policy_evidence(thread_id)
         if current_policy_evidence and not bool(
             current_policy_evidence.get("satisfied", False)
@@ -1842,7 +1923,7 @@ class BridgeController:
     ) -> dict[str, Any]:
         """Authorize publication only after a fresh, unblocked remote finish plan."""
 
-        if not self._remote_push_enabled():
+        if not self._effective_remote_push_enabled():
             raise BridgeError(
                 "Remote publication is experimental and disabled by default."
             )

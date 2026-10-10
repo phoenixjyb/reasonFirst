@@ -3,14 +3,15 @@
 **Development source; internal, explicit integration.**
 `ManagedBridgeService` connects the [controller admission gate](MAINTENANCE_ADMISSION.md)
 to one HTTP server that it creates and owns. HTTP requests, controller work,
-and maintenance reservation use the same admission object. This is the first
-service integration of that gate.
+and maintenance reservation use the same admission object. An optional immutable
+configuration binds selected parent policy to that exact owner and controller.
 
 The owner lives in `src/gitlab_agent/upgrade/service_managed.py`. It is a Python
 embedding API, not a new CLI command, MCP tool, public administration route, or
-service-manager installer. Starting it loads the ordinary Bridge configuration
-and state. Use deliberately selected configuration and state; the native
-integration fixture uses fresh synthetic inputs.
+service-manager installer. Without the optional configuration, startup uses the
+ordinary Bridge configuration and state loaders. With it, the controller consumes
+the selected policy objects and loads state from the explicit state directory.
+The native integration fixture uses fresh synthetic inputs for both routes.
 
 ## Ownership and lifecycle
 
@@ -19,6 +20,14 @@ with that exact gate, the shared MCP core bound to that controller, an exclusive
 TCP socket, and its HTTP server task. It does not accept an existing controller,
 PID, saved registration, pairing digest, or disposable startup object as proof
 of ownership.
+
+For a configured owner, the controller and shared core must retain the exact
+`ManagedServiceConfiguration` object supplied to the owner. Matching public
+digests do not authorize substituting another object. The exact admission gate
+determines cleanup ownership: a controller using another gate is rejected before
+adoption and is not closed. A controller enrolled in this owner's gate remains
+its cleanup responsibility even when a configuration or state-path mismatch
+prevents startup.
 
 Construction, startup, serving, and cleanup are distinct lifecycle states. The
 owner is used once. Startup must finish successfully before it can reserve
@@ -38,11 +47,12 @@ to the creating process.
 
 | Entry point | Behavior |
 | --- | --- |
-| `ManagedBridgeService(launch)` | Select an explicit `HTTPLaunch`; do not adopt an existing server. |
-| `await service.start()` | Construct the enrolled controller and start the owned HTTP listener; return after readiness checks succeed. |
-| `service.maintenance_snapshot()` | Return bounded service/ledger diagnostics without using them as an authorization. |
-| `service.try_enter_maintenance()` | Atomically reserve the running owner's controller if all tracked activity is known complete. |
-| `service.leave_maintenance(lease)` | Release the exact current in-process `MaintenanceLease`. |
+| `capture_service_configuration(settings, bridge_config, *, bridge_config_path, state_dir, ...)` | Detach already-resolved settings, target policy and explicit service options into an immutable selected-policy object. |
+| `ManagedBridgeService(launch, *, configuration=None)` | Select an explicit `HTTPLaunch` and optionally the exact selected-policy object; create a new service. |
+| `await service.start()` | Construct the enrolled controller and owned listener; publish the running state after readiness and any configured binding checks succeed. |
+| `service.maintenance_snapshot()` | Return bounded service/ledger diagnostics and retained observation metadata; perform no runtime file reread. |
+| `service.try_enter_maintenance()` | Revalidate a configured binding, then atomically reserve the running owner's controller if all tracked activity is known complete. |
+| `service.leave_maintenance(lease)` | Revalidate a configured binding, then release the exact current in-process `MaintenanceLease`. |
 | `await service.aclose()` | Close admission first, then clean up owned server/controller resources. |
 
 The service uses the original lease implementation from the controller gate.
@@ -50,16 +60,38 @@ There is no serialized lease, bearer token, second lease namespace, or automatic
 lease transfer. A copied, foreign, stale, or already consumed lease cannot reopen
 admission. Close invalidates an outstanding lease permanently.
 
-This embedding pattern assumes that the caller has deliberately selected its
-configuration and unused endpoint before entry:
+This embedding pattern takes settings and Bridge policy that the caller has
+already resolved deliberately. All configuration references must be absolute
+`Path` objects, including the paths in `AgentSettings`. The example does not
+select a file, invoke an ordinary loader, or alter the host environment:
 
 ```python
+from pathlib import Path
+from typing import Any
+
 from gitlab_agent.bridge_http import HTTPLaunch
+from gitlab_agent.config import AgentSettings
+from gitlab_agent.upgrade.service_configuration import capture_service_configuration
 from gitlab_agent.upgrade.service_managed import ManagedBridgeService
 
 
-async def exercise(launch: HTTPLaunch) -> dict:
-    service = ManagedBridgeService(launch)
+async def exercise(
+    launch: HTTPLaunch,
+    settings: AgentSettings,
+    bridge_config: dict[str, Any],
+    *,
+    bridge_config_path: Path,
+    state_dir: Path,
+) -> dict:
+    configuration = capture_service_configuration(
+        settings,
+        bridge_config,
+        bridge_config_path=bridge_config_path,
+        state_dir=state_dir,
+        approval_timeout_seconds=300,
+        gitlab_auth_mode="auto",
+    )
+    service = ManagedBridgeService(launch, configuration=configuration)
     try:
         await service.start()
         lease = service.try_enter_maintenance()
@@ -71,10 +103,91 @@ async def exercise(launch: HTTPLaunch) -> dict:
         await service.aclose()
 ```
 
-`try_enter_maintenance()` fails immediately if requests, operations, turns, or
-approval replies remain, or if readiness is unknown. It does not wait for work,
+After the configured runtime-file checks, `try_enter_maintenance()` refuses if
+requests, operations, turns, or approval replies remain, or readiness is unknown.
+It does not wait for work,
 interrupt a turn, decide an approval, drain a client, or perform a maintenance
 operation. A successful reservation keeps new work closed until exact release.
+
+## Selected parent policy
+
+`capture_service_configuration`, in `upgrade/service_configuration.py`, accepts
+already-loaded objects. It does not load `.env` or Bridge files, inspect their
+contents, create state directories, or copy values into `os.environ`. The caller
+remains responsible for how the original settings were resolved. Explicit file
+references identify the selected inputs; they do not prove that current file
+contents match those objects.
+
+The captured settings, worker requests, target policy and service options are
+immutable. Returned projection and Bridge configuration views are detached.
+Later edits to the original collections, compatibility views, environment or
+source configuration files do not reload these selected values.
+
+| Selected input | Controller behavior with a configuration binding |
+| --- | --- |
+| Agent settings and workspace root | Direct settings, local configuration-report and workspace-root helpers consume the retained settings. |
+| Codex worker request | Effective policy, session resume and continuation use the retained worker policy. This does not prove backend enforcement. |
+| Named and stored execution targets | Named requests resolve from the selected targets. A stored target must match a selected target's canonical record, including its validation policy. |
+| `gitlab_auth_mode` | Accepts `auto`, `api` or `git-only`. `auto` uses the retained API credential's presence; the direct mode helper does not reload the ambient override. |
+| `approval_timeout_seconds` | Accepts an integer from 30 through 1,800 seconds, default 300; approval handling uses that retained timeout. |
+| Experimental remote push | Remains disabled for this owner, including its remote dynamic-tool selection. |
+
+Stored targets use the canonical `ExecutionTarget.to_dict()` shape, including
+its flat validation fields. JSON list/tuple representations are equivalent;
+scalar types must match exactly, and unknown or missing fields are rejected.
+The bound controller keeps the selected backend when handling legacy SSH
+records; it does not probe for a missing remote binary and silently migrate the
+record to another backend.
+
+A saved session worker policy must match the retained policy's canonical shape.
+An absent saved policy uses the exact retained Codex policy. The controller
+checks this before connecting or resuming an AppServer and also for continuation
+on an already cached session. A stale saved push approval cannot enable the
+bound `commit_push` callback: it is rejected before session or manager access,
+after the usual check that the request belongs to the current AppServer
+generation.
+
+The versioned public projection is
+`reasonfirst-selected-service-policy-v1`, scoped to
+`selected-parent-service-policy`. Its digest is SHA-256 of compact, sorted-key
+UTF-8 JSON. It includes selected non-secret policy, references and the actual
+HTTP launch. Credentials, their presence and hashes, Git usernames, author
+metadata and arbitrary unused configuration fields are excluded. Two objects
+can therefore have the same public digest and different private settings; live
+binding requires object identity, not digest equality alone.
+
+Subprocesses and AppServer clients still have their existing environment and
+binary-selection behavior. Provider state, external configuration files, CA
+bundle contents, Git trust/configuration and backend enforcement remain outside
+this selected-policy claim. Retaining a CA path or an environment-trust boolean
+does not freeze the referenced files or the surrounding process environment.
+
+This object is separate from the disposable startup observation state. A
+disposable controller continues to refuse every tool call and cannot be combined
+with live admission. Ordinary controllers and owners created without
+`configuration` keep their existing loading behavior.
+
+## Current-process runtime observation
+
+A configured owner captures its runtime observation internally, before creating
+the socket. Callers do not supply an expected runtime digest. The observation
+binds the current PID, interpreter invocation and prefix, selected interpreter
+files, the selected module objects and coherent source roots, their file
+metadata and bytes, and the reviewed SDK versions. Source and installed routes
+retain their own observed origins.
+
+The owner revalidates that observation before publishing the running state and
+before both maintenance entry and lease release. A mismatch closes admission,
+invalidates maintenance eligibility and remains a failure for that owner.
+Restoring a file or reference does not refresh the baseline or revive a failed
+owner. Wrong-process use is rejected before acquiring its inherited owner lock.
+
+These are bounded, repeated observations of selected files and process-local
+references. They are not an atomic filesystem snapshot, proof of the code already
+loaded in memory, whole-runtime integrity, or the identity of an independently
+prepared runtime. There is no background drift watcher or runtime reread on
+every HTTP request. The retained observation shown in diagnostics is historical;
+maintenance transitions perform the fresh checks described above.
 
 ## HTTP profile and compatibility
 
@@ -141,6 +254,14 @@ have finished. Outstanding counters and unknown activity remain visible; cleanup
 does not clear them to manufacture idle. The existing controller behavior for
 approval decisions and Desktop-owned workers is retained.
 
+Configuration capture errors use finite `ServiceConfigurationError` codes. The
+owner reports `configuration_binding_failed` for a failed selected-policy check
+and `runtime_binding_failed` for failed runtime capture or revalidation.
+`controller_binding_failed` and `core_binding_failed` identify mismatched startup
+objects. A bound controller or gate closed outside the owner also makes the
+configuration binding fail permanently. Raw configuration values, runtime paths
+and underlying exception text are not reflected in these owner errors.
+
 ## Diagnostic scope
 
 The snapshot describes this owner and its nested controller ledger using fixed
@@ -148,34 +269,54 @@ schema fields, counts, booleans, and classified reasons. It excludes lease
 objects, credentials, request bodies, prompts, workspace paths, worker/session
 identifiers, and raw exception text.
 
-The immutable HTTP launch describes the transport arguments this owner consumes.
-It is not a full configuration digest. Ordinary controller operations still
-resolve application policy, environment inputs, and subprocess configuration
-through existing loaders.
+| Snapshot field | Meaning |
+| --- | --- |
+| `resolved_policy_bound` | True only while this configured owner is running with its exact controller/core configuration and viable gate. |
+| `current_process_bound` | True only while that live binding also retains its internally captured current-process observation. It is not a fresh disk-integrity result from the snapshot call. |
+| `configuration_digest` | Historical digest of the selected projection and launch, or `null` when none was captured. |
+| `runtime_observation` | Historical bounded summary of selected runtime observations, including its digest and module count, or `null` when none was captured. |
 
-Configuration binding, state recovery, external-producer quiescence, global
-idle, and activation authorization remain unverified or false. An observed
-saved state file retains `recovered_state_unverified`; absence of that file is
-not an interprocess ownership lock or proof that another producer has no work.
+Closing the owner makes both live binding flags false. Successfully captured
+digests and observation metadata remain available afterward as historical
+evidence. Unconfigured owners leave these new binding flags false and the two
+observation fields `null`.
+
+The following broader flags remain false even when both live binding flags are
+true: `effective_configuration_verified`, `recovered_state_verified`,
+`external_producers_quiesced`, `global_idle_verified`,
+`runtime_identity_verified`, `activation_authorized`, `ready_for_activation`
+and `existing_service_adopted`.
+
+An observed saved state file retains `recovered_state_unverified`; absence of
+that file is not an interprocess ownership lock or proof that another producer
+has no work. Selected-policy binding does not establish state recovery, external
+producer quiescence, global idle, or activation authorization.
 
 Static deployment records, native loaded-job samples, startup claims, and this
 owner's live local reservation remain separate evidence. Existing
 [launch-review blockers](LAUNCH_REVIEW.md) are not removed by this integration.
-The reviewed `bridge_mcp.py` source pin is refreshed only for its explicit
-subscription opt-out; it does not add this owner to an approved service launcher.
+The reviewed `bridge_mcp.py` source pin covers its explicit subscription option
+and configuration-reference retention; it does not add this owner to an approved
+service launcher.
 
 ## Verification
 
-Focused tests cover owner identity and lifecycle, real request/response gaps,
-protocol rejection, task/lease races, transport uncertainty, and cleanup.
+Focused tests cover owner identity and lifecycle, immutable selected-policy
+consumption, foreign and stale bindings, runtime drift, real request/response
+gaps, protocol rejection, task/lease races, transport uncertainty, and cleanup.
 The real-wire fixture in `tests/test_managed_http_integration.py` uses isolated
 synthetic configuration, both Bridge modes, and ordinary shared-core catalogs
 as its comparison source. It does not contact a coding backend or GitLab.
 
-The installation harness executes the same fixture from the clean wheel and
-the source environment, checking module origins in each route. These checks
-exercise a newly owned HTTP runtime; they do not establish a working user's
-service adoption, authentication, reboot recovery, or rollback.
+The installation harness executes the same 12-case fixture from the clean wheel
+and the source environment, checking module origins in each route. The fixture
+includes configured-owner cases in both modes. Its strict report requires
+`selected_policy_binding_exercised` and `runtime_observation_exercised`, together
+with the existing real-MCP and maintenance-admission evidence; skipped or
+incomplete acceptance is not success. `working_service_touched` and
+`activation_tested` remain false. These checks exercise a newly owned HTTP
+runtime; they do not establish a working user's service adoption, authentication,
+reboot recovery, or rollback.
 
 See [controller admission](MAINTENANCE_ADMISSION.md),
 [HTTP transport](BRIDGE_HTTP.md), [architecture](ARCHITECTURE.md), and

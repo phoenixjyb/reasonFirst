@@ -26,7 +26,8 @@ import gitlab_agent
 from gitlab_agent import bridge_http, bridge_mcp
 from gitlab_agent.bridge_preview import admission, controller
 from gitlab_agent.bridge_preview.bridge_config import ExecutionTarget
-from gitlab_agent.upgrade import service_managed
+from gitlab_agent.config import AgentSettings
+from gitlab_agent.upgrade import service_configuration, service_managed, service_runtime
 from gitlab_agent.worker_policy import default_worker_policy
 from mcp import Client
 import mcp
@@ -56,7 +57,8 @@ def modern_message(payload):
 
 def verify_origins(route: str, expected: Path) -> None:
     expected = expected.resolve(strict=True)
-    modules = (gitlab_agent, bridge_http, bridge_mcp, admission, controller, service_managed)
+    modules = (gitlab_agent, bridge_http, bridge_mcp, admission, controller,
+               service_configuration, service_managed, service_runtime)
     for module in modules:
         origin = Path(module.__file__).resolve(strict=True)
         if not origin.is_relative_to(expected):
@@ -187,12 +189,12 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
             sock.bind(("127.0.0.1", 0))
             return sock.getsockname()[1]
 
-    async def start_service(self, mode="read-only", *, port=None):
+    async def start_service(self, mode="read-only", *, port=None, configuration=None):
         launch = bridge_http.HTTPLaunch(
             "127.0.0.1", port or self.unused_port(),
             "/managed-fixture", mode, "disabled",
         )
-        service = service_managed.ManagedBridgeService(launch)
+        service = service_managed.ManagedBridgeService(launch, configuration=configuration)
         self.services.append(service)
         await asyncio.wait_for(service.start(), timeout=12)
         snapshot = service.maintenance_snapshot()
@@ -201,6 +203,17 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(snapshot["listener_serving"])
         for name in FALSE_FLAGS:
             self.assertIs(snapshot[name], False)
+        self.assertIs(snapshot["resolved_policy_bound"], configuration is not None)
+        self.assertIs(snapshot["current_process_bound"], configuration is not None)
+        if configuration is not None:
+            self.assertEqual(snapshot["configuration_digest"], configuration.configuration_digest(launch))
+            self.assertEqual(snapshot["runtime_observation"]["scope"], service_runtime.SCOPE)
+            self.assertFalse(snapshot["runtime_observation"]["runtime_identity_verified"])
+            self.assertIs(service._controller.service_configuration, configuration)
+            self.assertIs(service._core._reasonfirst_service_configuration, configuration)
+        else:
+            self.assertIsNone(snapshot["configuration_digest"])
+            self.assertIsNone(snapshot["runtime_observation"])
         self.launch = launch
         self.url = f"http://127.0.0.1:{launch.port}{launch.path}"
         return service
@@ -268,8 +281,8 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.is_error)
         self.assertIn("synthetic fixture", json.dumps(result.model_dump(mode="json")))
 
-    async def catalog_cycle(self, mode):
-        service = await self.start_service(mode)
+    async def catalog_cycle(self, mode, *, configuration=None):
+        service = await self.start_service(mode, configuration=configuration)
         ctrl = self.seed_session(service)
         reference = bridge_mcp.build_server(read_only_mode=mode == "read-only", controller=ctrl)
         expected = {tool.name: tool.model_dump(mode="json") for tool in await reference.list_tools()}
@@ -280,6 +293,19 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
             catalog = await client.list_tools()
             self.assertEqual({tool.name: tool.model_dump(mode="json") for tool in catalog.tools}, expected)
             await self.harmless_call(client)
+            if configuration is not None:
+                # The compatibility dictionary is a detached view, not target
+                # authority. Exercise the real tool through the HTTP boundary.
+                ctrl.bridge_config["targets"]["local"]["codex_backend"] = "desktop-required"
+                with patch.object(controller, "resolve_codex_binary", return_value="synthetic-codex"), \
+                        patch.object(controller, "managed_app_server_socket", return_value=self.root / "unused.sock"):
+                    result = await client.call_tool("reasonfirst_target_probe", {})
+                self.assertFalse(result.is_error)
+                data = json.dumps(result.model_dump(mode="json"))
+                self.assertIn("standalone-local", data)
+                self.assertNotIn("desktop-required", data)
+                self.assertEqual(ctrl._allowed_workspace_root(), self.worktree)
+                self.assertEqual(ctrl._reasonfirst_config()["gitlab_base_url"], "https://managed-service.invalid")
         await self.wait_until(lambda: service.maintenance_snapshot()["admission"]["idle_observed"])
 
         lease = service.try_enter_maintenance()
@@ -325,6 +351,8 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(closed["cleanup_complete"])
         self.assertIsNone(closed["error_code"])
         self.assertIsNone(closed["cleanup_error_code"])
+        self.assertFalse(closed["resolved_policy_bound"])
+        self.assertFalse(closed["current_process_bound"])
         with self.assertRaises(OSError):
             await asyncio.wait_for(asyncio.open_connection("127.0.0.1", self.launch.port), 2)
 
@@ -333,6 +361,35 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_full_chat_catalog_and_maintenance_cycle(self):
         await self.catalog_cycle("full-chat")
+
+    async def bound_catalog_cycle(self, mode):
+        configuration = service_configuration.capture_service_configuration(
+            AgentSettings.load(), controller.load_bridge_config(),
+            bridge_config_path=self.bridge_file, state_dir=self.state,
+            gitlab_auth_mode="git-only",
+        )
+        try:
+            # Only synthetic inputs change. Captured policy is retained; this
+            # does not claim that external worker or subprocess inputs freeze.
+            self.env_file.write_text("GITLAB_BASE_URL=https://changed.invalid\n", encoding="utf-8")
+            self.bridge_file.write_text("not: selected-policy\n", encoding="utf-8")
+            with patch.dict(os.environ, {
+                "GITLAB_BASE_URL": "https://changed.invalid",
+                "GITLAB_WORKSPACE_ROOT": str(self.root / "changed-workspace"),
+                "RF_CODEX_BRIDGE_STATE_DIR": str(self.root / "changed-state"),
+                "RF_BRIDGE_CONFIG": str(self.root / "missing-bridge"),
+            }), patch.object(AgentSettings, "load", side_effect=AssertionError("bound_settings_reloaded")), \
+                    patch.object(controller, "load_bridge_config", side_effect=AssertionError("bound_bridge_reloaded")):
+                await self.catalog_cycle(mode, configuration=configuration)
+        finally:
+            self.env_file.write_bytes(self.original_config[0])
+            self.bridge_file.write_bytes(self.original_config[1])
+
+    async def test_bound_read_only_policy_and_runtime(self):
+        await self.bound_catalog_cycle("read-only")
+
+    async def test_bound_full_chat_policy_and_runtime(self):
+        await self.bound_catalog_cycle("full-chat")
 
     async def test_protocol_and_method_guards_on_real_listener(self):
         await self.start_service()
@@ -562,6 +619,7 @@ class NativeReportTests(unittest.TestCase):
             "failures": 0, "errors": 0, "skipped": 0, "failed_cases": [],
             "modes": list(MODES), "module_origins_verified": True,
             "real_mcp_calls_exercised": True, "all_tools_denied_during_maintenance": True,
+            "selected_policy_binding_exercised": True, "runtime_observation_exercised": True,
             "working_service_touched": False, "activation_tested": False,
         }
 
@@ -578,6 +636,7 @@ class NativeReportTests(unittest.TestCase):
     def test_false_success_and_unknown_output_are_rejected(self):
         for change in (
             {"tests_run": True}, {"module_origins_verified": 1},
+            {"selected_policy_binding_exercised": False}, {"runtime_observation_exercised": 1},
             {"tests_run": 1}, {"skipped": 1}, {"errors": 1},
             {"working_service_touched": True}, {"activation_tested": True},
             {"modes": ["full-chat"]}, {"route": "packaged"},
@@ -597,6 +656,7 @@ class NativeReportTests(unittest.TestCase):
             "failed_cases": ["test_occupied_listener_survives_failed_startup"],
             "module_origins_verified": False, "real_mcp_calls_exercised": False,
             "all_tools_denied_during_maintenance": False,
+            "selected_policy_binding_exercised": False, "runtime_observation_exercised": False,
         })
         self.assertEqual(self.validate(payload, returncode=1), payload)
         with self.assertRaises(RuntimeError):
@@ -644,6 +704,8 @@ def native_main(argv):
         "module_origins_verified": ok,
         "real_mcp_calls_exercised": ok,
         "all_tools_denied_during_maintenance": ok,
+        "selected_policy_binding_exercised": ok,
+        "runtime_observation_exercised": ok,
         "working_service_touched": False, "activation_tested": False,
     }, sort_keys=True))
     return 0 if ok else 1
