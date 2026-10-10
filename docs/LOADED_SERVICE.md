@@ -1,6 +1,6 @@
 # Observe the loaded macOS job without switching it
 
-**Development-source feature, not included in the published v0.5.1 wheel.**
+**Included in v0.5.2; not available in the v0.5.1 wheel.**
 This is an explicit native read, separate from static `launch-plan`/`launch-check`.
 It never loads, unloads, restarts, signals or registers a ReasonFirst service.
 

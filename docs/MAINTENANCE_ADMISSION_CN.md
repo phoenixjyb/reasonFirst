@@ -1,6 +1,6 @@
 # Controller 维护准入
 
-**开发源码；仅供内部显式启用。** 本门控协调一个 `BridgeController`
+**v0.5.2 已包含；仅供内部显式启用。** 本门控协调一个 `BridgeController`
 实例中已纳入追踪的工作。成功预留维护窗口后，该 controller 的工作准入
 持续关闭，直到原始 lease 被释放或 controller 关闭。它不证明全局空闲，
 不接管已有服务，也不授权 activation、服务切换、重启、回滚或发布。

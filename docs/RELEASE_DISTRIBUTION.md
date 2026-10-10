@@ -4,15 +4,15 @@
 
 ## What users receive
 
-The intended stable release is **v0.5.1**. Only advertise its download once the
+The intended stable release is **v0.5.2**. Only advertise its download once the
 maintainer has published the Release, the asset workflow has succeeded, and the
 actual public download/install has been checked. A merged PR or an expiring Actions
 candidate is not a public release. Keep source installation supported.
 
 The Release asset set contains:
 
-- `chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl` — shared Python package;
-- `chatgpt_selfhosted_gitlab_mcp-0.5.1.tar.gz` — built source distribution;
+- `chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl` — shared Python package;
+- `chatgpt_selfhosted_gitlab_mcp-0.5.2.tar.gz` — built source distribution;
 - `reasonfirst.rb` — checksum-pinned formula, not evidence that a Homebrew tap exists;
 - `RELEASE.json` — exact source commit/tree, version, build run/attempt and artifact hashes;
 - `SHA256SUMS.txt` — hashes for the wheel, source distribution, formula and manifest.
@@ -27,8 +27,8 @@ For a locally downloaded wheel, compare its SHA-256 with the entry for that exac
 filename in the Release's `SHA256SUMS.txt` before installation:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
-uv tool install .\chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+Get-FileHash -Algorithm SHA256 .\chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install .\chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -43,7 +43,7 @@ Installing the package does not update a process already running from an older c
    `main` SHA with successful core, three-platform regression/install, Bridge,
    documentation, tunnel-boundary and source/history checks. Do not promote an older
    candidate's checks to a newer source identity.
-2. Confirm package/runtime metadata is 0.5.1, approve tag `v0.5.1` on that exact SHA,
+2. Confirm package/runtime metadata is 0.5.2, approve tag `v0.5.2` on that exact SHA,
    and publish the Release as a human action. This workflow never creates tags,
    publishes Releases, merges PRs, or uploads to PyPI.
 3. The published-Release workflow checks out the event's exact commit (not a moving
@@ -81,18 +81,23 @@ uploads atomic or establish that nobody can move a tag after the last read.
 
 ## Acceptance scope stays explicit
 
-The Windows rehearsal separately verified setup/read access, managed clone/fetch,
-the approved-interpreter host validation, and a worker retry followed by clean
-closeout. The newly integrated initial-handoff recipe still needs its live
-acceptance; CI shell execution is separate evidence. Restart/reboot recovery and
-new Windows privileged Bridge/write acceptance remain unverified at this preparation
-checkpoint. Do not mark them passed to clear a release checklist. Record the actual
-status and advertised support level in the final release decision; do not silently
-turn a stable release request into a preview or remove existing safety checks.
+Historical Windows acceptance for v0.5.1 separately verified setup/read access,
+managed clone/fetch, approved-interpreter host validation, and the normal initial
+worker handoff followed by clean host closeout. See the checkpoints in [#90](https://github.com/phoenixjyb/reasonFirst/pull/90)
+and [#94](https://github.com/phoenixjyb/reasonFirst/pull/94). Those records retain their
+own source revisions; they are not a fresh Windows live run of v0.5.2.
+
+Healthy-runtime repair/no-op, controlled restart without the temporary UTF-8
+workaround, reboot recovery, and optional privileged Windows Bridge/write live
+acceptance remain open in [#88](https://github.com/phoenixjyb/reasonFirst/issues/88).
+A fresh terminal's status of an already-running runtime does not prove a new start.
+The v0.5.2 automated gates must run against its exact release source. Record the
+actual platform and live-acceptance limits in the release decision; do not mark
+unverified checks passed or remove release guards.
 
 ## 简体中文
 
-目标是 **v0.5.1 正式版**，不是改名的候选包。正常公开分发使用版本化 GitHub
+目标是 **v0.5.2 正式版**，不是改名的候选包。正常公开分发使用版本化 GitHub
 Release，而不是聊天附件或会过期的 Actions 附件。发布人确认准确 main 提交及验收
 范围后，人工创建 tag/发布 Release；流水线只构建和上传已有 Release 的资源。
 
@@ -107,10 +112,19 @@ Release，而不是聊天附件或会过期的 Actions 附件。发布人确认�
 此发布后上传流程不支持已经锁定的 immutable Release；不得为此关闭仓库安全设置。
 
 只有最终公开下载、哈希和脱离源码目录的安装验证通过后才分享下载入口。已有进程
-不会因为磁盘上安装了新包而自动更新。已完成的 Windows 宿主/worker 验收与尚未
-完成的新 handoff 现场验收、重启恢复、Windows 全聊天写入验收分别记录，不夸大。
+不会因为磁盘上安装了新包而自动更新。v0.5.1 的 Windows 标准读路径、宿主验证、
+正常初次 worker handoff 与宿主收尾已有现场记录；这些记录保留各自的源码版本，
+不能写成 v0.5.2 的新现场验收。健康 runtime 的 repair/no-op、无临时 UTF-8 绕过的
+受控重启、机器重启恢复与可选高权限 Bridge 写入仍在 #88 跟踪。v0.5.2 的自动化
+检查必须绑定最终发布提交，实际支持范围和未完成验收如实记录。
 
 ## v0.5.1 post-publication staging recovery
+
+**Historical recovery record.** The five v0.5.1 assets are already attached to the
+[published release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.1).
+The procedure below documents that completed recovery and is not a command to
+rerun for v0.5.2. Use the normal publication sequence above for new versions.
+
 
 The normal initial-handoff Windows acceptance and host closeout have since passed,
 as recorded in #94; that supersedes the historical pending-handoff item above.

@@ -1,12 +1,12 @@
 # 安装 ReasonFirst
 
-ReasonFirst v0.5.1 明确支持**两条一等安装路径**。两条路径最终进入同一个 `reasonfirst` CLI，并共用私有 GitLab 配置、非秘密 setup state、Tunnel ID 与 review/publication policy。
+ReasonFirst v0.5.2 明确支持**两条一等安装路径**。两条路径最终进入同一个 `reasonfirst` CLI，并共用私有 GitLab 配置、非秘密 setup state、Tunnel ID 与 review/publication policy。
 
 ## 已有安装？先检查，不要重新配置
 
 **安装新包不等于所有后台服务都已升级。** 保留现有配置、工作区、源码检出、旧运行环境
 及活动 sidecar 目录。缺少 `setup.yaml` 不等于原有隧道或 Bridge 不存在，不要因此重建连接。
-下面的只读检查在已发布 v0.5.1 和本开发分支均可使用，不联网验证、不写文件、不启停服务：
+下面的只读检查在 v0.5.1 和 v0.5.2 均可使用，不联网验证、不写文件、不启停服务：
 
 ```bash
 reasonfirst --version
@@ -17,7 +17,7 @@ reasonfirst setup --status --json
 `~/.config/gitlab-agent/.env`、当前目录 `.env` 的顺序选择；已导出的变量优先于文件。
 不要把 `.env` 内容或密钥粘贴到问题报告中。
 
-### 本开发分支新增行为（不在已发布 v0.5.1 wheel 中）
+### v0.5.2 新增：复用既有配置与查看状态
 
 发现有效既有配置后，普通 `reasonfirst setup` 先询问一次是否复用。接受后不再索取
 已有 URL、token、项目或 worker；不缩减完整白名单，不写 `setup.yaml`，不验证登录，
@@ -28,7 +28,7 @@ reasonfirst setup --reuse-existing --json
 reasonfirst status --json
 ```
 
-这些新选项和命令别名需本分支构建或未来包含此变更的版本，不能在已发布 v0.5.1 中使用。
+这些新选项和 `status` 命令别名需要 v0.5.2 或更新版本；冻结的 v0.5.1 下载包不包含它们。
 `setup --reconfigure` 或显式配置选项（如 `--project`）才进入原来的配置编辑流程，
 仍保留项目预检、环境覆盖冲突检查和写入确认。拒绝复用直接取消，不自动进入编辑。
 `--reuse-existing` 不能与修改选项组合。
@@ -50,15 +50,15 @@ plist 私下解析时可能含环境值，输出不包含环境值或任意启�
 建议审阅，不建议重复建立隧道。默认的 `mode: standard` 与 `ready: false` 不否定旧服务存在。
 此 setup/status 步骤不写部署登记、不接管服务。
 
-另一个需显式审批的开发命令可[登记已知 macOS 服务的注册快照](DEPLOYMENTS_CN.md)。
-它不安装运行环境、不启用服务，也不在已发布 v0.5.1 wheel 中。
+v0.5.2 的另一个需显式审批的命令可[登记已知 macOS 服务的注册快照](DEPLOYMENTS_CN.md)。
+它不安装运行环境、不启用服务。
 
 ## 路径 A——打包安装（新用户推荐）
 
-v0.5.1 发布后，安装 GitHub Release 中经过验证的 wheel：
+v0.5.2 的 GitHub Release 附件就绪后，安装经过验证的 wheel：
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -68,7 +68,7 @@ reasonfirst setup
 
 - `reasonfirst`；
 - `reasonfirst-gitlab-mcp`；
-- `reasonfirst-bridge-mcp`；
+- `reasonfirst-bridge-mcp` 及需显式配置的 `reasonfirst-bridge-http`；
 - `actual-coder` 及兼容/专家 CLI。
 
 ### 安装 uv
@@ -110,7 +110,7 @@ full-chat 始终是可选能力；通用默认路径仍是只读 GitLab app + �
 从正式 tag：
 
 ```bash
-git clone --branch v0.5.1 --depth 1 https://github.com/phoenixjyb/reasonFirst.git
+git clone --branch v0.5.2 --depth 1 https://github.com/phoenixjyb/reasonFirst.git
 cd reasonFirst
 uv sync --python 3.12
 uv run reasonfirst setup --status
@@ -156,10 +156,10 @@ editable 安装会跟随该源码目录。长期目录应保持在已审阅 bran
 先检查有效配置与后台服务实际使用的运行环境；服务依赖某个 tool 环境时不要直接替换它。
 固定版本的 sidecar 可能有意拒绝更改后的包指纹，因此更新 CLI 本身不等于协调服务升级。
 
-确认软件包替换安全并已批准后，再安装已审阅 release 的 wheel。下例仍指向已发布 v0.5.1：
+确认软件包替换安全并已批准后，再安装已审阅 release 的 wheel。下例在 v0.5.2 附件就绪后使用：
 
 ```bash
-uv tool install --force https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+uv tool install --force https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup --status --json
 ```
 
@@ -179,15 +179,17 @@ reasonfirst setup --status --json
 缺少 `setup.yaml` 不是凭据丢失。保留完整白名单、隧道身份、监听端点及读写策略，不能
 把 stdio-only 的 packaged Bridge 命令直接替换进 HTTP 服务。
 
-本次源码变更提供**检查、配置复用和显式服务注册快照登记**，不接管运行环境，
-也不提供自动服务更新器。激活、维护门控、
-版本化运行环境、回滚和恢复需要独立审阅及支持证据。不要伪造向导阶段，不要为了消除
+v0.5.2 提供**检查、配置复用和显式服务注册快照登记**，以及按需启用的
+[独立运行环境准备](RUNTIME_PREPARATION_CN.md)和[部署／运行环境配对](DEPLOYMENT_PAIRING_CN.md)。
+[Managed HTTP 服务 owner](MANAGED_HTTP_SERVICE_CN.md)仍是内部嵌入式 API。
+这些组件不会自动接管、切换或升级已有服务；完整的服务迁移、回滚和恢复流程
+仍需独立集成与现场验收。不要伪造向导阶段，不要为了消除
 状态警告而删除旧目录、活动 launcher、工作目录或私密恢复备份。服务启动与已有客户端
 回连必须独立于包安装验收；静态清单不能替代这些检查。
 
 ## Homebrew formula
 
-v0.5.1 release 流程会基于准确受保护 tag、源码 archive 与 SHA256 生成固定版本的 `reasonfirst.rb`，并作为 GitHub Release artifact。后续可把它发布到维护中的 Homebrew tap。
+版本化 release 流程会基于准确受保护 tag、源码 archive 与 SHA256 生成固定版本的 `reasonfirst.rb`，并作为 GitHub Release artifact。后续可把它发布到维护中的 Homebrew tap。
 
 Homebrew formula **不是** ReasonFirst 配置的 source of truth；它安装相同 Python package/entry points，真正 onboarding 入口依然是 `reasonfirst setup`。
 

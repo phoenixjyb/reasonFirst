@@ -1,6 +1,6 @@
 # Install ReasonFirst
 
-ReasonFirst v0.5.1 supports **two first-class installation routes**. They converge on the same `reasonfirst` CLI, private GitLab config, non-secret setup state, tunnel IDs and review/publication policy.
+ReasonFirst v0.5.2 supports **two first-class installation routes**. They converge on the same `reasonfirst` CLI, private GitLab config, non-secret setup state, tunnel IDs and review/publication policy.
 
 ## Existing installation? Inspect before changing it
 
@@ -8,8 +8,7 @@ ReasonFirst v0.5.1 supports **two first-class installation routes**. They conver
 config, workspaces, source checkout, legacy runtime and active sidecar directories.
 Do not rerun onboarding or create a new tunnel merely because `setup.yaml` is absent.
 
-The following detect-only command works with the published v0.5.1 as well as this
-source branch. It makes no provider requests, writes, or service changes:
+The following detect-only command works with v0.5.1 and v0.5.2. It makes no provider requests, writes, or service changes:
 
 ```bash
 reasonfirst --version
@@ -21,9 +20,9 @@ config still comes from `GITLAB_AGENT_ENV_FILE`, then the canonical
 `~/.config/gitlab-agent/.env`, then cwd `.env`. Existing exported values take
 precedence; never paste `.env` contents or tokens into a report.
 
-### Development-source additions (not in the published v0.5.1 wheel)
+### New in v0.5.2: reuse existing settings and inspect status
 
-On this development branch, plain `reasonfirst setup` offers one **reuse**
+In v0.5.2, plain `reasonfirst setup` offers one **reuse**
 confirmation for existing valid settings. Accepting does not prompt again for the
 URL/token/project/worker, narrow the allowlist, write `setup.yaml`, verify logins,
 start services or create connections. An explicit noninteractive equivalent is:
@@ -33,8 +32,8 @@ reasonfirst setup --reuse-existing --json
 reasonfirst status --json
 ```
 
-These new flags/alias require a build of this branch or a future release that
-includes it. They have not been added retroactively to the v0.5.1 downloads.
+These flags and the `status` alias require v0.5.2 or newer; the frozen v0.5.1
+downloads do not include them.
 `setup --reconfigure` (or explicit configuration options such as `--project`)
 selects the deliberate editor instead; its original preflight, environment-conflict
 and approval guards still apply. Declining reuse cancels rather than falling into
@@ -54,7 +53,7 @@ On macOS only the known user `com.reasonfirst.v4-mcp` LaunchAgent is inspected; 
 legacy staged and versioned HTTP-sidecar path layouts are recognized without
 executing them. No broad service search, `launchctl`, listener probe or MCP request
 runs. A recognized path declares a layout, not a verified transport or code identity.
-Windows/Linux service-manager discovery is explicitly `not_inspected` in this PR.
+Windows/Linux service-manager discovery remains explicitly `not_inspected`.
 A missing registration means only that the selected registration was not found.
 
 The selected plist is parsed privately and may contain environment values, but the
@@ -66,16 +65,16 @@ evidence recommend **review**, not duplicate tunnel setup. Neither `mode: standa
 (the default without a wizard record) nor `ready: false` proves an old service is
 absent. These setup/status paths do not write a deployment registry or adopt a service.
 
-A separate, explicitly approved development command can [record a known macOS
+A separate, explicitly approved v0.5.2 command can [record a known macOS
 registration snapshot](DEPLOYMENTS.md). It does not install a runtime or activate
-a service and is not present in the published v0.5.1 wheel.
+a service.
 
 ## Route A — packaged install (recommended for new users)
 
-For a new installation, install the reviewed wheel attached to the v0.5.1 GitHub Release:
+For a new installation, use the v0.5.2 wheel after the GitHub Release assets are available:
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -85,7 +84,7 @@ This route does **not** require keeping a ReasonFirst source checkout. The insta
 
 - `reasonfirst`;
 - `reasonfirst-gitlab-mcp`;
-- `reasonfirst-bridge-mcp`;
+- `reasonfirst-bridge-mcp` and the explicitly configured `reasonfirst-bridge-http`;
 - `actual-coder` and compatibility/expert CLIs.
 
 ### Install uv
@@ -127,7 +126,7 @@ Use this route if you are contributing, auditing the implementation, maintaining
 For a released source tag:
 
 ```bash
-git clone --branch v0.5.1 --depth 1 https://github.com/phoenixjyb/reasonFirst.git
+git clone --branch v0.5.2 --depth 1 https://github.com/phoenixjyb/reasonFirst.git
 cd reasonFirst
 uv sync --python 3.12
 uv run reasonfirst setup --status
@@ -178,10 +177,10 @@ can deliberately reject changed package bytes; updating the CLI alone is not a
 coordinated sidecar upgrade.
 
 Once the intended package replacement is safe and approved, use the reviewed
-release wheel. This example targets v0.5.1, not an unreleased future version:
+release wheel. The example below targets v0.5.2 once its assets are available:
 
 ```bash
-uv tool install --force https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+uv tool install --force https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup --status --json
 ```
 
@@ -206,9 +205,13 @@ a different core/runtime from the CLI. Missing `setup.yaml` is not lost credenti
 Keep existing approved projects, tunnel identities, listener and read/write policy.
 Do not substitute the stdio-only packaged Bridge command for an HTTP endpoint.
 
-These source changes provide **inspection, configuration reuse and explicit
-registration-snapshot recording**, not runtime adoption or a service updater. Activation, maintenance gating, versioned runtimes,
-rollback and recovery require separate reviewed tooling and support evidence. Do
+v0.5.2 provides **inspection, configuration reuse and explicit registration-snapshot
+recording**, plus opt-in [runtime preparation](RUNTIME_PREPARATION.md) and
+[deployment/runtime pairing](DEPLOYMENT_PAIRING.md). The [managed HTTP service
+owner](MANAGED_HTTP_SERVICE.md) is an internal embedding API. These components do
+not automatically adopt, switch or upgrade an existing service. A full service
+migration, rollback and recovery workflow still needs separate integration and
+live acceptance. Do
 not fabricate wizard phases or remove old/staged directories to clear status flags.
 In particular, retain any active launcher, working directory and private recovery
 backup. A stopped/started service and its existing-client roundtrip must be verified
@@ -216,7 +219,7 @@ separately from successful package installation; static inventory is not that te
 
 ## Homebrew formula
 
-The v0.5.1 release process generates a release-pinned `reasonfirst.rb` formula from the exact protected tag/source archive and SHA256. It is attached to the GitHub Release and can be copied into a maintained Homebrew tap.
+The versioned release process generates a release-pinned `reasonfirst.rb` formula from the exact protected tag/source archive and SHA256. It is attached to the GitHub Release and can be copied into a maintained Homebrew tap.
 
 The formula is **not** the source of truth for ReasonFirst configuration. It installs the same Python package/entry points; `reasonfirst setup` remains the onboarding contract.
 

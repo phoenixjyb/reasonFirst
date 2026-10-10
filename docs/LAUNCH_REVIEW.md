@@ -1,6 +1,6 @@
 # Read-only launch compatibility review
 
-This development-only B3b slice follows deployment/runtime pairing. It is not part of public v0.5.1 and never starts, stops, installs, restarts or migrates a service.
+This B3b review is included in v0.5.2 and absent from the v0.5.1 wheel. It follows deployment/runtime pairing and never starts, stops, installs, restarts or migrates a service.
 
 Commands:
 

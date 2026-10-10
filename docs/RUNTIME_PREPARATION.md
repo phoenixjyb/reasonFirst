@@ -1,6 +1,6 @@
 # Prepare a separate service runtime
 
-**Development-source feature; not in the published v0.5.1 wheel.** This is B2b:
+**Included in v0.5.2; not available in the v0.5.1 wheel.** This is B2b:
 an offline package-environment preparer, not an existing-service migration or
 activation engine. It must not be used to replace a working service launcher.
 

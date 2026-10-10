@@ -1,6 +1,6 @@
 # Managed HTTP service owner
 
-**Development source; internal, explicit integration.**
+**Included in v0.5.2 for internal, explicit integration; absent from the v0.5.1 wheel.**
 `ManagedBridgeService` connects the [controller admission gate](MAINTENANCE_ADMISSION.md)
 to one HTTP server that it creates and owns. HTTP requests, controller work,
 and maintenance reservation use the same admission object. An optional immutable

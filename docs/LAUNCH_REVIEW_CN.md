@@ -1,6 +1,6 @@
 # 只读启动器兼容性审阅
 
-本功能 B3b 是开发分支的新功能，不在已公开的 v0.5.1 wheel 中；接续部署／运行环境配对，不执行服务迁移。
+v0.5.2 包含此 B3b 审阅功能，v0.5.1 wheel 不包含；它接续部署／运行环境配对，不执行服务迁移。
 
 ```text
 reasonfirst-runtime launch-plan --runtime-id RUNTIME_ID --expect-pairing-digest PAIRING_DIGEST --json

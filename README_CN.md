@@ -54,10 +54,10 @@ ChatGPT-first 主链路已经在合成 GitLab 演练仓库上完成端到端验�
 
 两条路径都是正式支持入口，并最终进入同一个 setup/state 模型。
 
-**普通用户打包路径（v0.5.1 发布且 release 附件生成成功后）：**
+**普通用户打包路径（v0.5.2 发布且 release 附件生成成功后）：**
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.1/chatgpt_selfhosted_gitlab_mcp-0.5.1-py3-none-any.whl
+uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -135,7 +135,7 @@ uv run python scripts/check_repo_secrets.py --history
 
 ## main 上已有的能力
 
-当前源码/包版本为 **0.5.1**。这标识源码版本，不代表 Release 已发布或附件已可下载。维护者发布后，**v0.5.1** tag 才标识准确发布提交；报告问题时请同时记录准确 commit SHA 与包版本。参见 [0.5.1 发布说明](docs/RELEASE_NOTES_0.5.1_CN.md) 和 [CHANGELOG.md](CHANGELOG.md)。已发布的 v0.5.0 tag 及其[历史发布说明](docs/RELEASE_NOTES_0.5.0_CN.md)继续保留为冻结的较早基线。
+当前源码/包版本为 **0.5.2**。这标识源码版本，不代表 Release 已发布或附件已可下载。维护者发布后，**v0.5.2** tag 才标识准确发布提交；报告问题时请同时记录准确 commit SHA 与包版本。参见 [0.5.2 发布说明](docs/RELEASE_NOTES_0.5.2_CN.md) 和 [CHANGELOG.md](CHANGELOG.md)。已发布的 v0.5.1 和 v0.5.0 tag 继续保持冻结；[0.5.1](docs/RELEASE_NOTES_0.5.1_CN.md) 与 [0.5.0](docs/RELEASE_NOTES_0.5.0_CN.md) 历史发布说明继续保留。
 
 | 能力 | 当前范围 |
 | --- | --- |
