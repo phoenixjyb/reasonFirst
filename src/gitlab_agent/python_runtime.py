@@ -45,10 +45,11 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _safe_probe_env() -> dict[str, str]:
+def _safe_probe_env(*, child_context=None) -> dict[str, str]:
     # Keep OS/DLL lookup settings; remove credentials and interpreter overrides.
+    retained = child_context.environment_copy() if child_context is not None else os.environ
     return {
-        key: value for key, value in os.environ.items()
+        key: value for key, value in retained.items()
         if not any(part in key.upper() for part in (
             "TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "PRIVATE_KEY",
         ))
@@ -57,12 +58,18 @@ def _safe_probe_env() -> dict[str, str]:
     }
 
 
-def _capture_probe(argv: list[str]) -> str:
+def _capture_probe(argv: list[str], *, child_context=None) -> str:
     # A temporary cwd avoids executing repository startup files. Temporary files
     # keep unexpected probe output out of memory and out of diagnostic messages.
     with tempfile.TemporaryDirectory(prefix="rf-python-probe-") as directory:
-        env = _safe_probe_env()
+        options = {"child_context": child_context} if child_context is not None else {}
+        env = _safe_probe_env(**options)
         env.update(HOME=directory, USERPROFILE=directory)
+        if child_context is not None:
+            if not Path(argv[0]).is_absolute():
+                raise PythonBindingError("Select an absolute executable for the managed Python probe")
+            selected = child_context.resolve_executable(argv[0])
+            argv = [selected, *argv[1:]]
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             try:
                 proc = subprocess.run(
@@ -115,17 +122,18 @@ def _matches_invocation_path(reported: str, selected: Path) -> bool:
     return os.path.normcase(str(actual)) == os.path.normcase(str(expected))
 
 
-def discover_python(version: str) -> str:
+def discover_python(version: str, *, child_context=None) -> str:
     if not re.fullmatch(r"3\.\d{1,2}(?:\.\d{1,3})?", version):
         raise PythonBindingError("--python requires an explicit version such as 3.12")
-    uv = shutil.which("uv")
+    uv = child_context.resolve_executable("uv") if child_context is not None else shutil.which("uv")
     if not uv:
         raise PythonBindingError("uv is unavailable; select an existing interpreter with --executable")
     # Explicit system discovery only. Never choose the RF tool venv or download.
+    options = {"child_context": child_context} if child_context is not None else {}
     found = _capture_probe([
         uv, "--no-config", "--offline", "python", "find", "--system",
         "--no-project", "--no-python-downloads", version,
-    ])
+    ], **options)
     return str(_invocation_path(found))
 
 
@@ -159,12 +167,16 @@ def executable_fingerprint(executable: str) -> dict[str, Any]:
     }
 
 
-def probe_python(executable: str, expected_version: str | None = None) -> dict[str, Any]:
+def probe_python(executable: str, expected_version: str | None = None, *,
+                 child_context=None) -> dict[str, Any]:
+    if child_context is not None and not Path(executable).is_absolute():
+        raise PythonBindingError("Select an absolute Python invocation for the managed child")
     path = _invocation_path(executable)
     before = executable_fingerprint(str(path))
+    options = {"child_context": child_context} if child_context is not None else {}
     try:
         data = json.loads(
-            _capture_probe([str(path), "-I", "-S", "-B", "-c", _PROBE]),
+            _capture_probe([str(path), "-I", "-S", "-B", "-c", _PROBE], **options),
             object_pairs_hook=_unique_object,
         )
     except (ValueError, TypeError) as exc:
@@ -196,10 +208,24 @@ def _reject_link(path: Path) -> None:
         raise PythonBindingError("Python binding storage must not be a symlink or reparse point")
 
 
+def _command_available(command: str, *, child_context=None, cwd=None) -> bool:
+    if child_context is None:
+        return bool(shutil.which(command))
+    from .upgrade.service_children import ServiceChildBindingError
+    try:
+        child_context.resolve_executable(command, cwd=cwd)
+    except ServiceChildBindingError as exc:
+        if exc.code == "child_executable_unavailable":
+            return False
+        raise
+    return True
+
+
 class PythonBindings:
     def __init__(self, manager: WorkspaceManager) -> None:
         self.manager = manager
         self.settings = manager.settings
+        self.child_context = getattr(manager, "child_context", None)
         self.root = manager.root / "python-bindings"
 
     def _identity(self, workspace_id: str) -> dict[str, Any]:
@@ -250,7 +276,8 @@ class PythonBindings:
                 runtime = data["runtime"]
                 if executable_fingerprint(runtime["executable"]) != runtime["fingerprint"]:
                     raise PythonBindingError("Python runtime changed; explicit re-approval is required")
-                if probe_python(runtime["executable"]) != runtime:
+                options = {"child_context": self.child_context} if self.child_context is not None else {}
+                if probe_python(runtime["executable"], **options) != runtime:
                     raise PythonBindingError("Python identity changed; explicit re-approval is required")
             return data
         except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -282,7 +309,8 @@ class PythonBindings:
                 raise PythonBindingError("Python binding plan changed; review a fresh plan")
             if current["previous_record_sha256"] and not replace:
                 raise PythonBindingError("A binding already exists; use --replace only after reviewing it")
-            runtime = probe_python(plan["executable"], expected_version)
+            options = {"child_context": self.child_context} if self.child_context is not None else {}
+            runtime = probe_python(plan["executable"], expected_version, **options)
             if runtime["fingerprint"] != plan["fingerprint"]:
                 raise PythonBindingError("Python changed after approval; no binding saved")
             record = {
@@ -311,7 +339,7 @@ class PythonBindings:
         return {"requested_argv": list(argv), "resolved_argv": resolved, "python_binding": binding}
 
     def validation_plan(self, workspace_id: str, context: dict[str, Any]) -> dict[str, Any]:
-        self._identity(workspace_id)
+        identity = self._identity(workspace_id)
         resolved = []
         missing = []
         names = set(context.get("required_executables", []))
@@ -326,7 +354,8 @@ class PythonBindings:
                 missing.append({"command": name, "reason": "not_allowlisted"})
             elif name in PYTHON_COMMANDS and self.read(workspace_id, name):
                 continue
-            elif not shutil.which(name):
+            elif not _command_available(name, child_context=self.child_context,
+                                        cwd=identity["worktree"] if self.child_context is not None else None):
                 missing.append({"command": name, "reason": "not_on_path"})
         return {
             "ok": not missing, "workspace_id": workspace_id,
@@ -343,7 +372,10 @@ def handoff_runtime_guidance(manager: WorkspaceManager, workspace_id: str,
     if not storage.exists():
         names = {item["argv"][0] for item in context.get("validation_commands", [])}
         names.update(context.get("required_executables", []))
-        missing = [name for name in PYTHON_COMMANDS if name in names and not shutil.which(name)]
+        child_context = getattr(manager, "child_context", None)
+        cwd = manager._worktree(manager.get_state(workspace_id)) if child_context is not None else None
+        missing = [name for name in PYTHON_COMMANDS if name in names
+                   and not _command_available(name, child_context=child_context, cwd=cwd)]
         if missing:
             return (
                 "\nLocal Python preflight: these command names are missing: "

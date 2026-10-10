@@ -4,7 +4,8 @@
 [controller 维护准入](MAINTENANCE_ADMISSION_CN.md)连接到它自己创建并持有的
 HTTP 服务。HTTP 请求、controller 工作和维护预留使用同一个 admission
 对象。可选的不可变配置对象进一步把选定的父进程策略绑定到这个确切的
-owner 和 controller。
+owner 和 controller。配置了绑定的 owner 还会保留其覆盖的本地子进程
+启动输入。
 
 实现位于 `src/gitlab_agent/upgrade/service_managed.py`。这是 Python 嵌入式
 API，没有新增公共 CLI、MCP 工具、HTTP 管理路由或服务安装器。
@@ -20,10 +21,11 @@ owner 创建新的 `ControllerAdmission`、使用该对象的 `BridgeController`
 一次性启动对象作为所有权证明。
 
 配置了绑定的 owner 要求 controller 与共享 core 持有传入的同一个
-`ManagedServiceConfiguration` 对象。公共 digest 相同不代表可以替换对象。
+`ManagedServiceConfiguration` 对象，以及 owner 捕获的同一个 child context。
+公共 digest 或 context 值相同，都不代表可以替换对象。
 清理所有权由确切的 admission gate 决定：使用另一个 gate 的 controller
 在被接纳之前就会被拒绝，也不会被关闭；已加入本 owner gate 的 controller，
-即使因配置或状态路径不匹配而无法启动，仍由本 owner 负责清理。
+即使因配置、child context 或状态路径不匹配而无法启动，仍由本 owner 负责清理。
 
 构造、启动、运行和清理是不同状态。owner 只能使用一次；启动成功之前
 不能申请维护，关闭或失败后不能重新启动或绑定另一个服务。
@@ -42,8 +44,8 @@ TCP 连接成功或 `/healthz` 成功都不能替代这个所有权检查。
 | --- | --- |
 | `capture_service_configuration(settings, bridge_config, *, bridge_config_path, state_dir, ...)` | 将已经解析的设置、target 策略和显式服务选项复制为不可变的选定策略对象。 |
 | `ManagedBridgeService(launch, *, configuration=None)` | 选择显式 `HTTPLaunch`，可选地传入确切的选定策略对象，创建新服务。 |
-| `await service.start()` | 创建已启用门控的 controller 和自有 listener；就绪及适用的绑定检查通过后，才进入 running 状态。 |
-| `service.maintenance_snapshot()` | 返回有界服务及 ledger 诊断、已保留的观测元数据，不重新读取 runtime 文件。 |
+| `await service.start()` | 在 listener 创建前捕获配置绑定的子进程输入和 runtime 观测，创建已启用门控的 controller；就绪及绑定检查通过后，才进入 running 状态。 |
+| `service.maintenance_snapshot()` | 返回有界服务及 ledger 诊断、已保留的观测元数据，不重新读取 runtime 或可执行文件。 |
 | `service.try_enter_maintenance()` | 重新验证配置了绑定的 owner，再在所有已追踪活动均已确认结束时原子预留维护。 |
 | `service.leave_maintenance(lease)` | 重新验证配置了绑定的 owner，再释放当前原始的进程内 `MaintenanceLease`。 |
 | `await service.aclose()` | 先关闭准入，再清理自己持有的 server/controller 资源。 |
@@ -112,7 +114,7 @@ projection 和 Bridge 配置视图都是独立副本；之后修改原始集合�
 
 | 选定输入 | 配置了绑定的 controller 行为 |
 | --- | --- |
-| Agent settings 与 workspace root | 直接的 settings、本地配置报告和 workspace-root helper 使用保留的设置。 |
+| Agent settings 与 workspace root | 直接 helper 和私有 ReasonFirst 子进程入口使用保留的设置，不重新加载另一个 `.env` 文件。 |
 | Codex worker 请求 | effective policy、session 恢复及继续执行都使用保留的 worker 策略；不因此证明 backend 已执行该策略。 |
 | 按名称请求的 target 与已保存的 target | 名称从选定 target 集合解析；状态中的 target 必须与某个选定 target 的规范记录一致，包括 validation 策略。 |
 | `gitlab_auth_mode` | 接受 `auto`、`api`、`git-only`；`auto` 根据保留的 API 凭据是否存在决定，直接模式 helper 不重新读取环境覆盖值。 |
@@ -137,14 +139,47 @@ SHA-256，包含选定的非秘密策略、引用和实际 HTTP launch。凭据�
 该 projection。因此两个对象可能拥有相同公共 digest，但持有不同私有设置；
 运行中的绑定要求对象身份一致，不能只比较 digest。
 
-子进程和 AppServer client 仍保留原有环境及 binary 选择行为。provider 状态、
-外部配置文件、CA bundle 内容、Git trust/configuration 和 backend 策略执行
-都在此选定策略声明之外。保留 CA 路径或环境信任布尔值，不会冻结文件内容
-或周围的进程环境。
+下文的本地子进程启动绑定提供保留的进程输入。provider 状态、外部配置文件、
+CA bundle 内容、原生 Git 与 SSH 配置、远端 runtime 状态和 backend 策略执行
+仍在选定策略声明之外。保留 CA 路径或环境信任布尔值，不会冻结所引用的
+文件内容。
 
 该对象独立于一次性启动观测状态。disposable controller 仍拒绝所有工具调用，
 不能与 live admission 组合。普通 controller 以及省略 `configuration` 创建
 的 owner 保持原有加载行为。
+
+## 选定的本地子进程启动输入
+
+配置了绑定的 owner 在创建 listener 之前捕获私有 `ServiceChildContext`。
+该 context 归属于创建它的 PID 与确切配置对象，保留独立的环境副本、绝对
+工作目录，以及用于本地 ReasonFirst 子进程的 Python 调用路径。返回的环境
+视图都是独立副本。之后修改 `os.environ` 或父进程工作目录，不会替换已捕获
+的值；一个 owner 启动工作时，也不会临时修改进程全局变量来影响另一个 owner。
+
+需要 ReasonFirst CLI 子进程的 controller 操作，通过有界私有入口
+`upgrade.service_child` 传递已经解析的 settings。子进程跳过普通 settings
+及 `.env` 发现逻辑。环境独立传给进程，凭据不会放进命令行参数。Python
+isolated mode 将捕获的工作目录与 `PYTHONPATH` 排除在模块查找之外。每个
+helper 从继承的环境建立仅属于该子进程的 context，供其后代使用；可执行
+文件缓存与进程身份不跨进程传递。这是内部执行通道，没有新增面向用户的
+CLI、MCP 工具或服务管理入口。
+
+本地 Git、history inspection、validation 和本地启动的 SSH client 也接收
+保留的启动 context。可执行文件按需从该 context 解析，覆盖的启动路径使用
+明确的绝对可执行文件路径，并观测、复核已经选定的文件是否漂移。Codex
+配置探针和自有 AppServer 进程使用选定的本地环境与工作目录；缓存的 client
+也必须继续属于同一个 context。
+controller 在覆盖的使用路径上检查选定 context；owner 在进入 running
+之前及两个维护转换处重新验证。观察到 context 或可执行文件不匹配会永久
+关闭准入；之后恢复文件或收到成功的子进程响应，都不会刷新基线。
+
+这个绑定描述 ReasonFirst 提供的本地输入，不证明可执行文件随后加载或启动
+的内容。Codex/provider 配置文件、额外 MCP 服务、原生 Git hook、filter、
+trust store 及 include 配置、SSH 配置与 host-key/agent 状态、远端 shell
+环境、远端 binary 和容器 image，以及已经运行的 Desktop daemon 都仍属于
+外部状态。本地 validation 仍是原有的结构化宿主命令 runner；context 不会
+把它变成 sandbox。文件观测也不证明已加载代码身份，不能使进程创建成为
+原子操作。
 
 ## 当前进程的 runtime 观测
 
@@ -162,8 +197,8 @@ owner 在进入 running 状态之前、申请维护之前，以及释放 lease �
 这些检查是对选定文件和进程内引用进行有界、重复观测，不是原子的文件系统
 快照，不证明内存里已加载的代码、整个 runtime 的完整性，也不证明某个独立
 prepared runtime 的身份。没有后台漂移 watcher，也不会在每个 HTTP 请求上
-重新读取 runtime。诊断展示的是历史观测，维护状态转换才执行上面所述的
-新一轮检查。
+重新读取这一组当前进程文件。覆盖的子进程路径另行执行按使用触发的检查。
+诊断展示的是历史观测，维护状态转换执行上面所述的新一轮检查。
 
 ## HTTP profile 与兼容性
 
@@ -215,6 +250,11 @@ ASGI send 返回不证明对端已经收到回复。观察到的断连、取消�
 也会关闭准入。仅清理自己持有的 socket、task 和 controller client；
 不会接管已占用端口或其他 listener。
 
+绑定的 AppServer client 只有在其确切 child context 被接纳之后，才成为
+自有清理对象。工厂返回的外来 client 或缓存中替换进来的外来 client 会被
+拒绝，但不会被关闭。缓存条目被替换，也不会丢弃原来已持有 client 的
+清理 handle。
+
 清理超时或失败是独立结果。listener 停止不证明 controller callback、
 coding worker 或远端容器已结束。计数与 unknown 证据持续保留，不会为了
 显示空闲而清空。审批决策及 Desktop 所持有 worker 的既有行为保持独立。
@@ -222,6 +262,9 @@ coding worker 或远端容器已结束。计数与 unknown 证据持续保留，
 配置捕获使用有限集合的 `ServiceConfigurationError` 错误码。owner 用
 `configuration_binding_failed` 表示选定策略检查失败，用
 `runtime_binding_failed` 表示 runtime 捕获或重新验证失败；
+`child_binding_failed` 表示 child context 捕获无效、身份不匹配、选定可执行
+文件漂移，或 helper 报告了 child context 失败。普通子进程命令失败继续
+使用独立分类。
 `controller_binding_failed` 与 `core_binding_failed` 表示启动对象不匹配。
 绑定的 controller 或 gate 被外部关闭，也会使配置绑定永久失败。这些 owner
 错误不回显原始配置值、runtime 路径或底层异常文本。
@@ -236,14 +279,20 @@ worker/session 标识或原始异常文本。
 | --- | --- |
 | `resolved_policy_bound` | 仅在配置了绑定的 owner 运行、controller/core 持有确切配置且 gate 仍有效时为 true。 |
 | `current_process_bound` | 仅在上述运行绑定同时持有内部捕获的当前进程观测时为 true；不表示本次 snapshot 调用完成了新的磁盘完整性检查。 |
+| `child_inputs_bound` | 仅在运行中的 owner、controller 与 core 持有确切的已捕获 child context 且 gate 有效时为 true；不验证子进程 runtime 或 provider 配置。 |
 | `configuration_digest` | 选定 projection 与 launch 的历史 digest；未捕获时为 `null`。 |
 | `runtime_observation` | 选定 runtime 观测的有界历史摘要，包含 digest 和模块数；未捕获时为 `null`。 |
+| `child_observation` | `owned-local-child-inputs` 有界摘要，包含输入保留布尔值与选定可执行文件计数；未捕获时为 `null`。不包含原始环境、环境 digest、路径或凭据指标。 |
 
-关闭 owner 后，两个运行绑定标志都变为 false。成功捕获的 digest 和观测
-元数据继续作为历史证据保留。未配置绑定的 owner 的两个新标志为 false，
-两个观测字段为 `null`。
+子进程摘要中的 `child_runtime_verified`、`provider_configuration_verified`、
+`remote_runtime_verified`、`desktop_daemon_verified` 和 `activation_authorized`
+保持 false。计数只表示已选择的观测，不枚举完整后代进程树。
 
-即使两个运行绑定标志为 true，下列更广的标志仍保持 false：
+关闭 owner 后，三个运行绑定标志都变为 false。成功捕获的 digest 和观测
+元数据继续作为历史证据保留。未配置绑定的 owner 的这些标志为 false，
+configuration digest 与两个观测字段为 `null`。
+
+即使三个运行绑定标志都为 true，下列更广的标志仍保持 false：
 `effective_configuration_verified`、`recovered_state_verified`、
 `external_producers_quiesced`、`global_idle_verified`、
 `runtime_identity_verified`、`activation_authorized`、`ready_for_activation`、
@@ -256,7 +305,7 @@ worker/session 标识或原始异常文本。
 静态部署记录、原生 loaded-job 样本、startup claims 与此 owner 的本地
 维护预留继续作为不同证据。现有[launch-review blockers](LAUNCH_REVIEW_CN.md)
 不会因本次集成而移除。`bridge_mcp.py` 源码 pin 覆盖显式 subscription 选项
-和配置引用的保留，不表示这个 owner 已成为可批准的服务启动器。
+和配置/child context 引用的保留，不表示这个 owner 已成为可批准的服务启动器。
 
 ## 验证
 
@@ -266,10 +315,19 @@ worker/session 标识或原始异常文本。
 `tests/test_managed_http_integration.py`，使用隔离的合成配置、两种 Bridge
 模式，并以普通共享 core catalog 为比较来源，不联系 coding backend 或 GitLab。
 
-安装 harness 分别从干净 wheel 与源码环境运行同一组 12 个 fixture 用例，
-并检查各自模块来源。其中包含两种模式的配置绑定 owner 用例。严格报告除
-原有真实 MCP 和维护准入证据外，还要求
-`selected_policy_binding_exercised` 与 `runtime_observation_exercised`；
+子进程集成测试覆盖真实 controller helper 路径、相互独立的 owner、preview
+与直接 finish 中保留的 settings、外来 client 清理边界、持续失败的 child
+绑定，以及普通 controller 兼容性。直接 backend 测试覆盖本地 Git、
+validation、已批准 Python、history 和本地 SSH 输入。
+
+安装 harness 分别从干净 wheel 与源码环境运行同一组 14 个 fixture 用例，
+并检查各自模块来源。其中包含两种模式的配置绑定 owner，以及真实的
+`reasonfirst_files`/`reasonfirst_read` HTTP 调用。这些调用在 `.env`、环境及
+父进程工作目录改变后仍使用选定 workspace，并在捕获的子进程目录放入
+同名 shadow package，以验证 isolated 模块查找。另有四个 report-validator
+用例约束报告格式。严格报告除原有真实 MCP 和维护准入证据外，还要求
+`selected_policy_binding_exercised`、`runtime_observation_exercised` 与
+`child_launch_binding_exercised` 都严格为 true；
 跳过或不完整运行都不算成功。`working_service_touched` 和 `activation_tested`
 保持 false。这些检查验证新创建并持有的 HTTP runtime，不证明用户正在使用
 的服务已完成接管、身份认证、重启恢复或回滚验收。

@@ -1156,7 +1156,9 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
     }
 
 
-def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
+def _build_parser(
+    prog: str = "gitlab-agent", *, parser_class=argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     if prog in {"actual-coder", "codingagent"}:
         product_name = "ActualCoder" if prog == "actual-coder" else "CodingAgent (compatibility alias)"
         description = (
@@ -1168,7 +1170,7 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
             "Low-level GitLab worktree/build/commit/MR controller used by ActualCoder."
         )
 
-    parser = argparse.ArgumentParser(
+    parser = parser_class(
         prog=prog,
         description=description,
     )
@@ -1586,13 +1588,23 @@ def _build_parser(prog: str = "gitlab-agent") -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
+def main(
+    argv: list[str] | None = None, *, prog: str = "gitlab-agent",
+    resolved_settings: AgentSettings | None = None,
+    child_context=None,
+) -> int:
     parser = _build_parser(prog=prog)
     args = parser.parse_args(argv)
+    # Only the managed child supplies already-resolved settings. Ordinary CLI
+    # calls retain their existing environment/file loading and Doctor behavior.
+    doctor_options = (
+        {"settings_loader": lambda: resolved_settings}
+        if resolved_settings is not None else {}
+    )
 
     try:
         if args.command == "doctor":
-            result = run_doctor(offline=args.offline, git_only=args.git_only)
+            result = run_doctor(offline=args.offline, git_only=args.git_only, **doctor_options)
             _print(result)
             return 0 if bool(result.get("ok")) else 1
 
@@ -1605,8 +1617,11 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
             _print(result)
             return 0 if bool(result.get("ready_for_stage1")) else 1
 
-        settings = AgentSettings.load()
-        manager = WorkspaceManager(settings)
+        settings = AgentSettings.load() if resolved_settings is None else resolved_settings
+        manager = (
+            WorkspaceManager(settings, child_context=child_context)
+            if child_context is not None else WorkspaceManager(settings)
+        )
         runner = CommandRunner(settings, manager)
         gitlab_api = GitLabAPI(settings)
 
@@ -1777,6 +1792,7 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
             preflight = run_doctor(
                 offline=args.offline_doctor,
                 git_only=args.git_only,
+                **doctor_options,
             )
             preflight_summary = {
                 "ok": preflight.get("ok"),
@@ -2102,6 +2118,10 @@ def main(argv: list[str] | None = None, *, prog: str = "gitlab-agent") -> int:
         print("Interrupted", file=sys.stderr)
         return 130
     except Exception as exc:
+        if child_context is not None:
+            from .upgrade.service_children import ServiceChildBindingError
+            if isinstance(exc, ServiceChildBindingError):
+                raise
         _print({"ok": False, "error": str(exc), "type": type(exc).__name__})
         return 1
 

@@ -157,6 +157,8 @@ def build_finish_plan(
                 base_sha=str(status["base_sha"]),
                 head_sha=str(status["head"]),
                 timeout_seconds=settings.command_timeout_seconds,
+                **({"child_context": manager.child_context}
+                   if getattr(manager, "child_context", None) is not None else {}),
             )
         except HistoryScanError as exc:
             history_scan = {

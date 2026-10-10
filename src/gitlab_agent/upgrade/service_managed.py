@@ -20,6 +20,7 @@ import time
 from ..bridge_http import HTTPLaunch
 from ..bridge_preview.admission import AdmissionError, ControllerAdmission, _ERROR_CODES
 from .service_configuration import ManagedServiceConfiguration
+from .service_children import ServiceChildContext, capture_service_children
 from .service_runtime import SCOPE as _RUNTIME_SCOPE, ServiceRuntimeObservation, capture_service_runtime
 
 
@@ -42,6 +43,7 @@ _CODES = _ERROR_CODES | frozenset({
     "controller_cleanup_failed", "listener_cleanup_failed", "request_cleanup_failed",
     "lifespan_cleanup_failed",
     "invalid_service_configuration", "configuration_binding_failed", "runtime_binding_failed",
+    "child_binding_failed",
 })
 
 
@@ -139,9 +141,29 @@ def _observe_listener(server, sock, launch):
         raise ServiceError("listener_observation_failed") from None
 
 
-def _create_controller(admission, *, configuration=None):
+def _create_controller(admission, *, configuration=None, child_context=None):
     from ..bridge_preview.controller import BridgeController
-    return BridgeController(admission=admission, service_configuration=configuration)
+    options = {"child_context": child_context} if configuration is not None else {}
+    return BridgeController(admission=admission, service_configuration=configuration, **options)
+
+
+def _child_summary(context):
+    """Only cached, finite launch-input evidence may enter owner snapshots."""
+    summary = context.summary()
+    positive = {"environment_retained", "working_directory_retained",
+                "python_invocation_observed", "current_process_only"}
+    negative = {"child_runtime_verified", "provider_configuration_verified",
+                "remote_runtime_verified", "desktop_daemon_verified", "activation_authorized"}
+    if (type(summary) is not dict
+            or set(summary) != positive | negative | {"schema_version", "scope", "selected_executable_count"}
+            or type(summary["schema_version"]) is not int or summary["schema_version"] != 1
+            or type(summary["scope"]) is not str or summary["scope"] != "owned-local-child-inputs"
+            or type(summary["selected_executable_count"]) is not int
+            or not 0 <= summary["selected_executable_count"] <= 256
+            or any(summary[name] is not True for name in positive)
+            or any(summary[name] is not False for name in negative)):
+        raise ServiceError("child_binding_failed")
+    return dict(summary)
 
 
 def _runtime_summary(observation):
@@ -346,6 +368,8 @@ class ManagedBridgeService:
         self._configuration_digest = None
         self._runtime_observation = None
         self._runtime_summary = None
+        self._child_context = None
+        self._child_summary = None
         self._pid = os.getpid()
         self._lock = threading.RLock()
         self._loop = None
@@ -380,6 +404,16 @@ class ManagedBridgeService:
         if self._configuration is None:
             return
         controller, core = self._controller, self._core
+        try:
+            if (type(self._child_context) is not ServiceChildContext
+                    or self._child_context.configuration is not self._configuration
+                    or getattr(controller, "child_context", None) is not self._child_context
+                    or getattr(core, "_reasonfirst_child_context", None) is not self._child_context):
+                raise ServiceError("child_binding_failed")
+            self._child_summary = _child_summary(self._child_context)
+        except BaseException:
+            self._failed_locked("child_binding_failed")
+            raise ServiceError("child_binding_failed") from None
         if (controller is None or core is None
                 or getattr(controller, "_admission", None) is not self._admission
                 or getattr(controller, "service_configuration", None) is not self._configuration
@@ -395,6 +429,14 @@ class ManagedBridgeService:
     def _revalidate_runtime_locked(self):
         if self._configuration is None:
             return
+        try:
+            if type(self._child_context) is not ServiceChildContext:
+                raise ServiceError("child_binding_failed")
+            self._child_context.revalidate()
+            self._child_summary = _child_summary(self._child_context)
+        except BaseException:
+            self._failed_locked("child_binding_failed")
+            raise ServiceError("child_binding_failed") from None
         try:
             if type(self._runtime_observation) is not ServiceRuntimeObservation:
                 raise ServiceError("runtime_binding_failed")
@@ -446,6 +488,9 @@ class ManagedBridgeService:
                 "cleanup_complete": self._cleanup_complete,
                 "resolved_policy_bound": bound,
                 "current_process_bound": bound and self._runtime_observation is not None,
+                "child_inputs_bound": bound and self._child_context is not None,
+                "child_observation": (dict(self._child_summary)
+                                      if self._child_summary is not None else None),
                 "configuration_digest": self._configuration_digest,
                 # Historical point-in-time file observation; no disk reads in
                 # this diagnostic snapshot and no loaded-code attestation.
@@ -534,6 +579,15 @@ class ManagedBridgeService:
                 except Exception:
                     raise ServiceError("configuration_binding_failed") from None
                 try:
+                    context = capture_service_children(self._configuration)
+                    if (type(context) is not ServiceChildContext
+                            or context.configuration is not self._configuration):
+                        raise ServiceError("child_binding_failed")
+                    self._child_summary = _child_summary(context)
+                    self._child_context = context
+                except Exception:
+                    raise ServiceError("child_binding_failed") from None
+                try:
                     observation = capture_service_runtime()
                     if type(observation) is not ServiceRuntimeObservation:
                         raise ServiceError("runtime_binding_failed")
@@ -544,7 +598,8 @@ class ManagedBridgeService:
                     raise ServiceError("runtime_binding_failed") from None
             self._socket = _bind_socket(self._launch)
             candidate = (_create_controller(self._admission) if self._configuration is None else
-                         _create_controller(self._admission, configuration=self._configuration))
+                         _create_controller(self._admission, configuration=self._configuration,
+                                            child_context=self._child_context))
             if getattr(candidate, "_admission", None) is not self._admission:
                 # A miswired factory is not authority to close someone else's
                 # controller. Adopt only the candidate enrolled in our gate.
@@ -557,6 +612,9 @@ class ManagedBridgeService:
                     or self._controller.managed_startup_state is not None
                     or self._admission.snapshot()["state"] not in {"open", "unknown"}):
                 raise ServiceError("controller_binding_failed")
+            if (self._configuration is not None
+                    and getattr(candidate, "child_context", None) is not self._child_context):
+                raise ServiceError("child_binding_failed")
             try:
                 self._launch.validate(os.environ)
             except Exception:
@@ -567,6 +625,9 @@ class ManagedBridgeService:
             if (self._configuration is not None
                     and getattr(self._core, "_reasonfirst_service_configuration", None) is not self._configuration):
                 raise ServiceError("core_binding_failed")
+            if (self._configuration is not None
+                    and getattr(self._core, "_reasonfirst_child_context", None) is not self._child_context):
+                raise ServiceError("child_binding_failed")
             raw_app = self._core.streamable_http_app(
                 host=self._launch.host, streamable_http_path=self._launch.path,
                 stateless_http=True, json_response=True, max_request_body_size=4 * 1024 * 1024,

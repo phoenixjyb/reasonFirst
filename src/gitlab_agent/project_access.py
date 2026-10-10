@@ -13,10 +13,13 @@ from functools import wraps
 import json
 import re
 import ssl
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from urllib.parse import quote
 
 import httpx
+
+if TYPE_CHECKING:
+    from .config import AgentSettings
 
 
 MAX_REQUIRED_FILES = 16
@@ -297,17 +300,25 @@ async def check_project_access(
     return report
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Standalone preflight: no workspace/cache, worker, Git, or policy writes."""
-    parser = argparse.ArgumentParser(description="Read-only project access preflight; never grants access or creates a project.")
+def _build_parser(*, parser_class=argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser = parser_class(description="Read-only project access preflight; never grants access or creates a project.")
     parser.add_argument("project")
     parser.add_argument("--ref", default="")
     parser.add_argument("--require-file", action="append", default=[], dest="required_files")
+    return parser
+
+
+def main(
+    argv: list[str] | None = None, *, resolved_settings: AgentSettings | None = None,
+    child_context=None,
+) -> int:
+    """Standalone preflight: no workspace/cache, worker, Git, or policy writes."""
+    parser = _build_parser()
     args = parser.parse_args(argv)
     try:
         from .config import AgentSettings
         from .tls import api_client_options
-        settings = AgentSettings.load()
+        settings = AgentSettings.load() if resolved_settings is None else resolved_settings
 
         def factory():
             return httpx.AsyncClient(
@@ -328,7 +339,11 @@ def main(argv: list[str] | None = None) -> int:
             args.project in settings.allowed_projects
             if settings.allowed_projects else not settings.require_write_allowlist
         )
-    except (OSError, ValueError, RuntimeError):
+    except (OSError, ValueError, RuntimeError) as exc:
+        if child_context is not None:
+            from .upgrade.service_children import ServiceChildBindingError
+            if isinstance(exc, ServiceChildBindingError):
+                raise
         result = ProjectAccessError("configuration_error", stage="configuration").result()
     result["mcp_connection_checked"] = False
     print(json.dumps(result, indent=2, ensure_ascii=False))

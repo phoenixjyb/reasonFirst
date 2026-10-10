@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, chdir, redirect_stderr, redirect_stdout
 import http.client
 import importlib.util
 import io
@@ -27,7 +27,7 @@ from gitlab_agent import bridge_http, bridge_mcp
 from gitlab_agent.bridge_preview import admission, controller
 from gitlab_agent.bridge_preview.bridge_config import ExecutionTarget
 from gitlab_agent.config import AgentSettings
-from gitlab_agent.upgrade import service_configuration, service_managed, service_runtime
+from gitlab_agent.upgrade import service_child, service_children, service_configuration, service_managed, service_runtime
 from gitlab_agent.worker_policy import default_worker_policy
 from mcp import Client
 import mcp
@@ -58,7 +58,7 @@ def modern_message(payload):
 def verify_origins(route: str, expected: Path) -> None:
     expected = expected.resolve(strict=True)
     modules = (gitlab_agent, bridge_http, bridge_mcp, admission, controller,
-               service_configuration, service_managed, service_runtime)
+               service_child, service_children, service_configuration, service_managed, service_runtime)
     for module in modules:
         origin = Path(module.__file__).resolve(strict=True)
         if not origin.is_relative_to(expected):
@@ -82,6 +82,7 @@ class FakeApp:
         self.turns = 0
         self.interrupts = []
         self.closed = False
+        self.child_context = kwargs.get("child_context")
 
     def worker_policy_evidence(self, thread_id):
         return {"satisfied": True}
@@ -157,6 +158,8 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "RF_CODEX_BRIDGE_STATE_DIR": str(self.state),
             "RF_ENABLE_EXPERIMENTAL_REMOTE_PUSH": "false",
             "RF_GITLAB_AUTH_MODE": "git-only",
+            "CODEX_BRIDGE_CODEX_BIN": sys.executable,
+            "CODEX_HOME": str(self.home / ".codex"),
         })
         self.patches = ExitStack()
         self.patches.enter_context(patch.dict(os.environ, env, clear=True))
@@ -205,15 +208,21 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(snapshot[name], False)
         self.assertIs(snapshot["resolved_policy_bound"], configuration is not None)
         self.assertIs(snapshot["current_process_bound"], configuration is not None)
+        self.assertIs(snapshot["child_inputs_bound"], configuration is not None)
         if configuration is not None:
             self.assertEqual(snapshot["configuration_digest"], configuration.configuration_digest(launch))
             self.assertEqual(snapshot["runtime_observation"]["scope"], service_runtime.SCOPE)
             self.assertFalse(snapshot["runtime_observation"]["runtime_identity_verified"])
             self.assertIs(service._controller.service_configuration, configuration)
             self.assertIs(service._core._reasonfirst_service_configuration, configuration)
+            self.assertIs(service._controller.child_context, service._child_context)
+            self.assertIs(service._core._reasonfirst_child_context, service._child_context)
+            self.assertEqual(snapshot["child_observation"]["scope"], "owned-local-child-inputs")
+            self.assertFalse(snapshot["child_observation"]["child_runtime_verified"])
         else:
             self.assertIsNone(snapshot["configuration_digest"])
             self.assertIsNone(snapshot["runtime_observation"])
+            self.assertIsNone(snapshot["child_observation"])
         self.launch = launch
         self.url = f"http://127.0.0.1:{launch.port}{launch.path}"
         return service
@@ -370,7 +379,7 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         try:
             # Only synthetic inputs change. Captured policy is retained; this
-            # does not claim that external worker or subprocess inputs freeze.
+            # does not verify provider configuration or external runtime state.
             self.env_file.write_text("GITLAB_BASE_URL=https://changed.invalid\n", encoding="utf-8")
             self.bridge_file.write_text("not: selected-policy\n", encoding="utf-8")
             with patch.dict(os.environ, {
@@ -390,6 +399,65 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bound_full_chat_policy_and_runtime(self):
         await self.bound_catalog_cycle("full-chat")
+
+    async def bound_helper_cycle(self, mode):
+        from gitlab_agent.workspace import WorkspaceManager, WorkspaceState
+        configuration = service_configuration.capture_service_configuration(
+            AgentSettings.load(), controller.load_bridge_config(),
+            bridge_config_path=self.bridge_file, state_dir=self.state, gitlab_auth_mode="git-only",
+        )
+        selected_cwd = self.root / "helper cwd"
+        selected_cwd.mkdir()
+        shadow = selected_cwd / "gitlab_agent"
+        shadow.mkdir()
+        (shadow / "__init__.py").write_text("raise RuntimeError('unselected_child_package')\n", encoding="utf-8")
+        with chdir(selected_cwd):
+            service = await self.start_service(mode, configuration=configuration)
+        manager = WorkspaceManager(configuration.settings, child_context=service._child_context)
+        wid = "123456abcdef"
+        worktree = manager.worktrees_dir / wid
+        worktree.mkdir()
+        (worktree / "selected.txt").write_text("retained child fixture\n", encoding="utf-8")
+        manager._save_state(WorkspaceState(
+            workspace_id=wid, project="synthetic/project", repo_path=str(self.root / "synthetic.git"),
+            worktree_path=str(worktree), base_ref="main", base_sha="a" * 40,
+            branch="chatgpt/synthetic", created_at="fixture",
+        ))
+        service._controller._state["workspaces"][wid] = {
+            "workspace_id": wid, "kind": "local", "target": configuration.configured_target().to_dict(),
+        }
+        changed_cwd = self.root / "later cwd"
+        changed_cwd.mkdir()
+        try:
+            self.env_file.write_text("GITLAB_BASE_URL=https://changed.invalid\n", encoding="utf-8")
+            with patch.dict(os.environ, {
+                "GITLAB_AGENT_ENV_FILE": str(self.root / "missing.env"),
+                "GITLAB_WORKSPACE_ROOT": str(self.root / "unselected-workspace"),
+                "HOME": str(changed_cwd), "USERPROFILE": str(changed_cwd),
+            }), chdir(changed_cwd), \
+                    patch.object(AgentSettings, "load", side_effect=AssertionError("parent_settings_reload")):
+                async with Client(self.url, mode="auto", read_timeout_seconds=5) as client:
+                    listing = await client.call_tool("reasonfirst_files", {"workspace_id": wid})
+                    reading = await client.call_tool("reasonfirst_read", {"workspace_id": wid, "path": "selected.txt"})
+                self.assertFalse(listing.is_error)
+                self.assertFalse(reading.is_error)
+                self.assertIn("selected.txt", json.dumps(listing.model_dump(mode="json")))
+                self.assertIn("retained child fixture", json.dumps(reading.model_dump(mode="json")))
+            await self.wait_until(lambda: service.maintenance_snapshot()["admission"]["idle_observed"])
+            self.assertTrue(service.maintenance_snapshot()["child_inputs_bound"])
+            lease = service.try_enter_maintenance()
+            service.leave_maintenance(lease)
+            self.no_commands.assert_not_called()
+            self.no_workers.assert_not_called()
+            self.assertFalse((self.root / "unselected-workspace").exists())
+        finally:
+            self.env_file.write_bytes(self.original_config[0])
+
+    async def test_bound_read_only_helpers_keep_settings_and_launch_inputs(self):
+        await self.bound_helper_cycle("read-only")
+
+    async def test_bound_full_chat_helpers_keep_settings_and_launch_inputs(self):
+        await self.bound_helper_cycle("full-chat")
 
     async def test_protocol_and_method_guards_on_real_listener(self):
         await self.start_service()
@@ -620,6 +688,7 @@ class NativeReportTests(unittest.TestCase):
             "modes": list(MODES), "module_origins_verified": True,
             "real_mcp_calls_exercised": True, "all_tools_denied_during_maintenance": True,
             "selected_policy_binding_exercised": True, "runtime_observation_exercised": True,
+            "child_launch_binding_exercised": True,
             "working_service_touched": False, "activation_tested": False,
         }
 
@@ -637,6 +706,7 @@ class NativeReportTests(unittest.TestCase):
         for change in (
             {"tests_run": True}, {"module_origins_verified": 1},
             {"selected_policy_binding_exercised": False}, {"runtime_observation_exercised": 1},
+            {"child_launch_binding_exercised": False},
             {"tests_run": 1}, {"skipped": 1}, {"errors": 1},
             {"working_service_touched": True}, {"activation_tested": True},
             {"modes": ["full-chat"]}, {"route": "packaged"},
@@ -657,6 +727,7 @@ class NativeReportTests(unittest.TestCase):
             "module_origins_verified": False, "real_mcp_calls_exercised": False,
             "all_tools_denied_during_maintenance": False,
             "selected_policy_binding_exercised": False, "runtime_observation_exercised": False,
+            "child_launch_binding_exercised": False,
         })
         self.assertEqual(self.validate(payload, returncode=1), payload)
         with self.assertRaises(RuntimeError):
@@ -706,6 +777,7 @@ def native_main(argv):
         "all_tools_denied_during_maintenance": ok,
         "selected_policy_binding_exercised": ok,
         "runtime_observation_exercised": ok,
+        "child_launch_binding_exercised": ok,
         "working_service_touched": False, "activation_tested": False,
     }, sort_keys=True))
     return 0 if ok else 1
