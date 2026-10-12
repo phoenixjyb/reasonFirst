@@ -4,11 +4,11 @@
 
 <!-- Paired with docs/README.md in this change; base 61f464ebbb8906817e32802be22df4012881ece5. -->
 
-这些指南描述包含它们的源码修订，不一定对应最近发布 tag。参见[项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md)和 [Unreleased 更新](../CHANGELOG.md)。
+这些指南描述包含它们的源码修订，不一定对应最近发布 tag。参见 [v0.5.3 发布说明](RELEASE_NOTES_0.5.3_CN.md)、[项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md)和[变更记录](../CHANGELOG.md)。
 
 ## 从推理优先主流程开始
 
-**新用户：**先看 **[安装与更新](INSTALL_CN.md)**，选择打包快速路径或正式支持的源码/开发者路径；两条路径都进入 `reasonfirst setup`。需要详细手工运维或旧生命周期背景时，再看[首次完整接入](GETTING_STARTED_CN.md)。
+**新用户：**先看 **[安装与更新](INSTALL_CN.md)**，快速打包安装和从源码构建都支持；两条路径都进入 `reasonfirst setup`。需要详细手工运维或旧生命周期背景时，再看[首次完整接入](GETTING_STARTED_CN.md)。
 
 **主产品闭环：**普通 ChatGPT 读取并推理仓库/MR/CI 证据，定义任务和验收标准；ReasonFirst 将获批任务交给编程 worker；实现与 CI 的有界证据再回到 ChatGPT + 人工审查。[CLI 快速上手](QUICKSTART_CN.md)应被视为这条闭环中的执行引擎/运维参考。脱离 ChatGPT 的直接 CLI 使用对测试、恢复和自动化仍有价值，但属于次要能力。可选 **Bridge Preview** 权限更高，启用前先阅读[架构说明](ARCHITECTURE_CN.md)。**已经接入：**使用[日常 start/status/stop/restart](TUNNEL_LIFECYCLE_CN.md)。
 
@@ -16,6 +16,7 @@
 
 | 主题 | 简体中文 | English |
 | --- | --- | --- |
+| v0.5.3 发布说明与范围 | [0.5.3 发布说明](RELEASE_NOTES_0.5.3_CN.md) | [0.5.3 release notes](RELEASE_NOTES_0.5.3.md) |
 | 安装/更新：打包路径或源码路径 | **[安装与更新](INSTALL_CN.md)** | **[Install & update](INSTALL.md)** |
 | Mac、Windows、Linux 实机结果 | [三平台实测记录](PLATFORM_VALIDATION_CN.md) | [Platform validation](PLATFORM_VALIDATION.md) |
 | 详细/手工首次接入与第一条普通 ChatGPT 提示词 | [详细首次接入](GETTING_STARTED_CN.md) | [Operator setup](GETTING_STARTED.md) |

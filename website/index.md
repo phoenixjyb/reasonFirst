@@ -28,19 +28,19 @@
 !!! info "One primary loop"
     ActualCoder can also run directly from a terminal, CI job, IDE, or another client. That is useful for testing, recovery, and automation, but it is a secondary operational capability—not a separate product mode.
 
-## v0.5.2 setup reuse and service checks
+## v0.5.3: smoother installation and clearer diagnostics
 
-v0.5.2 adds clearer controls for existing installations:
+v0.5.3 includes the fixes prompted by the fresh Ubuntu installation:
 
-- Reuse valid saved configuration with `reasonfirst setup --reuse-existing`; choose `--reconfigure` when you intend to change it.
-- Inspect the installed CLI, selected configuration and known saved deployment with `reasonfirst status`. Running-service identity remains a separate check.
-- Advanced operators can prepare a separate runtime offline on macOS/Linux and review the known macOS deployment before planning service changes.
+- Recover eligible tunnel-client HTTPS interruptions with one bounded curl attempt, preserving TLS and checksum verification.
+- Find ReasonFirst-managed tunnel-client bundles in `actual-coder doctor` and distinguish local discovery from running-service health.
+- Publish the dated macOS, Windows and Linux validation record, including the v0.5.2 Ubuntu field run and its limits.
 
-**Packaged and source installation remain first-class routes** to the same guided setup and saved state. The advanced service features retain their platform and compatibility limits; installing v0.5.2 does not activate or migrate an existing service.
+**Quick packaged installation and building from source are both available**, with the same guided setup and saved state. Existing configuration reuse and `reasonfirst status`, introduced in v0.5.2, remain available. Installing a package does not activate or migrate an existing service.
 
-The v0.5.2 wheel and source assets are published, and their public downloads have been checked. See the release notes for the exact source and release evidence. Changes listed as Unreleased are not part of that frozen wheel.
+The [v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3) records versioned assets, the final source and public-download verification. The earlier field records keep their original installed versions; they do not claim live acceptance of the new automatic recovery.
 
-[Read the v0.5.2 release notes](docs/RELEASE_NOTES_0.5.2.md){ .md-button }
+[Read the v0.5.3 release notes](docs/RELEASE_NOTES_0.5.3.md){ .md-button }
 [Choose an installation route](docs/INSTALL.md){ .md-button }
 
 ## Tested on macOS, Windows, and Linux

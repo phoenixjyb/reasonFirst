@@ -54,12 +54,12 @@ ReasonFirst has real-machine validation records on **macOS, Windows, and Linux**
 
 ## Install — packaged or source
 
-Both installation routes are first-class and converge on the same setup/state model.
+**Quick installation from a packaged release and building from source are both available.** Both routes converge on the same setup/state model.
 
-**Packaged route — published v0.5.2:**
+**Quick packaged install — v0.5.3:**
 
 ```bash
-uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.3/chatgpt_selfhosted_gitlab_mcp-0.5.3-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -72,7 +72,7 @@ uv sync --python 3.12
 uv run reasonfirst setup
 ```
 
-The packaged route does not require keeping a ReasonFirst checkout. The source route remains fully supported for contributors, audits, private patches and editable installs. Both use the same private config, SetupState, project grants and tunnel identities; switching route does not require recreating account resources. See **[Install & update](docs/INSTALL.md)** · **[中文](docs/INSTALL_CN.md)**.
+The packaged route does not require keeping a ReasonFirst checkout. Its versioned assets and download verification are recorded on the [v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3). The source route remains fully supported for contributors, audits, private patches and editable installs; the install guide also covers building wheel/source packages. Both use the same private config, SetupState, project grants and tunnel identities; switching route does not require recreating account resources. See **[Install & update](docs/INSTALL.md)** · **[中文](docs/INSTALL_CN.md)**.
 
 
 ## Guides by task
@@ -138,7 +138,7 @@ Tests use temporary repositories, mocked services and loopback fixtures, not pro
 
 ## What is available on main
 
-**v0.5.2 is published**, with verified public wheel and source downloads. The frozen **v0.5.2** tag identifies that release; current source may also contain [Unreleased changes](CHANGELOG.md) that are not in its wheel. Record the exact commit SHA as well as the package version in source-install bug reports. See [0.5.2 release notes](docs/RELEASE_NOTES_0.5.2.md). The published v0.5.1 and v0.5.0 tags remain frozen earlier baselines, with their [0.5.1](docs/RELEASE_NOTES_0.5.1.md) and [0.5.0](docs/RELEASE_NOTES_0.5.0.md) release notes preserved.
+**v0.5.3 packages the Linux onboarding fixes:** bounded download recovery and clearer doctor discovery, alongside the dated three-platform validation record. See [0.5.3 release notes](docs/RELEASE_NOTES_0.5.3.md) and the [versioned Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3) for publication and public-download evidence. Source reports should include the exact commit SHA as well as the package version; later [Unreleased changes](CHANGELOG.md) are separate. The published v0.5.2, v0.5.1 and v0.5.0 tags remain frozen, with their [0.5.2](docs/RELEASE_NOTES_0.5.2.md), [0.5.1](docs/RELEASE_NOTES_0.5.1.md) and [0.5.0](docs/RELEASE_NOTES_0.5.0.md) release notes preserved.
 
 | Capability | Current scope |
 | --- | --- |

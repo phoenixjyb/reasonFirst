@@ -56,12 +56,12 @@ ReasonFirst 已有 **macOS、Windows 和 Linux** 的实机验证记录，各自�
 
 ## 安装——打包路径与源码路径并行支持
 
-两条路径都是正式支持入口，并最终进入同一个 setup/state 模型。
+**快速打包安装和从源码构建都支持**，两条路径进入同一套 setup/state 模型。
 
-**打包安装——已发布的 v0.5.2：**
+**快速打包安装——v0.5.3：**
 
 ```bash
-uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.3/chatgpt_selfhosted_gitlab_mcp-0.5.3-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -74,7 +74,7 @@ uv sync --python 3.12
 uv run reasonfirst setup
 ```
 
-打包路径不要求长期保留 ReasonFirst 源码目录；源码路径继续正式支持贡献、审计、私有 patch 与 editable 安装。两条路径共用同一私有配置、SetupState、项目授权与 tunnel identity；切换路径不需要重新创建账号侧资源。详见 **[安装与更新](docs/INSTALL_CN.md)** · **[English](docs/INSTALL.md)**。
+打包路径不要求长期保留 ReasonFirst 源码目录，版本化附件与下载验收记录见 [v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3)。源码路径继续正式支持贡献、审计、私有 patch 与 editable 安装；安装指南也提供 wheel/源码包构建命令。两条路径共用同一私有配置、SetupState、项目授权与 tunnel identity；切换路径不需要重新创建账号侧资源。详见 **[安装与更新](docs/INSTALL_CN.md)** · **[English](docs/INSTALL.md)**。
 
 
 ## 按任务选择指南
@@ -140,7 +140,7 @@ uv run python scripts/check_repo_secrets.py --history
 
 ## main 上已有的能力
 
-**v0.5.2 已发布**，公开 wheel 和源码下载已完成核验。冻结的 **v0.5.2** tag 标识该发布；当前源码也可能包含尚未进入其 wheel 的 [Unreleased 更新](CHANGELOG.md)。使用源码报告问题时，请同时记录准确 commit SHA 与包版本。参见 [0.5.2 发布说明](docs/RELEASE_NOTES_0.5.2_CN.md)。已发布的 v0.5.1 和 v0.5.0 tag 继续保持冻结；[0.5.1](docs/RELEASE_NOTES_0.5.1_CN.md) 与 [0.5.0](docs/RELEASE_NOTES_0.5.0_CN.md) 历史发布说明继续保留。
+**v0.5.3 汇集 Linux 安装与诊断修复：**有时限的下载恢复、准确的 doctor 客户端发现，以及保留日期与范围的三平台实测记录。参见 [0.5.3 发布说明](docs/RELEASE_NOTES_0.5.3_CN.md)；发布与公开下载验收以[版本化 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3)为准。使用源码报告问题时，请同时记录准确 commit SHA 与包版本，后续 [Unreleased 更新](CHANGELOG.md)另行记录。已发布的 v0.5.2、v0.5.1 和 v0.5.0 tag 继续保持冻结；[0.5.2](docs/RELEASE_NOTES_0.5.2_CN.md)、[0.5.1](docs/RELEASE_NOTES_0.5.1_CN.md) 与 [0.5.0](docs/RELEASE_NOTES_0.5.0_CN.md) 历史发布说明继续保留。
 
 | 能力 | 当前范围 |
 | --- | --- |

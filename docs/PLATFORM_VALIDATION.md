@@ -54,7 +54,7 @@ checkout. That package/inventory check did not authenticate GitLab, start a user
 service, or run a coding worker. It is separate from the field rehearsal below.
 
 The v0.5.2 tag and asset bytes remain unchanged. Later source fixes are described
-under [Unreleased](../CHANGELOG.md#unreleased); this record does not claim that
+in [v0.5.3 release notes](RELEASE_NOTES_0.5.3.md); this record does not claim that
 those fixes were installed or retested on the user's computer.
 
 ## Ubuntu/Linux — 2026-10-12

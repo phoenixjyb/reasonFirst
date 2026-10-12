@@ -13,7 +13,7 @@ Ubuntu 全新安装 v0.5.2 时，下载 tunnel-client 曾遇到
 失败的是 release metadata、校验文件还是 archive，也不能断定是代理问题。
 GitLab 认证属于另一条路径。
 
-[Unreleased 安装器修复](../CHANGELOG.md#unreleased)先使用 Python HTTPS；
+[v0.5.3 安装器修复](RELEASE_NOTES_0.5.3_CN.md)先使用 Python HTTPS；
 符合条件的传输错误会在 PATH 中有 `curl` 时，对同一个 URL 进行一次有时限的
 恢复尝试，覆盖元数据、校验文件和 archive 三个下载阶段。TLS 校验始终开启，
 只允许 HTTPS 重定向，恢复后的文件仍需通过 SHA256 与完整 bundle 校验。
@@ -36,7 +36,7 @@ TLS 校验的 curl 下载固定的官方 v0.0.16 校验文件和 archive，核�
 v0.5.2 的 `actual-coder doctor` 只在 PATH 上寻找 tunnel-client。引导安装器
 把完整版本化 bundle 放在 ReasonFirst 数据目录中，所以 doctor 可能跳过一个
 `reasonfirst tunnel connect` 已找到并启动的客户端。
-[Unreleased 诊断修复](../CHANGELOG.md#unreleased)改为复用 setup 的查找逻辑，
+[v0.5.3 诊断修复](RELEASE_NOTES_0.5.3_CN.md)改为复用 setup 的查找逻辑，
 包括受管安装目录。
 
 用 `reasonfirst tunnel status` 检查已记录的 runtime，并通过选定连接执行

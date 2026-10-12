@@ -24,7 +24,7 @@ from typing import Callable
 
 LATEST_RELEASE_API = "https://api.github.com/repos/openai/tunnel-client/releases/latest"
 DEFAULT_INSTALL_DIR = Path("~/.local/share/reasonfirst/tunnel-client").expanduser()
-_USER_AGENT = "ReasonFirst-v0.5.2-installer"
+_USER_AGENT = "ReasonFirst-v0.5.3-installer"
 _MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
 _CURL_CONNECT_TIMEOUT = 15
 _CURL_TRANSFER_TIMEOUT = 180

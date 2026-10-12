@@ -1,6 +1,6 @@
 # Install ReasonFirst
 
-ReasonFirst v0.5.2 supports **two first-class installation routes**. They converge on the same `reasonfirst` CLI, private GitLab config, non-secret setup state, tunnel IDs and review/publication policy.
+ReasonFirst v0.5.3 supports **quick packaged installation and building from source** as two first-class routes. They converge on the same `reasonfirst` CLI, private GitLab config, non-secret setup state, tunnel IDs and review/publication policy.
 
 ## Existing installation? Inspect before changing it
 
@@ -8,7 +8,7 @@ ReasonFirst v0.5.2 supports **two first-class installation routes**. They conver
 config, workspaces, source checkout, legacy runtime and active sidecar directories.
 Do not rerun onboarding or create a new tunnel merely because `setup.yaml` is absent.
 
-The following detect-only command works with v0.5.1 and v0.5.2. It makes no provider requests, writes, or service changes:
+The following detect-only command works with v0.5.1 and newer. It makes no provider requests, writes, or service changes:
 
 ```bash
 reasonfirst --version
@@ -20,9 +20,9 @@ config still comes from `GITLAB_AGENT_ENV_FILE`, then the canonical
 `~/.config/gitlab-agent/.env`, then cwd `.env`. Existing exported values take
 precedence; never paste `.env` contents or tokens into a report.
 
-### New in v0.5.2: reuse existing settings and inspect status
+### Since v0.5.2: reuse existing settings and inspect status
 
-In v0.5.2, plain `reasonfirst setup` offers one **reuse**
+Since v0.5.2, plain `reasonfirst setup` offers one **reuse**
 confirmation for existing valid settings. Accepting does not prompt again for the
 URL/token/project/worker, narrow the allowlist, write `setup.yaml`, verify logins,
 start services or create connections. An explicit noninteractive equivalent is:
@@ -69,7 +69,7 @@ A separate, explicitly approved v0.5.2 command can [record a known macOS
 registration snapshot](DEPLOYMENTS.md). It does not install a runtime or activate
 a service.
 
-## Route A — packaged install (recommended for new users)
+## Route A — quick packaged install (recommended for new users)
 
 Before the wizard, install Git, uv, and a supported coding worker such as Codex
 CLI. Setup detects the worker executable but does not install it or verify its
@@ -77,14 +77,14 @@ provider login; complete that login before running a coding task. Have your
 GitLab URL, token, and exact project path ready. The [first-time prerequisites](GETTING_STARTED.md)
 cover account access and the separate ChatGPT tunnel connection.
 
-For a new installation, use the published v0.5.2 wheel with Python 3.12:
+For a new installation, use the v0.5.3 wheel with Python 3.12:
 
 ```bash
-uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.3/chatgpt_selfhosted_gitlab_mcp-0.5.3-py3-none-any.whl
 reasonfirst setup
 ```
 
-Public assets include `SHA256SUMS.txt` and `RELEASE.json`; see [download verification and release scope](RELEASE_DISTRIBUTION.md). The release was published and its public downloads checked on 2026-10-10. A fresh Ubuntu 22.04.5 installation was accepted on 2026-10-12; see the [macOS, Windows, and Linux validation matrix](PLATFORM_VALIDATION.md).
+Public assets include `SHA256SUMS.txt` and `RELEASE.json`; check the [v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3) for asset availability and completed public-download verification. See [download verification and release scope](RELEASE_DISTRIBUTION.md). The fresh Ubuntu 22.04.5 field installation on 2026-10-12 used **v0.5.2**, before the installer and doctor fixes in v0.5.3; see the [macOS, Windows, and Linux validation matrix](PLATFORM_VALIDATION.md).
 
 `--python 3.12` selects the tested tool interpreter independently of your system Python. On Linux, an older `python3` command can remain in place; the target project's validation command still chooses its own interpreter. If the installed executables are not on PATH, follow uv's shell-path instructions and open a fresh terminal.
 
@@ -134,12 +134,21 @@ Use this route if you are contributing, auditing the implementation, maintaining
 For a released source tag:
 
 ```bash
-git clone --branch v0.5.2 --depth 1 https://github.com/phoenixjyb/reasonFirst.git
+git clone --branch v0.5.3 --depth 1 https://github.com/phoenixjyb/reasonFirst.git
 cd reasonFirst
 uv sync --python 3.12
 uv run reasonfirst setup --status
 uv run reasonfirst setup
 ```
+
+To build a wheel and source distribution from the checkout:
+
+```bash
+uv build --no-create-gitignore
+```
+
+The packages are written to `dist/`. Building them does not configure GitLab,
+start services or publish a release.
 
 For a persistent editable user install from that checkout:
 
@@ -185,10 +194,10 @@ can deliberately reject changed package bytes; updating the CLI alone is not a
 coordinated sidecar upgrade.
 
 Once the intended package replacement is safe and approved, use the reviewed
-release wheel. The example below targets the published v0.5.2 release:
+release wheel. The example below targets v0.5.3:
 
 ```bash
-uv tool install --force --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --force --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.3/chatgpt_selfhosted_gitlab_mcp-0.5.3-py3-none-any.whl
 reasonfirst setup --status --json
 ```
 

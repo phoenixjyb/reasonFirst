@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+No additional changes recorded.
+
+## 0.5.3
+
+This patch release packages the Linux onboarding fixes and platform records from
+[#111](https://github.com/phoenixjyb/reasonFirst/pull/111). Both quick packaged
+installation and building from source remain supported. See
+[English release notes](docs/RELEASE_NOTES_0.5.3.md) and
+[中文发布说明](docs/RELEASE_NOTES_0.5.3_CN.md); the versioned Release records the
+final source, public assets and download verification.
+
 - Recover eligible tunnel-client HTTPS transport failures with one bounded,
   TLS-verified curl attempt when available. Preserve checksum and complete-bundle
   validation; report the failed download phase without exposing proxy credentials.
@@ -10,10 +21,12 @@
   environment from running-service health and authentication.
 - Record fresh Ubuntu 22.04.5 / v0.5.2 acceptance and the historical macOS/Windows
   evidence in a bilingual [platform validation matrix](docs/PLATFORM_VALIDATION.md).
-  Update installation links to the published v0.5.2 wheel and recommend Python 3.12.
+  Keep the dates, installed versions and live-test limits explicit.
+- Align package/runtime metadata, bilingual release notes and active installation
+  examples at 0.5.3, with Python 3.12 recommended for both installation routes.
 
-These installer/doctor fixes are source changes after the frozen v0.5.2 release;
-the published v0.5.2 wheel and its successful Linux field test predate them.
+The frozen v0.5.2 wheel and its successful Linux field test predate these fixes.
+The field result is not a live test of the 0.5.3 installer recovery or doctor.
 
 ## 0.5.2
 

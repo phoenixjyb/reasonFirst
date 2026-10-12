@@ -4,7 +4,7 @@
 
 **Post-publication update: 2026-10-12.** v0.5.2 was published on 2026-10-10 and
 its public downloads were verified. The tag and release assets remain unchanged;
-later source fixes belong to [Unreleased](../CHANGELOG.md#unreleased).
+later source fixes belong to [v0.5.3](RELEASE_NOTES_0.5.3.md).
 
 ReasonFirst 0.5.2 brings the improvements made after v0.5.1 into a versioned
 package. Existing users can reuse their configuration and inspect installation

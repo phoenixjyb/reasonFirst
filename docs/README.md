@@ -2,11 +2,11 @@
 
 **English** · [简体中文](README_CN.md)
 
-These guides describe the source revision containing them, not necessarily the last release tag. See [the main README](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) and [Unreleased changes](../CHANGELOG.md).
+These guides describe the source revision containing them, not necessarily the last release tag. See [v0.5.3 release notes](RELEASE_NOTES_0.5.3.md), [the main README](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) and the [changelog](../CHANGELOG.md).
 
 ## Start with the reasoning-first workflow
 
-**New user:** start with **[Install & update](INSTALL.md)**. Choose either the packaged quick route or the fully supported source/developer route; both converge on `reasonfirst setup`. Use [First-time setup](GETTING_STARTED.md) when you need the detailed/manual operator procedure or legacy lifecycle background.
+**New user:** start with **[Install & update](INSTALL.md)**. Quick packaged installation and building from source are both available; both routes converge on `reasonfirst setup`. Use [First-time setup](GETTING_STARTED.md) when you need the detailed/manual operator procedure or legacy lifecycle background.
 
 **Primary product loop:** normal ChatGPT reads and reasons over repository/MR/CI evidence, defines the task and acceptance criteria, ReasonFirst hands the approved task to a coding worker, and bounded implementation/CI evidence returns to ChatGPT + human review. Use the [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) as the execution-engine/operator reference inside that loop. Direct CLI-only use remains useful for testing, recovery and automation, but is secondary. The optional **Bridge Preview** is a more privileged orchestration surface; read [Architecture](ARCHITECTURE.md) before enabling it. **Already connected:** use [daily start/status/stop/restart](TUNNEL_LIFECYCLE.md). **Advanced/manual/Windows:** use [the manual guide](SETUP_TUTORIAL.md) and [Windows procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell).
 
@@ -14,6 +14,7 @@ These guides describe the source revision containing them, not necessarily the l
 
 | Topic | English | 简体中文 |
 | --- | --- | --- |
+| v0.5.3 release notes and scope | [0.5.3 release notes](RELEASE_NOTES_0.5.3.md) | [0.5.3 发布说明](RELEASE_NOTES_0.5.3_CN.md) |
 | Install/update: packaged or source route | **[Install & update](INSTALL.md)** | **[安装与更新](INSTALL_CN.md)** |
 | Real-machine macOS, Windows, and Linux results | [Platform validation](PLATFORM_VALIDATION.md) | [三平台实测记录](PLATFORM_VALIDATION_CN.md) |
 | Detailed/manual first-time setup and first prompt | [Operator setup](GETTING_STARTED.md) | [详细首次接入](GETTING_STARTED_CN.md) |
