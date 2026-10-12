@@ -12,6 +12,7 @@ from . import __version__
 from .config import AgentSettings
 from .codex_app_server import managed_app_server_socket
 from .gitlab_api import GitLabAPI
+from .setup_tunnel import resolve_tunnel_client
 
 
 _STATUS_ORDER = {"pass": 0, "skip": 1, "warn": 2, "fail": 3}
@@ -137,12 +138,14 @@ def run_doctor(
         "agent_codex_desktop",
         "pass" if desktop_available else "warn",
         (
-            "Codex Desktop managed App Server is available"
+            "Managed Codex App Server socket path is present; connection and authentication are not checked"
             if desktop_available
-            else "Codex Desktop managed App Server is not available; start/enable Desktop to use this backend"
+            else "Managed Codex App Server socket path is not present; this backend was not detected"
         ),
         path=str(desktop_socket),
+        connection_checked=False,
         authentication_checked=False,
+        desktop_application_checked=False,
     )
 
     _check(
@@ -157,18 +160,21 @@ def run_doctor(
         installed=installed_agents,
     )
 
-    tunnel = resolve_executable("tunnel-client")
+    tunnel = resolve_tunnel_client(which=resolve_executable)
     _check(
         checks,
         "tunnel_client",
         "pass" if tunnel else "skip",
         (
-            "tunnel-client is available for the optional ChatGPT MCP path"
+            "tunnel-client executable was found; runtime health is not checked. "
+            "Use 'reasonfirst tunnel status' to inspect the managed runtime"
             if tunnel
-            else "tunnel-client is not installed; ActualCoder still works, but ChatGPT MCP tunnel setup is unavailable"
+            else "tunnel-client executable was not found on PATH or in ReasonFirst install directories; "
+            "runtime health is not checked"
         ),
         path=tunnel,
         optional=True,
+        runtime_health_checked=False,
     )
 
     tunnel_key_set = bool(os.getenv("CONTROL_PLANE_API_KEY"))
@@ -176,13 +182,13 @@ def run_doctor(
         checks,
         "tunnel_runtime_key",
         "pass" if tunnel_key_set else "skip",
-        (
-            "CONTROL_PLANE_API_KEY is present in the current process"
-            if tunnel_key_set
-            else "CONTROL_PLANE_API_KEY is not present; only needed while running/diagnosing the optional tunnel"
-        ),
+        f"CONTROL_PLANE_API_KEY is {'present' if tunnel_key_set else 'absent'} "
+        "in this doctor process; this does not verify the running tunnel's credential or health",
         optional=True,
         value_exposed=False,
+        scope="current_process_environment",
+        runtime_credential_checked=False,
+        runtime_health_checked=False,
     )
 
     if os.getenv("OPENAI_API_KEY"):

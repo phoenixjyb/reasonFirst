@@ -1,13 +1,14 @@
 # Versioned public downloads
 
-[Install](INSTALL.md) · [Maintainer checklist](PUBLIC_RELEASE_CHECKLIST.md) · [简体中文](#简体中文)
+[Install](INSTALL.md) · [Platform validation](PLATFORM_VALIDATION.md) · [Maintainer checklist](PUBLIC_RELEASE_CHECKLIST.md) · [简体中文](#简体中文)
 
 ## What users receive
 
-The intended stable release is **v0.5.2**. Only advertise its download once the
-maintainer has published the Release, the asset workflow has succeeded, and the
-actual public download/install has been checked. A merged PR or an expiring Actions
-candidate is not a public release. Keep source installation supported.
+**v0.5.2 was published on 2026-10-10.** Its asset workflow and actual public
+download/install verification completed successfully; the
+[versioned Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.2)
+is the stable download. A merged PR or an expiring Actions candidate is not a
+public release. Source installation remains supported.
 
 The Release asset set contains:
 
@@ -28,7 +29,7 @@ filename in the Release's `SHA256SUMS.txt` before installation:
 
 ```powershell
 Get-FileHash -Algorithm SHA256 .\chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
-uv tool install .\chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 .\chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -36,6 +37,39 @@ The hash check detects different/corrupted bytes when compared with a trusted
 checksum. A manifest served by the same repository is not a digital signature,
 independent security attestation, or proof of live worker/provider readiness.
 Installing the package does not update a process already running from an older copy.
+
+## v0.5.2 published-download record
+
+- Published: **2026-10-10 09:50:47 UTC**.
+- Release source: `a4aa63b91109c6ddb8a721d93fe4b9be2543bc23`; source tree:
+  `acc799593658c4fcfc7f03531a20f5c77ca42ea4`.
+- The exact source passed all 16 pre-publication checks, including
+  [three-platform CI/install](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598934),
+  [documentation/Pages](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598967),
+  [native tunnel boundaries](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598923),
+  and [candidate packaging](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598899).
+- [Release assets run 38042829135](https://github.com/phoenixjyb/reasonFirst/actions/runs/38042829135)
+  succeeded and attached all five files. The
+  [Release record](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.2)
+  records anonymous download verification against checksums, source/build
+  manifest, and GitHub asset digests, followed by isolated Linux/Python 3.12.14
+  wheel installation outside a source checkout.
+
+| Artifact | Verified SHA-256 |
+| --- | --- |
+| `chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl` | `fa23112b8003ce7ee46d072a7fa053b51dc5aaacf0fc9f6a72eb678f5fab1466` |
+| `chatgpt_selfhosted_gitlab_mcp-0.5.2.tar.gz` | `a7e45707aac37f6e396e99326c9312716d9746c7ab99a9eeaf63f7a5748ac0c3` |
+
+That public-download check verified installed identity, command entry points,
+non-mutating setup/status and Bridge inventory. It did not authenticate a live
+provider or activate a user service. The separate **2026-10-12 Ubuntu 22.04.5
+field rehearsal** completed fresh setup, a live Linux MCP read, managed Git,
+and a Codex read/test task with 10 existing tests passing after verified tunnel
+download recovery. See the [platform record](PLATFORM_VALIDATION.md).
+
+The published v0.5.2 source and asset bytes are preserved. Follow-up source fixes
+remain [Unreleased](../CHANGELOG.md#unreleased) until separately versioned and
+published; updating this record does not modify the existing tag or assets.
 
 ## Maintainer publication sequence
 
@@ -81,6 +115,11 @@ uploads atomic or establish that nobody can move a tag after the last read.
 
 ## Acceptance scope stays explicit
 
+Real-machine evidence exists for macOS, native Windows, and Ubuntu/Linux, with
+different dates and installed revisions. Use the
+[platform validation matrix](PLATFORM_VALIDATION.md) when describing support;
+it distinguishes historical deployment, synthetic CI, and fresh field tests.
+
 Historical Windows acceptance for v0.5.1 separately verified setup/read access,
 managed clone/fetch, approved-interpreter host validation, and the normal initial
 worker handoff followed by clean host closeout. See the checkpoints in [#90](https://github.com/phoenixjyb/reasonFirst/pull/90)
@@ -91,15 +130,21 @@ Healthy-runtime repair/no-op, controlled restart without the temporary UTF-8
 workaround, reboot recovery, and optional privileged Windows Bridge/write live
 acceptance remain open in [#88](https://github.com/phoenixjyb/reasonFirst/issues/88).
 A fresh terminal's status of an already-running runtime does not prove a new start.
-The v0.5.2 automated gates must run against its exact release source. Record the
-actual platform and live-acceptance limits in the release decision; do not mark
-unverified checks passed or remove release guards.
+The v0.5.2 automated gates passed against its exact release source as recorded
+above. Later source changes need their own checks. Record the actual platform
+and live-acceptance limits in every release decision; do not mark unverified
+checks passed or remove release guards.
+
+<a id="简体中文"></a>
 
 ## 简体中文
 
-目标是 **v0.5.2 正式版**，不是改名的候选包。正常公开分发使用版本化 GitHub
-Release，而不是聊天附件或会过期的 Actions 附件。发布人确认准确 main 提交及验收
-范围后，人工创建 tag/发布 Release；流水线只构建和上传已有 Release 的资源。
+**v0.5.2 已于 2026-10-10 正式发布**，资源工作流、五项附件的公开下载/校验，以及
+脱离源码目录的 Linux/Python 3.12.14 安装均已通过。准确发布源码为
+`a4aa63b91109c6ddb8a721d93fe4b9be2543bc23`，对应公开
+[Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.2)。
+源码安装继续支持。正常分发使用版本化 GitHub Release；发布人确认准确提交及验收
+范围后创建 tag/发布 Release，流水线只构建和上传已有 Release 的资源。
 
 资源包括共享 wheel、构建的源码包、Homebrew formula、`RELEASE.json` 和
 `SHA256SUMS.txt`。manifest 记录源提交、源树、构建运行及文件哈希；校验和并不是
@@ -111,12 +156,17 @@ Release，而不是聊天附件或会过期的 Actions 附件。发布人确认�
 不是事务，部分失败需保留证据并人工审阅恢复方案，不能简单覆盖后声称成功。
 此发布后上传流程不支持已经锁定的 immutable Release；不得为此关闭仓库安全设置。
 
-只有最终公开下载、哈希和脱离源码目录的安装验证通过后才分享下载入口。已有进程
-不会因为磁盘上安装了新包而自动更新。v0.5.1 的 Windows 标准读路径、宿主验证、
+上述公开下载验收没有登录真实服务商或启用用户服务。2026-10-12 的另一轮
+Ubuntu 22.04.5 实机演练在经校验的隧道下载恢复后，完成全新 setup、实时 MCP 读取、
+受管 Git 及 Codex 读文件/执行测试，10 项既有测试通过。macOS、原生 Windows 与
+Linux 的实机记录保留各自日期和版本，详见[平台验证记录](PLATFORM_VALIDATION_CN.md)。
+
+已有进程不会因为磁盘上安装了新包而自动更新。v0.5.1 的 Windows 标准读路径、宿主验证、
 正常初次 worker handoff 与宿主收尾已有现场记录；这些记录保留各自的源码版本，
 不能写成 v0.5.2 的新现场验收。健康 runtime 的 repair/no-op、无临时 UTF-8 绕过的
-受控重启、机器重启恢复与可选高权限 Bridge 写入仍在 #88 跟踪。v0.5.2 的自动化
-检查必须绑定最终发布提交，实际支持范围和未完成验收如实记录。
+受控重启、机器重启恢复与可选高权限 Bridge 写入仍在 #88 跟踪。v0.5.2 最终发布
+源码的自动化检查已通过，后续改动需要独立检查，并继续如实记录验收范围。
+已有 tag 和附件保持不变，后续修复归入 Unreleased，不倒填为已发布或已上机验证。
 
 ## v0.5.1 post-publication staging recovery
 

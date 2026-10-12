@@ -17,6 +17,7 @@
 | 主题 | 简体中文 | English |
 | --- | --- | --- |
 | 安装/更新：打包路径或源码路径 | **[安装与更新](INSTALL_CN.md)** | **[Install & update](INSTALL.md)** |
+| Mac、Windows、Linux 实机结果 | [三平台实测记录](PLATFORM_VALIDATION_CN.md) | [Platform validation](PLATFORM_VALIDATION.md) |
 | 详细/手工首次接入与第一条普通 ChatGPT 提示词 | [详细首次接入](GETTING_STARTED_CN.md) | [Operator setup](GETTING_STARTED.md) |
 | 产品与能力 | [项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md) | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) |
 | 启动必需服务与生命周期管理 | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) |

@@ -1,6 +1,10 @@
 # ReasonFirst 0.5.2 发布说明
 
-[English](RELEASE_NOTES_0.5.2.md) · [安装与更新](INSTALL_CN.md) · [变更记录](../CHANGELOG.md)
+[English](RELEASE_NOTES_0.5.2.md) · [安装与更新](INSTALL_CN.md) · [平台验证](PLATFORM_VALIDATION_CN.md) · [变更记录](../CHANGELOG.md)
+
+**发布后更新：2026-10-12。** v0.5.2 已于 2026-10-10 发布，公开下载已验证。
+Tag 和 Release 附件保持不变；后续源码修复列入
+[Unreleased](../CHANGELOG.md#unreleased)。
 
 ReasonFirst 0.5.2 将 v0.5.1 之后合入主线的改进整理进版本化安装包。已有用户可以
 复用原有配置，更清楚地查看安装状态；高级运维用户获得明确的部署、运行环境检查
@@ -76,10 +80,11 @@ Windows 不支持这套运行环境准备；Linux/Windows 不支持部署配对�
 
 ## 安装与更新
 
-只有 `v0.5.2` 已发布、资源工作流成功、wheel 和校验和均可下载后，才使用以下地址：
+[已发布的 v0.5.2 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.2)
+已完成构建及 wheel/校验和验证：
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -88,7 +93,7 @@ reasonfirst setup
 `reasonfirst setup --status --json`。安装新包不会让已有进程自动加载新代码。
 继续复用原配置，保留源码目录、服务目录、工作区状态和 tunnel identity。
 
-源码用户可在发布后选择已审阅的 `v0.5.2` tag，再执行 `uv sync --python 3.12`；
+源码用户可选择已审阅的 `v0.5.2` tag，再执行 `uv sync --python 3.12`；
 editable 安装继续支持。完整命令与服务边界见[安装与更新](INSTALL_CN.md)。
 
 发布构建改用 `uv build --no-create-gitignore`，解决输出目录额外 marker 导致的
@@ -106,8 +111,19 @@ wheel、sdist、formula、`RELEASE.json` 和 `SHA256SUMS.txt`。生成 formula �
 [文档](https://github.com/phoenixjyb/reasonFirst/actions/runs/38019444779)、
 [原生 tunnel 边界检查](https://github.com/phoenixjyb/reasonFirst/actions/runs/38019444786)及
 [候选包构建](https://github.com/phoenixjyb/reasonFirst/actions/runs/38019444788)。
-这是集成证据，不能替代后续 0.5.2 发布提交的验收。提升版本后的候选提交和最终合并
-提交仍需各自通过检查，再完成真实公开下载、校验和与安装验证。
+这仍作为对应源码身份的集成证据保留。
+
+最终发布源码
+[`a4aa63b91109c6ddb8a721d93fe4b9be2543bc23`](https://github.com/phoenixjyb/reasonFirst/commit/a4aa63b91109c6ddb8a721d93fe4b9be2543bc23)
+随后通过了自身的 [CI](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598934)、
+[文档/Pages](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598967)、
+[原生 tunnel 边界](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598923)及
+[候选包构建](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598899)，
+发布前 16 项检查全部通过。独立的
+[发布资源工作流](https://github.com/phoenixjyb/reasonFirst/actions/runs/38042829135)
+随后成功；五项公开下载完成校验，并在源码目录之外的独立 Linux/Python 3.12.14
+环境完成 wheel 安装与无修改命令检查。详见
+[下载记录](RELEASE_DISTRIBUTION.md#v052-published-download-record)。
 
 回归测试覆盖配置无写入复用、部署/运行环境漂移、原生部分字段观察、维护竞争、
 请求与清理不确定性、保留的子进程输入和 GitLab API trust。干净 wheel/源码安装
@@ -115,10 +131,22 @@ wheel、sdist、formula、`RELEASE.json` 和 `SHA256SUMS.txt`。生成 formula �
 或编程后端账号。三平台 CI 使用 Python 3.12；包元数据声明的更广解释器范围不代表
 每个版本都经过同等测试。
 
+**2026-10-12**，一次全新的 **Ubuntu 22.04.5 x86_64 / v0.5.2** 实机安装完成
+standard 配置、ChatGPT MCP 实时读取、受管 Git clone/fetch、契约验证，以及
+Codex CLI 0.162.1 读文件/执行测试：**10 项既有测试通过**，受跟踪文件未改动，
+外层 worker 返回码为零。自动下载 tunnel-client 最初遇到 TLS EOF；经 `curl`
+下载并校验官方客户端后，安装继续完成。旧 doctor 只查 PATH，也漏报了已正常
+工作的版本化客户端。针对这些发现的后续源码修复不在已发布 wheel 内，也未被
+计作另一轮实机通过。
+
+[平台记录](PLATFORM_VALIDATION_CN.md)分别注明操作者提供的 Linux 终端证据、
+独立调用的 Linux MCP 证据，以及历史 macOS/Windows 证据。本次 Linux 没有修改
+或发布仓库、运行全聊天 Bridge，也没有执行重启/系统重启恢复。
+
 已有 Windows 现场演练通过了 setup/只读访问、受管 clone/fetch、批准的解释器宿主
 验证、正常初始 worker handoff 和干净收尾。**Windows 修复、重启服务/系统后的
 恢复，以及可选高权限 Bridge/写入验收仍未验证。** 这些已有机器记录不等于新的
-0.5.2 现场验收。详见[验收记录](RELEASE_DISTRIBUTION.md#v051-post-publication-staging-recovery)
+Windows 0.5.2 现场验收。详见[验收记录](PLATFORM_VALIDATION_CN.md)
 及 [Windows 待验收项](https://github.com/phoenixjyb/reasonFirst/issues/88)。
 
 引导式 setup 已可使用，但首次使用能否在几分钟内完成，尚无实测。

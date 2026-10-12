@@ -55,14 +55,21 @@ v0.5.2 的另一个需显式审批的命令可[登记已知 macOS 服务的注�
 
 ## 路径 A——打包安装（新用户推荐）
 
-v0.5.2 的 GitHub Release 附件就绪后，安装经过验证的 wheel：
+进入向导前，先安装 Git、uv 和一个受支持的编程 worker，例如 Codex CLI。
+Setup 会查找 worker 可执行文件，但不会安装它，也不会验证 provider 登录；
+执行编程任务前需完成该登录。准备好 GitLab URL、token 和准确项目路径。
+[首次接入准备](GETTING_STARTED_CN.md)说明账号权限及另行完成的 ChatGPT 隧道连接。
+
+使用 Python 3.12 安装已发布、经过验证的 v0.5.2 wheel：
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
-公开资源包括 `SHA256SUMS.txt` 和 `RELEASE.json`，详见[下载校验与发布范围](RELEASE_DISTRIBUTION.md#简体中文)。这些文件须等发布资源流水线成功后才可用。
+公开资源包括 `SHA256SUMS.txt` 和 `RELEASE.json`，详见[下载校验与发布范围](RELEASE_DISTRIBUTION.md#简体中文)。该版本于 2026-10-10 发布并完成公开下载核验；2026-10-12 又完成 Ubuntu 22.04.5 全新安装验收，见 [Mac、Windows、Linux 实测记录](PLATFORM_VALIDATION_CN.md)。
+
+`--python 3.12` 为工具选择已验证的独立解释器，不替换系统 Python。Linux 上较旧的 `python3` 可以保留；目标项目的测试命令仍决定它自己的解释器。如果安装后找不到命令，请按 uv 的提示配置 shell PATH，再打开一个终端。
 
 这条路径**不要求长期保留 ReasonFirst 源码检出目录**。wheel 已包含：
 
@@ -156,10 +163,10 @@ editable 安装会跟随该源码目录。长期目录应保持在已审阅 bran
 先检查有效配置与后台服务实际使用的运行环境；服务依赖某个 tool 环境时不要直接替换它。
 固定版本的 sidecar 可能有意拒绝更改后的包指纹，因此更新 CLI 本身不等于协调服务升级。
 
-确认软件包替换安全并已批准后，再安装已审阅 release 的 wheel。下例在 v0.5.2 附件就绪后使用：
+确认软件包替换安全并已批准后，再安装已审阅 release 的 wheel。下例使用已发布的 v0.5.2：
 
 ```bash
-uv tool install --force https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --force --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup --status --json
 ```
 

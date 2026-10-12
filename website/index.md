@@ -38,10 +38,16 @@ v0.5.2 adds clearer controls for existing installations:
 
 **Packaged and source installation remain first-class routes** to the same guided setup and saved state. The advanced service features retain their platform and compatibility limits; installing v0.5.2 does not activate or migrate an existing service.
 
-Use the v0.5.2 wheel only after its GitHub Release assets are published and the public download has been checked. See the release notes for release status and evidence tied to the exact source. Installation checks do not verify provider login or the browser-side ChatGPT connection.
+The v0.5.2 wheel and source assets are published, and their public downloads have been checked. See the release notes for the exact source and release evidence. Changes listed as Unreleased are not part of that frozen wheel.
 
 [Read the v0.5.2 release notes](docs/RELEASE_NOTES_0.5.2.md){ .md-button }
 [Choose an installation route](docs/INSTALL.md){ .md-button }
+
+## Tested on macOS, Windows, and Linux
+
+All three platforms have real-machine validation records, across different versions and scopes. The latest run installed **v0.5.2 on Ubuntu 22.04.5** and verified live ChatGPT repository reads, native Git, the project contract, and **10 passing tests through a Codex CLI worker**, with no file changes. Earlier macOS and Windows records cover 0.5.1 installations.
+
+[See versions and validation scope](docs/PLATFORM_VALIDATION.md){ .md-button }
 
 ## v0.5.0 validated baseline
 

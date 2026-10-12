@@ -71,14 +71,22 @@ a service.
 
 ## Route A — packaged install (recommended for new users)
 
-For a new installation, use the v0.5.2 wheel after the GitHub Release assets are available:
+Before the wizard, install Git, uv, and a supported coding worker such as Codex
+CLI. Setup detects the worker executable but does not install it or verify its
+provider login; complete that login before running a coding task. Have your
+GitLab URL, token, and exact project path ready. The [first-time prerequisites](GETTING_STARTED.md)
+cover account access and the separate ChatGPT tunnel connection.
+
+For a new installation, use the published v0.5.2 wheel with Python 3.12:
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
-Public assets include `SHA256SUMS.txt` and `RELEASE.json`; see [download verification and release scope](RELEASE_DISTRIBUTION.md). These files become available after the release-asset workflow succeeds.
+Public assets include `SHA256SUMS.txt` and `RELEASE.json`; see [download verification and release scope](RELEASE_DISTRIBUTION.md). The release was published and its public downloads checked on 2026-10-10. A fresh Ubuntu 22.04.5 installation was accepted on 2026-10-12; see the [macOS, Windows, and Linux validation matrix](PLATFORM_VALIDATION.md).
+
+`--python 3.12` selects the tested tool interpreter independently of your system Python. On Linux, an older `python3` command can remain in place; the target project's validation command still chooses its own interpreter. If the installed executables are not on PATH, follow uv's shell-path instructions and open a fresh terminal.
 
 This route does **not** require keeping a ReasonFirst source checkout. The installed wheel includes:
 
@@ -177,10 +185,10 @@ can deliberately reject changed package bytes; updating the CLI alone is not a
 coordinated sidecar upgrade.
 
 Once the intended package replacement is safe and approved, use the reviewed
-release wheel. The example below targets v0.5.2 once its assets are available:
+release wheel. The example below targets the published v0.5.2 release:
 
 ```bash
-uv tool install --force https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --force --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup --status --json
 ```
 

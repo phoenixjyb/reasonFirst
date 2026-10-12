@@ -6,6 +6,48 @@
 
 修改配置前，先确认哪个客户端失败。CLI 可用、Tunnel 已启动、localhost Assistant 会话，以及普通 ChatGPT 的实时工具调用，是不同层次的证据。没有明确原因时，不要重新安装、重建 Tunnel/工作区、关闭验证、扩大权限或轮换原本可用的密钥。仍有效的已泄露凭证，无论测试是否成功，都必须撤销或轮换。
 
+## 下载 Tunnel 时出现 SSL EOF 或网络中断
+
+Ubuntu 全新安装 v0.5.2 时，下载 tunnel-client 曾遇到
+`SSL: UNEXPECTED_EOF_WHILE_READING`。旧错误没有记录失败 URL，无法据此确定
+失败的是 release metadata、校验文件还是 archive，也不能断定是代理问题。
+GitLab 认证属于另一条路径。
+
+[Unreleased 安装器修复](../CHANGELOG.md#unreleased)先使用 Python HTTPS；
+符合条件的传输错误会在 PATH 中有 `curl` 时，对同一个 URL 进行一次有时限的
+恢复尝试，覆盖元数据、校验文件和 archive 三个下载阶段。TLS 校验始终开启，
+只允许 HTTPS 重定向，恢复后的文件仍需通过 SHA256 与完整 bundle 校验。
+HTTP 状态错误、证书校验失败、不安全 URL、无效元数据或 archive 内容不会触发
+换传输重试。错误会指出阶段和脱敏 URL；缺少 curl 时，可用系统包管理器安装，
+或先恢复所需 HTTPS 路径，再重试原命令。
+
+**已发布的 v0.5.2 wheel 不含此后续修复。** Linux 实测中的恢复方式是用开启
+TLS 校验的 curl 下载固定的官方 v0.0.16 校验文件和 archive，核对两者哈希后，
+通过现有安装器的下载函数传入这些字节。安装器保留相邻 companion 文件，并执行
+正常 bundle 校验。准确 artifact 身份见 [Linux 实测记录](PLATFORM_VALIDATION_CN.md)。
+手工安装请保留[官方 v0.0.16 bundle 布局](https://github.com/openai/tunnel-client/blob/v0.0.16/docs/deployment/cloudflared.md)；
+仅复制 `tunnel-client` 可执行文件并不够。完整且已验证的客户端可被发现后，
+复用原有隧道身份，继续执行 `reasonfirst tunnel connect --tunnel-id <existing-id>`。
+
+私下检查代理和证书配置，不要关闭证书验证，也不要把含凭证的代理 URL 贴到 issue。
+
+## 连接成功后，doctor 仍跳过 tunnel-client 或 runtime key
+
+v0.5.2 的 `actual-coder doctor` 只在 PATH 上寻找 tunnel-client。引导安装器
+把完整版本化 bundle 放在 ReasonFirst 数据目录中，所以 doctor 可能跳过一个
+`reasonfirst tunnel connect` 已找到并启动的客户端。
+[Unreleased 诊断修复](../CHANGELOG.md#unreleased)改为复用 setup 的查找逻辑，
+包括受管安装目录。
+
+用 `reasonfirst tunnel status` 检查已记录的 runtime，并通过选定连接执行
+ChatGPT 实时读取验收。发现可执行文件本身不证明 runtime 健康。同样，doctor
+进程中没有 `CONTROL_PLANE_API_KEY`，也不能说明在 connect 隐藏提示中接收
+密钥的子进程缺少认证。无需为了消除这个可选 skip 而导出或持久化密钥。
+
+App Server 检查也只发现 socket 路径，不验证桌面应用是否安装、连接是否存活、
+认证是否成功或实际响应模型。新消息明确了这一范围。缺少可选 Copilot CLI
+不影响使用已经可用的 Codex worker。
+
 ## 本地 Assistant 提示工具需要审批
 
 仪表盘 Assistant（`/ui#codex`）是上游 Codex 界面，不是普通 ChatGPT。Tunnel-client 的 `0f870e50a973fa820d4c409000059e181e8d242b` 修订版中，该面板提交 `approval_policy: never`，因此需要审批的调用可能被阻断。这里描述的是该已检查版本，不是所有未来版本。

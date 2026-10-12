@@ -46,16 +46,20 @@ The read-only GitLab MCP supplies repository/MR/CI evidence to the reasoning lay
 
 The full ChatGPT-first path has now been exercised end to end against a synthetic GitLab practice repository: live source grounding, pinned TaskSpec, one managed workspace, Bridge-managed Codex App Server execution, reviewed diff, snapshot-bound finish preview, explicit human publication approval, Merge Request creation, matching-HEAD CI, and EvidencePack review. The coding worker did not publish by itself and ReasonFirst did not auto-merge.
 
-For external users, start with the generic [fully chat-based E2E practice](docs/CHAT_ONLY_PRACTICE.md). It uses placeholders for your own GitLab host/project and keeps the human merge decision separate from automated execution. On macOS networks that require an HTTP(S) proxy, use the documented session-scoped launchd proxy sync rather than writing proxy credentials into a plist.
+For a first installation, start with the standard route: ChatGPT reads and discusses the project, then terminal ActualCoder hands an agreed task to the coding worker. The optional [fully chat-based E2E practice](docs/CHAT_ONLY_PRACTICE.md) requires a workspace that permits Bridge actions. Both routes keep the merge decision with the human. If using a launchd-managed deployment on macOS that requires an HTTP(S) proxy, use the documented session-scoped launchd proxy sync.
+
+## Tested on macOS, Windows, and Linux
+
+ReasonFirst has real-machine validation records on **macOS, Windows, and Linux**, across different versions and scopes. The latest fresh installation used **v0.5.2 on Ubuntu 22.04.5**: live ChatGPT repository reads, native Git clone/fetch, project-contract validation, and a Codex CLI worker running **10 tests successfully** with a clean worktree. The macOS and Windows records cover earlier 0.5.1 installations. See the [platform validation matrix](docs/PLATFORM_VALIDATION.md) for versions, evidence, and remaining checks.
 
 ## Install — packaged or source
 
 Both installation routes are first-class and converge on the same setup/state model.
 
-**Normal-user packaged route (after v0.5.2 publication and successful release-asset attachment):**
+**Packaged route — published v0.5.2:**
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -76,6 +80,7 @@ The packaged route does not require keeping a ReasonFirst checkout. The source r
 | Goal | Guide |
 | --- | --- |
 | Install/update: packaged route or source route | **[Install & update](docs/INSTALL.md)** · **[中文](docs/INSTALL_CN.md)** |
+| Check real-machine results and platform-specific scope | [Platform validation](docs/PLATFORM_VALIDATION.md) · [三平台实测](docs/PLATFORM_VALIDATION_CN.md) |
 | First-time ChatGPT connection, from prerequisites to first prompt | [Detailed/manual setup](docs/GETTING_STARTED.md) · [中文](docs/GETTING_STARTED_CN.md) |
 | Already configured: start/status/stop/restart | [Tunnel lifecycle](docs/TUNNEL_LIFECYCLE.md) · [中文](docs/TUNNEL_LIFECYCLE_CN.md) |
 | Confirm a new project's existence/access and obtain an explicit grant | [Project access](docs/PROJECT_ACCESS.md) · [中文](docs/PROJECT_ACCESS_CN.md) |
@@ -133,7 +138,7 @@ Tests use temporary repositories, mocked services and loopback fixtures, not pro
 
 ## What is available on main
 
-The source/package version is **0.5.2**. This identifies the source, not proof of a published release or downloadable assets. After maintainer publication, the **v0.5.2** tag identifies the released commit; record the exact commit SHA as well as the package version in bug reports. See [0.5.2 release notes](docs/RELEASE_NOTES_0.5.2.md) and [CHANGELOG.md](CHANGELOG.md). The published v0.5.1 and v0.5.0 tags remain frozen earlier baselines; their [0.5.1](docs/RELEASE_NOTES_0.5.1.md) and [0.5.0](docs/RELEASE_NOTES_0.5.0.md) release notes remain available.
+**v0.5.2 is published**, with verified public wheel and source downloads. The frozen **v0.5.2** tag identifies that release; current source may also contain [Unreleased changes](CHANGELOG.md) that are not in its wheel. Record the exact commit SHA as well as the package version in source-install bug reports. See [0.5.2 release notes](docs/RELEASE_NOTES_0.5.2.md). The published v0.5.1 and v0.5.0 tags remain frozen earlier baselines, with their [0.5.1](docs/RELEASE_NOTES_0.5.1.md) and [0.5.0](docs/RELEASE_NOTES_0.5.0.md) release notes preserved.
 
 | Capability | Current scope |
 | --- | --- |

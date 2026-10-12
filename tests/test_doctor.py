@@ -27,6 +27,9 @@ class DoctorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
+        self.home = root / "home"
+        self.home.mkdir()
+        self.environment = {"HOME": str(self.home), "USERPROFILE": str(self.home)}
         config_file = root / ".env"
         config_file.write_text("GITLAB_BASE_URL=https://gitlab.example.test\n", encoding="utf-8")
         if os.name != "nt":
@@ -68,7 +71,7 @@ class DoctorTests(unittest.TestCase):
         return installed.get(name)
 
     def test_healthy_offline_doctor_passes_without_network(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.environment, clear=True):
             result = run_doctor(
                 offline=True,
                 settings_loader=lambda: self.settings,
@@ -81,6 +84,83 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(checks["coding_backend"]["status"], "pass")
         self.assertEqual(checks["gitlab_api_connectivity"]["status"], "skip")
         self.assertEqual(checks["project_allowlist"]["status"], "pass")
+        self.assertEqual(
+            checks["tunnel_client"]["details"]["path"], str(Path("/tools/tunnel-client"))
+        )
+
+    def test_managed_tunnel_bundle_is_discovered_without_path_or_process_launch(self) -> None:
+        bundle = self.home / ".local/share/reasonfirst/tunnel-client/v1.0.0-linux-amd64-fixture"
+        bundle.mkdir(parents=True)
+        executable_name = "tunnel-client.exe" if os.name == "nt" else "tunnel-client"
+        executable = bundle / executable_name
+        executable.write_bytes(b"executable discovery fixture; never run")
+        executable.chmod(0o700)
+
+        def without_tunnel(name: str) -> str | None:
+            return None if name in {"tunnel-client", "tunnel-client.exe"} else self.which(name)
+
+        with (
+            patch.dict(os.environ, self.environment, clear=True),
+            patch("subprocess.Popen", side_effect=AssertionError("Doctor must not launch the tunnel")),
+        ):
+            result = run_doctor(
+                offline=True,
+                settings_loader=lambda: self.settings,
+                which=without_tunnel,
+                api_factory=lambda settings: FakeAPI(settings, fail=True),
+            )
+
+        self.assertTrue(result["ok"])
+        checks = {item["name"]: item for item in result["checks"]}
+        tunnel = checks["tunnel_client"]
+        self.assertEqual(tunnel["status"], "pass")
+        self.assertEqual(tunnel["details"]["path"], str(executable.resolve()))
+        self.assertFalse(tunnel["details"]["runtime_health_checked"])
+        self.assertIn("reasonfirst tunnel status", tunnel["message"])
+
+    def test_tunnel_key_check_only_reports_current_process_without_exposing_value(self) -> None:
+        secret = "doctor-test-runtime-secret"
+        for present in (False, True):
+            with self.subTest(present=present):
+                environment = dict(self.environment)
+                if present:
+                    environment["CONTROL_PLANE_API_KEY"] = secret
+                with patch.dict(os.environ, environment, clear=True):
+                    result = run_doctor(
+                        offline=True,
+                        settings_loader=lambda: self.settings,
+                        which=self.which,
+                    )
+
+                self.assertTrue(result["ok"])
+                checks = {item["name"]: item for item in result["checks"]}
+                key = checks["tunnel_runtime_key"]
+                self.assertEqual(key["status"], "pass" if present else "skip")
+                self.assertEqual(key["details"]["scope"], "current_process_environment")
+                self.assertFalse(key["details"]["runtime_credential_checked"])
+                self.assertFalse(key["details"]["runtime_health_checked"])
+                self.assertIn("this doctor process", key["message"])
+                self.assertNotIn(secret, str(result))
+
+    def test_managed_socket_path_does_not_claim_desktop_installation_or_health(self) -> None:
+        socket_path = self.home / ".codex/app-server-control/app-server-control.sock"
+        socket_path.parent.mkdir(parents=True)
+        socket_path.touch()  # A path alone is not a connected, authenticated server.
+
+        with patch.dict(os.environ, self.environment, clear=True):
+            result = run_doctor(
+                offline=True,
+                settings_loader=lambda: self.settings,
+                which=self.which,
+            )
+
+        checks = {item["name"]: item for item in result["checks"]}
+        desktop = checks["agent_codex_desktop"]
+        self.assertEqual(desktop["status"], "pass")
+        self.assertEqual(desktop["details"]["path"], str(socket_path.resolve()))
+        self.assertFalse(desktop["details"]["connection_checked"])
+        self.assertFalse(desktop["details"]["authentication_checked"])
+        self.assertFalse(desktop["details"]["desktop_application_checked"])
 
     def test_doctor_fails_without_backend_and_required_allowlist(self) -> None:
         broken = AgentSettings(
@@ -93,7 +173,7 @@ class DoctorTests(unittest.TestCase):
         def minimal_which(name: str) -> str | None:
             return "/tools/" + name if name in {"git", "uv"} else None
 
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.environment, clear=True):
             result = run_doctor(
                 offline=True,
                 settings_loader=lambda: broken,
@@ -113,7 +193,7 @@ class DoctorTests(unittest.TestCase):
                 "git_token": "git-password-or-token",
             }
         )
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.environment, clear=True):
             result = run_doctor(
                 offline=True,
                 git_only=True,
@@ -133,7 +213,7 @@ class DoctorTests(unittest.TestCase):
                 "git_token": "",
             }
         )
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.environment, clear=True):
             failed = run_doctor(
                 offline=True,
                 git_only=True,
@@ -145,7 +225,7 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(failed_checks["git_credential"]["status"], "fail")
 
     def test_live_gitlab_failure_is_reported(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.environment, clear=True):
             result = run_doctor(
                 settings_loader=lambda: self.settings,
                 which=self.which,
@@ -165,7 +245,9 @@ class DoctorTests(unittest.TestCase):
                 "git_token": "git-only-secret",
             }
         )
-        with patch.dict(os.environ, {"GITLAB_GIT_TOKEN": "git-only-secret"}, clear=True):
+        with patch.dict(
+            os.environ, {**self.environment, "GITLAB_GIT_TOKEN": "git-only-secret"}, clear=True
+        ):
             result = run_doctor(
                 offline=True,
                 git_only=True,
@@ -185,7 +267,7 @@ class DoctorTests(unittest.TestCase):
                 "git_token": "",
             }
         )
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.environment, clear=True):
             failed = run_doctor(
                 offline=True,
                 git_only=True,
@@ -200,7 +282,7 @@ class DoctorTests(unittest.TestCase):
         def bad_loader() -> AgentSettings:
             raise RuntimeError("GITLAB_BASE_URL is required")
 
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.environment, clear=True):
             result = run_doctor(
                 offline=True,
                 settings_loader=bad_loader,
