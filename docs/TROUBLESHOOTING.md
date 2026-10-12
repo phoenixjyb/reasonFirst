@@ -11,7 +11,7 @@ while downloading tunnel-client. The old message did not name the failed URL;
 it does not prove whether release metadata, the checksum file, or the archive
 failed, or whether a proxy caused it. GitLab authentication is a separate path.
 
-The [Unreleased installer fix](../CHANGELOG.md#unreleased) tries Python HTTPS
+The [v0.5.3 installer fix](RELEASE_NOTES_0.5.3.md) tries Python HTTPS
 first, then makes one bounded recovery attempt with `curl` on PATH for eligible
 transport failures. It applies to release metadata, checksums, and archive
 downloads. TLS verification stays enabled, redirects stay on HTTPS, and the
@@ -40,7 +40,7 @@ verification or paste credential-bearing proxy URLs into an issue.
 In v0.5.2, `actual-coder doctor` only looked for tunnel-client on PATH. The
 guided installer places a complete versioned bundle under ReasonFirst's data
 directory, so the doctor could skip a client that `reasonfirst tunnel connect`
-had already found and started. The [Unreleased diagnostic fix](../CHANGELOG.md#unreleased)
+had already found and started. The [v0.5.3 diagnostic fix](RELEASE_NOTES_0.5.3.md)
 uses the same resolver as setup, including managed install directories.
 
 Use `reasonfirst tunnel status` for the recorded runtime and perform the live

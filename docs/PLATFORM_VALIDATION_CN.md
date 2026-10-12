@@ -48,7 +48,7 @@ Tunnel ID 和凭证。下方不含地址的练习提交 SHA 用于记录测试�
 或调用编程 worker，与下方的实机演练分别计入证据。
 
 v0.5.2 的 tag 和附件内容保持不变。后续源码修复列在
-[Unreleased](../CHANGELOG.md#unreleased)；本记录不把后续修复写成已经在用户机器
+[v0.5.3 发布说明](RELEASE_NOTES_0.5.3_CN.md)；本记录不把后续修复写成已经在用户机器
 安装或重新验证的内容。
 
 ## Ubuntu/Linux：2026-10-12

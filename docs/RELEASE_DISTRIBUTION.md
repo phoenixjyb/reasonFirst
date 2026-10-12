@@ -4,16 +4,17 @@
 
 ## What users receive
 
-**v0.5.2 was published on 2026-10-10.** Its asset workflow and actual public
-download/install verification completed successfully; the
-[versioned Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.2)
-is the stable download. A merged PR or an expiring Actions candidate is not a
-public release. Source installation remains supported.
+**v0.5.3 packages the Linux onboarding and diagnostic fixes.** Quick packaged
+installation and building from source are both supported. Check the
+[versioned Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3)
+for publication status, completed assets and actual public-download/install
+verification. A merged PR or an expiring Actions candidate is not a public
+release. The historical v0.5.2 download acceptance is preserved below.
 
 The Release asset set contains:
 
-- `chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl` — shared Python package;
-- `chatgpt_selfhosted_gitlab_mcp-0.5.2.tar.gz` — built source distribution;
+- `chatgpt_selfhosted_gitlab_mcp-0.5.3-py3-none-any.whl` — shared Python package;
+- `chatgpt_selfhosted_gitlab_mcp-0.5.3.tar.gz` — built source distribution;
 - `reasonfirst.rb` — checksum-pinned formula, not evidence that a Homebrew tap exists;
 - `RELEASE.json` — exact source commit/tree, version, build run/attempt and artifact hashes;
 - `SHA256SUMS.txt` — hashes for the wheel, source distribution, formula and manifest.
@@ -28,8 +29,8 @@ For a locally downloaded wheel, compare its SHA-256 with the entry for that exac
 filename in the Release's `SHA256SUMS.txt` before installation:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
-uv tool install --python 3.12 .\chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+Get-FileHash -Algorithm SHA256 .\chatgpt_selfhosted_gitlab_mcp-0.5.3-py3-none-any.whl
+uv tool install --python 3.12 .\chatgpt_selfhosted_gitlab_mcp-0.5.3-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -67,9 +68,9 @@ field rehearsal** completed fresh setup, a live Linux MCP read, managed Git,
 and a Codex read/test task with 10 existing tests passing after verified tunnel
 download recovery. See the [platform record](PLATFORM_VALIDATION.md).
 
-The published v0.5.2 source and asset bytes are preserved. Follow-up source fixes
-remain [Unreleased](../CHANGELOG.md#unreleased) until separately versioned and
-published; updating this record does not modify the existing tag or assets.
+The published v0.5.2 source and asset bytes are preserved. Follow-up fixes are
+versioned as [v0.5.3](RELEASE_NOTES_0.5.3.md); updating this record does not
+modify the existing tag or assets, or claim live retesting of the newer fixes.
 
 ## Maintainer publication sequence
 
@@ -77,7 +78,7 @@ published; updating this record does not modify the existing tag or assets.
    `main` SHA with successful core, three-platform regression/install, Bridge,
    documentation, tunnel-boundary and source/history checks. Do not promote an older
    candidate's checks to a newer source identity.
-2. Confirm package/runtime metadata is 0.5.2, approve tag `v0.5.2` on that exact SHA,
+2. Confirm package/runtime metadata is 0.5.3, approve tag `v0.5.3` on that exact SHA,
    and publish the Release as a human action. This workflow never creates tags,
    publishes Releases, merges PRs, or uploads to PyPI.
 3. The published-Release workflow checks out the event's exact commit (not a moving
@@ -139,7 +140,12 @@ checks passed or remove release guards.
 
 ## 简体中文
 
-**v0.5.2 已于 2026-10-10 正式发布**，资源工作流、五项附件的公开下载/校验，以及
+**v0.5.3 汇集 Linux 安装与诊断修复，快速打包安装和从源码构建都支持。** 发布状态、
+完整附件及实际公开下载/安装验收，以
+[v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3) 为准。
+已合并 PR 或临时 Actions 候选包不能替代正式发布。
+
+**历史 v0.5.2 已于 2026-10-10 正式发布**，资源工作流、五项附件的公开下载/校验，以及
 脱离源码目录的 Linux/Python 3.12.14 安装均已通过。准确发布源码为
 `a4aa63b91109c6ddb8a721d93fe4b9be2543bc23`，对应公开
 [Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.2)。
@@ -166,7 +172,8 @@ Linux 的实机记录保留各自日期和版本，详见[平台验证记录](PL
 不能写成 v0.5.2 的新现场验收。健康 runtime 的 repair/no-op、无临时 UTF-8 绕过的
 受控重启、机器重启恢复与可选高权限 Bridge 写入仍在 #88 跟踪。v0.5.2 最终发布
 源码的自动化检查已通过，后续改动需要独立检查，并继续如实记录验收范围。
-已有 tag 和附件保持不变，后续修复归入 Unreleased，不倒填为已发布或已上机验证。
+已有 tag 和附件保持不变，后续修复归入 [v0.5.3](RELEASE_NOTES_0.5.3_CN.md)，
+不倒填为 v0.5.2 内容，也不把原来的实测写成新版修复的现场验收。
 
 ## v0.5.1 post-publication staging recovery
 

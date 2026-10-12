@@ -28,19 +28,19 @@
 !!! info "只有一条主闭环"
     ActualCoder 也可以被终端、CI、IDE 或其他客户端直接调用，适合测试、恢复和自动化；但这是次要运维能力，不是另一种并列产品模式。
 
-## v0.5.2：复用配置，检查服务状态
+## v0.5.3：安装更顺畅，诊断更清楚
 
-v0.5.2 为已有安装增加了更明确的操作入口：
+v0.5.3 包含这次 Ubuntu 全新安装促成的修复：
 
-- 用 `reasonfirst setup --reuse-existing` 复用有效的已有配置；需要修改时明确选择 `--reconfigure`。
-- 用 `reasonfirst status` 检查已安装 CLI、选定配置和已知的服务注册记录；正在运行的服务身份仍需单独核验。
-- 高级运维可在 macOS/Linux 上离线准备独立运行环境，并在 macOS 上审阅已知部署，为后续服务变更提供依据。
+- tunnel-client 下载遇到符合条件的 HTTPS 传输中断时，用 curl 进行一次有时限的恢复，保留 TLS 与校验和验证。
+- `actual-coder doctor` 能发现 ReasonFirst 受管目录中的 tunnel-client，并区分本地发现与运行中服务健康状态。
+- 公开带日期的 Mac、Windows、Linux 实测记录，保留 v0.5.2 Ubuntu 实机结果与验证范围。
 
-**打包安装和源码安装都是正式支持的路径**，共用引导配置与保存状态。高级服务功能仍有各自的平台与兼容性边界；安装 v0.5.2 不会激活或迁移已有服务。
+**快速打包安装和从源码构建都支持**，共用引导配置与保存状态。v0.5.2 引入的配置复用与 `reasonfirst status` 继续可用；安装软件包不会激活或迁移已有服务。
 
-v0.5.2 的 wheel 与源码资源已发布，公开下载已完成核验。准确源码和发布证据见发布说明；标为 Unreleased 的后续改动尚未进入这个冻结的 wheel。
+[v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3) 记录版本化附件、最终源码与公开下载验收。较早的实测记录保留原安装版本，不被当作新自动恢复逻辑的现场验收。
 
-[阅读 v0.5.2 发布说明](docs/RELEASE_NOTES_0.5.2_CN.md){ .md-button }
+[阅读 v0.5.3 发布说明](docs/RELEASE_NOTES_0.5.3_CN.md){ .md-button }
 [选择安装路径](docs/INSTALL_CN.md){ .md-button }
 
 ## Mac、Windows、Linux 都有实机验证
