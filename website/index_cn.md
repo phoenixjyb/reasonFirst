@@ -38,10 +38,16 @@ v0.5.2 为已有安装增加了更明确的操作入口：
 
 **打包安装和源码安装都是正式支持的路径**，共用引导配置与保存状态。高级服务功能仍有各自的平台与兼容性边界；安装 v0.5.2 不会激活或迁移已有服务。
 
-只有 v0.5.2 的 GitHub Release 附件已发布、实际公开下载完成核验后，才应使用该版本 wheel。发布状态和与准确源码绑定的验证证据见发布说明；安装检查不代表 provider 已登录或浏览器侧 ChatGPT 已连接。
+v0.5.2 的 wheel 与源码资源已发布，公开下载已完成核验。准确源码和发布证据见发布说明；标为 Unreleased 的后续改动尚未进入这个冻结的 wheel。
 
 [阅读 v0.5.2 发布说明](docs/RELEASE_NOTES_0.5.2_CN.md){ .md-button }
 [选择安装路径](docs/INSTALL_CN.md){ .md-button }
+
+## Mac、Windows、Linux 都有实机验证
+
+三个平台都有实机验证记录，各自版本和范围不同。最新一次在 **Ubuntu 22.04.5 安装 v0.5.2**，验证了 ChatGPT 实时读仓库、原生 Git、项目契约，以及 **Codex CLI worker 跑完 10 个测试全部通过**，文件没有修改。此前 Mac 和 Windows 的记录覆盖 0.5.1 安装。
+
+[查看具体版本与验证范围](docs/PLATFORM_VALIDATION_CN.md){ .md-button }
 
 ## v0.5.0 已验证基线
 

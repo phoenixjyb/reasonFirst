@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import errno
 import hashlib
+import http.client
 import io
 import json
 import os
 import platform
 import shutil
+import socket
+import ssl
 import stat
 import subprocess
 import tempfile
+import threading
+import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -17,6 +24,11 @@ from typing import Callable
 
 LATEST_RELEASE_API = "https://api.github.com/repos/openai/tunnel-client/releases/latest"
 DEFAULT_INSTALL_DIR = Path("~/.local/share/reasonfirst/tunnel-client").expanduser()
+_USER_AGENT = "ReasonFirst-v0.5.2-installer"
+_MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
+_CURL_CONNECT_TIMEOUT = 15
+_CURL_TRANSFER_TIMEOUT = 180
+_CURL_PROCESS_TIMEOUT = 190
 
 
 class TunnelInstallError(RuntimeError):
@@ -51,13 +63,195 @@ def _platform_tag(
     return goos, goarch
 
 
+def _require_https(url: str) -> None:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        valid = (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and parsed.username is None
+            and parsed.password is None
+        )
+        # Validate an explicitly supplied port, too.
+        parsed.port
+    except ValueError:
+        valid = False
+    if not valid:
+        raise TunnelInstallError(
+            "Refusing a non-HTTPS or credential-bearing download URL"
+        )
+
+
+class _HTTPSOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    max_redirections = 5
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _require_https(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _request_failure(exc: BaseException) -> str:
+    """Describe failures without exposing proxy credentials or response bodies."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"HTTP {exc.code}"
+    if isinstance(exc, urllib.error.URLError):
+        if isinstance(exc.reason, BaseException):
+            return _request_failure(exc.reason)
+        return "network request failed"
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return "TLS certificate verification failed"
+    if isinstance(exc, ssl.SSLError):
+        return "TLS connection failed"
+    if isinstance(exc, TimeoutError):
+        return "request timed out"
+    if isinstance(exc, socket.gaierror):
+        return "host lookup failed"
+    if isinstance(exc, http.client.IncompleteRead):
+        return "incomplete response"
+    if isinstance(exc, ConnectionError):
+        return "connection interrupted"
+    return "network request failed"
+
+
+def _can_retry_with_curl(exc: BaseException) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return False
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, BaseException) and _can_retry_with_curl(exc.reason)
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return False
+    if isinstance(exc, ssl.SSLError) and getattr(exc, "reason", None) == "CERTIFICATE_VERIFY_FAILED":
+        return False
+    if isinstance(exc, OSError) and exc.errno in {
+        errno.ENETDOWN, errno.ENETUNREACH, errno.EHOSTUNREACH,
+        errno.ECONNABORTED, errno.ECONNREFUSED, errno.ECONNRESET,
+        errno.ETIMEDOUT, errno.ENOTCONN, errno.EPIPE,
+    }:
+        return True
+    return isinstance(
+        exc,
+        (ConnectionError, TimeoutError, socket.gaierror, ssl.SSLError, http.client.IncompleteRead),
+    )
+
+
+def _curl_request_bytes(url: str, executable: str) -> bytes:
+    # --disable must be first: a user's .curlrc must not weaken TLS, enable
+    # tracing of proxy credentials, or redirect output. No shell is involved.
+    argv = [
+        executable, "--disable", "--fail", "--silent", "--location",
+        "--disallow-username-in-url",
+        "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5",
+        "--connect-timeout", str(_CURL_CONNECT_TIMEOUT),
+        "--max-time", str(_CURL_TRANSFER_TIMEOUT),
+        "--max-filesize", str(_MAX_DOWNLOAD_BYTES),
+        "--user-agent", _USER_AGENT, "--url", url,
+    ]
+    try:
+        process = subprocess.Popen(
+            argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        raise TunnelInstallError("curl recovery could not be started") from None
+
+    timed_out = threading.Event()
+
+    def terminate() -> None:
+        timed_out.set()
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+    # Bound elapsed time independently of curl's own timeout. Limit the pipe
+    # read as well: older curl versions cannot cap chunked bodies themselves.
+    watchdog = threading.Timer(_CURL_PROCESS_TIMEOUT, terminate)
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        assert process.stdout is not None
+        raw = process.stdout.read(_MAX_DOWNLOAD_BYTES + 1)
+        if timed_out.is_set():
+            raise TunnelInstallError("curl recovery timed out")
+        if len(raw) > _MAX_DOWNLOAD_BYTES:
+            raise TunnelInstallError("curl download exceeds the 256 MiB response limit")
+        returncode = process.wait(timeout=5)
+        if timed_out.is_set():
+            raise TunnelInstallError("curl recovery timed out")
+        if returncode != 0:
+            raise TunnelInstallError(f"curl recovery failed (exit code {returncode})")
+        return raw
+    except subprocess.TimeoutExpired:
+        raise TunnelInstallError("curl recovery timed out") from None
+    except OSError:
+        raise TunnelInstallError("curl recovery could not read the response") from None
+    finally:
+        watchdog.cancel()
+        if process.poll() is None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        if process.stdout is not None:
+            process.stdout.close()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def _request_bytes(url: str) -> bytes:
+    _require_https(url)
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "ReasonFirst-v0.5.2-installer"},
+        headers={"User-Agent": _USER_AGENT},
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
+    try:
+        opener = urllib.request.build_opener(_HTTPSOnlyRedirectHandler())
+        with opener.open(request, timeout=60) as response:
+            raw = response.read(_MAX_DOWNLOAD_BYTES + 1)
+            # HTTPResponse.read(amt) can return a truncated fixed-length body
+            # without raising IncompleteRead (unlike read() without a limit).
+            remaining = getattr(response, "length", None)
+            if len(raw) <= _MAX_DOWNLOAD_BYTES and isinstance(remaining, int) and remaining > 0:
+                raise http.client.IncompleteRead(b"", remaining)
+        if len(raw) > _MAX_DOWNLOAD_BYTES:
+            raise TunnelInstallError("HTTPS download exceeds the 256 MiB response limit")
+        return raw
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+        failure = _request_failure(exc)
+        if not _can_retry_with_curl(exc):
+            raise TunnelInstallError(f"HTTPS request failed ({failure})") from None
+
+    curl = shutil.which("curl")
+    if curl is None:
+        raise TunnelInstallError(
+            f"HTTPS request failed ({failure}); curl is unavailable for automatic recovery. "
+            "Install curl or restore HTTPS connectivity"
+        ) from None
+    try:
+        return _curl_request_bytes(url, curl)
+    except TunnelInstallError as exc:
+        raise TunnelInstallError(f"HTTPS request failed ({failure}); {exc}") from None
+
+
+def _fetch_download(fetch: Callable[[str], bytes], url: str, phase: str) -> bytes:
+    try:
+        return fetch(url)
+    except (TunnelInstallError, urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            # Omit user info, query strings, and fragments from diagnostics.
+            safe_url = urllib.parse.urlunsplit(
+                (parsed.scheme, parsed.hostname or "", parsed.path, "", "")
+            )
+        except ValueError:
+            safe_url = "<invalid URL>"
+        reason = str(exc) if isinstance(exc, TunnelInstallError) else _request_failure(exc)
+        raise TunnelInstallError(
+            f"tunnel-client {phase} download failed ({safe_url!r}): {reason}. "
+            "Check HTTPS access, proxy settings, and certificate trust for this URL, "
+            "then retry the same install command."
+        ) from None
 
 
 def _asset_url(release: dict[str, object], name: str) -> str:
@@ -185,7 +379,7 @@ def install_official_tunnel_client(
     """
 
     goos, goarch = _platform_tag(system_name=system_name, machine=machine)
-    release_raw = fetch(LATEST_RELEASE_API)
+    release_raw = _fetch_download(fetch, LATEST_RELEASE_API, "release metadata")
     try:
         release = json.loads(release_raw)
     except (TypeError, ValueError) as exc:
@@ -204,9 +398,9 @@ def install_official_tunnel_client(
     asset_url = _asset_url(release, asset_name)
     checksums_url = _asset_url(release, checksums_name)
 
-    checksums = fetch(checksums_url)
+    checksums = _fetch_download(fetch, checksums_url, "checksum file")
     expected = _checksum_for(checksums, asset_name)
-    archive_bytes = fetch(asset_url)
+    archive_bytes = _fetch_download(fetch, asset_url, "archive")
     actual = hashlib.sha256(archive_bytes).hexdigest()
     if actual != expected:
         raise TunnelInstallError(

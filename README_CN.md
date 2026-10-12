@@ -48,16 +48,20 @@ ChatGPT + 人工审查
 
 ChatGPT-first 主链路已经在合成 GitLab 演练仓库上完成端到端验证：实时源码读取、固定 TaskSpec、单一受管 workspace、Bridge 管理的 Codex App Server 执行、diff 审查、绑定 snapshot 的 finish preview、人工明确批准发布、创建 Merge Request、matching-HEAD CI 以及 EvidencePack 审查。coding worker 没有自行发布，ReasonFirst 也没有自动 merge。
 
-外部用户建议从通用化后的[全聊天闭环 E2E 演练](docs/CHAT_ONLY_PRACTICE_CN.md)开始，使用自己的 GitLab host/project 占位值，并始终把最终 merge 决定保留给人。若 macOS 网络必须通过 HTTP(S) 代理访问外部服务，应使用文档中的 launchd 会话级代理同步，不要把代理凭证写进 plist。
+首次安装建议先走标准路径：在 ChatGPT 里读取、讨论项目，再由终端 ActualCoder 把约定好的任务交给编程 worker。可选的[全聊天闭环 E2E 演练](docs/CHAT_ONLY_PRACTICE_CN.md)需要 workspace 允许 Bridge 操作。两条路径都由人决定是否合并。若使用 macOS launchd 管理的部署，且网络需要 HTTP(S) 代理，应使用文档中的 launchd 会话级代理同步。
+
+## Mac、Windows、Linux 都有实机验证
+
+ReasonFirst 已有 **macOS、Windows 和 Linux** 的实机验证记录，各自版本和范围不同。最新一次是在 **Ubuntu 22.04.5 全新安装 v0.5.2**：ChatGPT 实时读仓库、原生 Git 克隆/拉取、项目契约校验，以及 Codex CLI worker 执行 **10 个测试全部通过**，工作区保持干净。Mac 和 Windows 的记录来自此前的 0.5.1 安装。具体版本、证据与待验证项目见[三平台实测记录](docs/PLATFORM_VALIDATION_CN.md)。
 
 ## 安装——打包路径与源码路径并行支持
 
 两条路径都是正式支持入口，并最终进入同一个 setup/state 模型。
 
-**普通用户打包路径（v0.5.2 发布且 release 附件生成成功后）：**
+**打包安装——已发布的 v0.5.2：**
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -78,6 +82,7 @@ uv run reasonfirst setup
 | 目标 | 指南 |
 | --- | --- |
 | 安装/更新：打包路径或源码路径 | **[安装与更新](docs/INSTALL_CN.md)** · **[English](docs/INSTALL.md)** |
+| 查看实机结果和各平台验证范围 | [三平台实测](docs/PLATFORM_VALIDATION_CN.md) · [Platform validation](docs/PLATFORM_VALIDATION.md) |
 | 从前置条件到第一条 ChatGPT 工作提示词 | [详细/手工首次接入](docs/GETTING_STARTED_CN.md) · [English](docs/GETTING_STARTED.md) |
 | 已配置后的启动/状态/停止/重启 | [隧道生命周期](docs/TUNNEL_LIFECYCLE_CN.md) · [English](docs/TUNNEL_LIFECYCLE.md) |
 | 确认新项目存在/可访问并明确授权 | [项目访问](docs/PROJECT_ACCESS_CN.md) · [English](docs/PROJECT_ACCESS.md) |
@@ -135,7 +140,7 @@ uv run python scripts/check_repo_secrets.py --history
 
 ## main 上已有的能力
 
-当前源码/包版本为 **0.5.2**。这标识源码版本，不代表 Release 已发布或附件已可下载。维护者发布后，**v0.5.2** tag 才标识准确发布提交；报告问题时请同时记录准确 commit SHA 与包版本。参见 [0.5.2 发布说明](docs/RELEASE_NOTES_0.5.2_CN.md) 和 [CHANGELOG.md](CHANGELOG.md)。已发布的 v0.5.1 和 v0.5.0 tag 继续保持冻结；[0.5.1](docs/RELEASE_NOTES_0.5.1_CN.md) 与 [0.5.0](docs/RELEASE_NOTES_0.5.0_CN.md) 历史发布说明继续保留。
+**v0.5.2 已发布**，公开 wheel 和源码下载已完成核验。冻结的 **v0.5.2** tag 标识该发布；当前源码也可能包含尚未进入其 wheel 的 [Unreleased 更新](CHANGELOG.md)。使用源码报告问题时，请同时记录准确 commit SHA 与包版本。参见 [0.5.2 发布说明](docs/RELEASE_NOTES_0.5.2_CN.md)。已发布的 v0.5.1 和 v0.5.0 tag 继续保持冻结；[0.5.1](docs/RELEASE_NOTES_0.5.1_CN.md) 与 [0.5.0](docs/RELEASE_NOTES_0.5.0_CN.md) 历史发布说明继续保留。
 
 | 能力 | 当前范围 |
 | --- | --- |

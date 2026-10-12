@@ -1,6 +1,10 @@
 # ReasonFirst 0.5.2 release notes
 
-[简体中文](RELEASE_NOTES_0.5.2_CN.md) · [Install & update](INSTALL.md) · [Changelog](../CHANGELOG.md)
+[简体中文](RELEASE_NOTES_0.5.2_CN.md) · [Install & update](INSTALL.md) · [Platform validation](PLATFORM_VALIDATION.md) · [Changelog](../CHANGELOG.md)
+
+**Post-publication update: 2026-10-12.** v0.5.2 was published on 2026-10-10 and
+its public downloads were verified. The tag and release assets remain unchanged;
+later source fixes belong to [Unreleased](../CHANGELOG.md#unreleased).
 
 ReasonFirst 0.5.2 brings the improvements made after v0.5.1 into a versioned
 package. Existing users can reuse their configuration and inspect installation
@@ -87,11 +91,11 @@ by [PR #103](https://github.com/phoenixjyb/reasonFirst/pull/103) through
 
 ## Install or update
 
-Use the following package URL only after `v0.5.2` is published, its asset workflow
-has succeeded, and the wheel/checksums are available:
+The [published v0.5.2 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.2)
+has a successfully built and verified wheel/checksum set:
 
 ```bash
-uv tool install https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
+uv tool install --python 3.12 https://github.com/phoenixjyb/reasonFirst/releases/download/v0.5.2/chatgpt_selfhosted_gitlab_mcp-0.5.2-py3-none-any.whl
 reasonfirst setup
 ```
 
@@ -102,7 +106,7 @@ reviewed wheel with `uv tool install --force` and inspect
 already running process load them. Reuse existing settings and keep the existing
 source checkout, service directories, workspace state and tunnel identities.
 
-Source users can select the reviewed `v0.5.2` tag after publication and run
+Source users can select the reviewed `v0.5.2` tag and run
 `uv sync --python 3.12`; editable installation remains supported. Follow the
 [install and update guide](INSTALL.md) for commands and service-specific limits.
 
@@ -122,9 +126,19 @@ passed [CI](https://github.com/phoenixjyb/reasonFirst/actions/runs/38019444782),
 [documentation](https://github.com/phoenixjyb/reasonFirst/actions/runs/38019444779),
 [native tunnel-boundary checks](https://github.com/phoenixjyb/reasonFirst/actions/runs/38019444786)
 and [candidate packaging](https://github.com/phoenixjyb/reasonFirst/actions/runs/38019444788).
-This is integration evidence, not acceptance of a later 0.5.2 release commit.
-The version-bumped candidate and final merged release SHA require their own
-successful checks, followed by actual public-download/checksum/install acceptance.
+This remains integration evidence at its own source identity.
+
+The final release source
+[`a4aa63b91109c6ddb8a721d93fe4b9be2543bc23`](https://github.com/phoenixjyb/reasonFirst/commit/a4aa63b91109c6ddb8a721d93fe4b9be2543bc23)
+subsequently passed its own [CI](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598934),
+[documentation/Pages](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598967),
+[native tunnel boundaries](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598923),
+and [candidate packaging](https://github.com/phoenixjyb/reasonFirst/actions/runs/38041598899).
+All 16 pre-publication checks passed. The separate
+[Release asset workflow](https://github.com/phoenixjyb/reasonFirst/actions/runs/38042829135)
+then succeeded; all five public downloads were verified, followed by isolated
+Linux/Python 3.12.14 wheel installation and non-mutating command checks outside
+the source checkout. See the [download record](RELEASE_DISTRIBUTION.md#v052-published-download-record).
 
 Regressions cover configuration reuse without writes, deployment/runtime drift,
 partial native observation, maintenance races, request/cleanup uncertainty,
@@ -134,12 +148,27 @@ HTTPS; they do not authenticate a real GitLab or coding-provider account.
 Three-platform CI uses Python 3.12; broader package metadata is not equal test
 coverage for every interpreter version.
 
+On **2026-10-12**, a fresh **Ubuntu 22.04.5 x86_64 / v0.5.2** field installation
+completed standard setup, live ChatGPT MCP reads, managed Git clone/fetch and
+contract validation, and a Codex CLI 0.162.1 read/test task: **10 existing tests
+passed**, tracked files were unchanged, and the enclosing worker exited with
+code 0. The automatic tunnel download first failed with a TLS EOF; installation
+continued after a checksum-verified official-client recovery using `curl`.
+The old doctor's PATH-only tunnel lookup also missed the working versioned
+bundle. Subsequent source fixes for those findings are not in the published
+wheel and have not been counted as another live-host pass.
+
+The [platform record](PLATFORM_VALIDATION.md) separates operator-supplied Linux
+terminal output, independently invoked Linux MCP calls, and historical macOS
+and Windows evidence. This Linux run did not edit/publish a repository, use the
+full-chat Bridge, or test restart/reboot recovery.
+
 The recorded Windows rehearsal has passed setup/read access, managed clone/fetch,
 approved-interpreter host validation, normal initial worker handoff and clean
 closeout. **Windows repair/restart/reboot recovery and optional privileged
 Bridge/write acceptance remain unverified.** Those earlier machine results do
-not establish a new 0.5.2 live-machine acceptance. See the
-[recorded acceptance scope](RELEASE_DISTRIBUTION.md#v051-post-publication-staging-recovery)
+not establish a new Windows 0.5.2 live-machine acceptance. See the
+[recorded acceptance scope](PLATFORM_VALIDATION.md)
 and [remaining Windows acceptance](https://github.com/phoenixjyb/reasonFirst/issues/88).
 
 Guided setup is available, but a few-minute first-use completion time has not been

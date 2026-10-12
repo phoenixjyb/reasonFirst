@@ -15,6 +15,7 @@ These guides describe the source revision containing them, not necessarily the l
 | Topic | English | 简体中文 |
 | --- | --- | --- |
 | Install/update: packaged or source route | **[Install & update](INSTALL.md)** | **[安装与更新](INSTALL_CN.md)** |
+| Real-machine macOS, Windows, and Linux results | [Platform validation](PLATFORM_VALIDATION.md) | [三平台实测记录](PLATFORM_VALIDATION_CN.md) |
 | Detailed/manual first-time setup and first prompt | [Operator setup](GETTING_STARTED.md) | [详细首次接入](GETTING_STARTED_CN.md) |
 | Product and supported capabilities | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) | [项目说明](../README_CN.md) |
 | Start the required service and manage its lifecycle | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) |

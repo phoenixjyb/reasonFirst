@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Recover eligible tunnel-client HTTPS transport failures with one bounded,
+  TLS-verified curl attempt when available. Preserve checksum and complete-bundle
+  validation; report the failed download phase without exposing proxy credentials.
+- Make `actual-coder doctor` find ReasonFirst-managed tunnel bundles outside PATH.
+  Distinguish executable/socket discovery and the current process's runtime-key
+  environment from running-service health and authentication.
+- Record fresh Ubuntu 22.04.5 / v0.5.2 acceptance and the historical macOS/Windows
+  evidence in a bilingual [platform validation matrix](docs/PLATFORM_VALIDATION.md).
+  Update installation links to the published v0.5.2 wheel and recommend Python 3.12.
+
+These installer/doctor fixes are source changes after the frozen v0.5.2 release;
+the published v0.5.2 wheel and its successful Linux field test predate them.
+
 ## 0.5.2
 
 This patch release packages the changes merged after the frozen v0.5.1 source

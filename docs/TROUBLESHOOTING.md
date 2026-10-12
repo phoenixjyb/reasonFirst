@@ -4,6 +4,57 @@
 
 Identify the failing client before changing configuration. A working CLI, a started tunnel, a localhost Assistant session, and a live normal ChatGPT tool call are different pieces of evidence. Do not reinstall, recreate a tunnel/workspace, disable verification, broaden permissions, or rotate an otherwise working key without a reason. An exposed active credential must still be revoked/rotated regardless of successful tests.
 
+## Tunnel download fails with SSL EOF or a network interruption
+
+The fresh Ubuntu v0.5.2 run encountered `SSL: UNEXPECTED_EOF_WHILE_READING`
+while downloading tunnel-client. The old message did not name the failed URL;
+it does not prove whether release metadata, the checksum file, or the archive
+failed, or whether a proxy caused it. GitLab authentication is a separate path.
+
+The [Unreleased installer fix](../CHANGELOG.md#unreleased) tries Python HTTPS
+first, then makes one bounded recovery attempt with `curl` on PATH for eligible
+transport failures. It applies to release metadata, checksums, and archive
+downloads. TLS verification stays enabled, redirects stay on HTTPS, and the
+download still passes SHA256 and complete-bundle checks. HTTP errors,
+certificate verification failures, unsafe URLs, and invalid metadata/archive
+contents do not trigger a transport retry. Errors identify the phase and a
+sanitized URL. If curl is unavailable, install it through your OS package
+manager or restore the required HTTPS route, then retry the same command.
+
+**The published v0.5.2 wheel does not contain this later fix.** The successful
+Linux workaround fetched the pinned official v0.0.16 checksum file and archive
+using TLS-verified curl, checked both hashes, and supplied those bytes to the
+existing installer's download function. The installer preserved the adjacent
+companions and performed its normal bundle verification. The exact accepted
+artifact identities are in the [Linux validation record](PLATFORM_VALIDATION.md).
+For a manual install, retain the [official v0.0.16 bundle layout](https://github.com/openai/tunnel-client/blob/v0.0.16/docs/deployment/cloudflared.md);
+copying only `tunnel-client` is insufficient. Once the complete verified client
+is discoverable, resume `reasonfirst tunnel connect --tunnel-id <existing-id>`
+with your existing tunnel identity.
+
+Inspect proxy and certificate settings privately. Do not disable certificate
+verification or paste credential-bearing proxy URLs into an issue.
+
+## Doctor skips tunnel-client or the runtime key after a successful connection
+
+In v0.5.2, `actual-coder doctor` only looked for tunnel-client on PATH. The
+guided installer places a complete versioned bundle under ReasonFirst's data
+directory, so the doctor could skip a client that `reasonfirst tunnel connect`
+had already found and started. The [Unreleased diagnostic fix](../CHANGELOG.md#unreleased)
+uses the same resolver as setup, including managed install directories.
+
+Use `reasonfirst tunnel status` for the recorded runtime and perform the live
+ChatGPT read test for the selected connection. Finding an executable alone does
+not establish runtime health. Likewise, a missing `CONTROL_PLANE_API_KEY` in
+the doctor process says nothing about the child process that received a key at
+the masked connect prompt. Do not export or persist a key merely to change this
+optional skip.
+
+The App Server check also only detects a socket path. It does not verify an
+installed desktop application, a live connection, authentication, or the model
+that answered a worker request. The updated message makes that scope explicit.
+An absent optional Copilot CLI does not prevent use of an available Codex worker.
+
 ## Localhost Assistant says a tool requires approval
 
 The dashboard's Assistant (`/ui#codex`) is an upstream Codex interface, not normal ChatGPT. In tunnel-client revision `0f870e50a973fa820d4c409000059e181e8d242b`, that panel submits `approval_policy: never`; calls requiring approval can therefore be blocked. This describes that observed version, not every future client.
