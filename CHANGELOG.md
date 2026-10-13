@@ -2,7 +2,21 @@
 
 ## Unreleased
 
-No additional changes recorded.
+- On macOS, disambiguate process-group `EPERM` only after a bounded, group-scoped
+  libproc observation confirms an owned, unreaped leader and a complete stable
+  zombie-only membership. Live, inaccessible, oversized or uncertain groups
+  retain the cleanup error; no generic permission-error suppression is added.
+
+- Bound local validation stdout/stderr retention during collection rather than
+  buffering whole streams before clipping. Preserve nonzero exits, timeout exit
+  behavior and normalized UTF-8 byte counts; report stream EOF separately from
+  display truncation.
+- Keep the workspace lock through bounded timeout/interruption cleanup. On POSIX,
+  terminate the owned process group before reaping its leader; Windows cleanup
+  remains direct-child only. Report incomplete output and cleanup failures without
+  claiming full descendant containment or workspace quiescence.
+- Document the limits and evidence fields in the English/Chinese workflow and
+  security guides. These source changes are not in the published v0.5.3 wheel.
 
 ## 0.5.3
 

@@ -87,6 +87,71 @@ Record base and HEAD, pending changes, exact validation commands/outcomes, MR li
 
 For a genuine matching-head CI failure, `resume --from-ci` prepares a repair handoff. Use `resume --launch` or `actual-coder continue` only when you intentionally want the selected backend launched for that existing workspace. Do not invent changes when CI is already successful. Human review and merge remain separate operations.
 
+## Validation output and cleanup evidence
+
+**Unreleased source behavior; not included in the published v0.5.3 wheel.** No
+worker-selection, command allowlist, Python binding, environment filtering,
+publication approval, or running-service configuration is changed by this fix.
+The local `run`, `validate`, and finish-validation paths share `CommandRunner`.
+Remote validation and worker/probe/Git subprocess implementations are separate.
+
+`GITLAB_COMMAND_MAX_OUTPUT_BYTES` is split equally between stdout and stderr
+(rounding each share down). The runner keeps each normalized UTF-8 prefix within
+that budget, reads fixed-size chunks, and discards excess content while continuing
+to drain both pipes. A long line needs no newline to be bounded. Reaching the
+output cap does not by itself terminate a command or turn a nonzero exit into a
+pass. Bound Python output uses UTF-8; other commands use the host's preferred
+encoding. Invalid input is replaced rather than raising a locale decode error;
+CRLF and CR are normalized to LF, including timeout output.
+
+The existing result fields remain. Interpret the added evidence separately:
+
+| Field | Meaning |
+| --- | --- |
+| `stdout_truncated` / `stderr_truncated` | Observed normalized output exceeded that stream's retention budget. |
+| `stdout_original_bytes` / `stderr_original_bytes` | Normalized UTF-8 bytes **observed**, including discarded content. They are not raw pipe-byte counts; without EOF, they are not totals for all produced output. |
+| `stdout_complete` / `stderr_complete` | The reader observed EOF, not merely a full retention buffer. |
+| `output_complete` | Both streams reached EOF. It can be true even when display output is truncated or the run timed out. |
+| `cleanup` | Reports signal scope, whether termination was requested, whether the direct child was reaped, and whether the parent's output pipes were closed. `descendants_verified` stays false. |
+
+The command deadline starts immediately before process creation and is not
+renewed when the parent exits or when the output fills. Collection and waiting
+for the direct process share it. Process creation and earlier executable/binding
+preflight may themselves take additional time. Timeout cleanup allows a 0.2-second
+POSIX termination grace, a 1-second direct-child reap wait, and a 0.2-second final
+pipe drain. These are bounded waits, not hard real-time scheduling guarantees.
+A timeout retains `timed_out: true` and `returncode: null`; the `run` CLI still
+exits 124. Required project validation cannot pass from a timeout.
+
+On POSIX, the runner signals only its new session's process group, escalating
+from SIGTERM to SIGKILL **before** reaping the leader. It does not look up process
+names or request a host-wide process list. It assumes exclusive subprocess ownership; an unrelated
+SIGCHLD reaper is not supported. If `Popen.wait()` has already reaped the leader
+during interruption handling, the group identity is no longer used for signalling
+and cleanup is reported as incomplete. Windows uses the direct `Popen` process
+object only; Windows Job Object / descendant containment is not implemented here.
+
+On macOS, a group containing only unreaped zombies can return `EPERM` even
+though no running member remains to signal. Only for that error, the runner uses
+Darwin's group-scoped libproc API to check at most 256 members, with a 0.2-second
+observation budget per failed signal. Both membership queries must agree, every
+member must report zombie state, and the unreaped leader must still report this
+process as its parent. Incomplete API records, live members, missing ownership,
+changed membership, unsupported ABI or expired observations preserve the cleanup
+failure. This adds at most two observation budgets to the cleanup path; OS calls
+are checked before/after and are not forcibly interruptible. No names, command
+lines or environment values are exposed; no discovered PID is signalled.
+This is a narrow error classification, not independent descendant containment.
+
+The workspace mutation lock stays held through collection, termination, bounded
+drain and output closure. A pipe held by an escaped process can therefore yield a
+timely failure with `output_complete: false`, not an unbounded wait. Fixed
+`CommandProcessError` codes preserve the primary reason separately from cleanup
+errors; they never convert failed cleanup to a success result. An ordinary
+KeyboardInterrupt/SystemExit is propagated after successful cleanup.
+Normal-exit background processes and escaped descendants still require external
+isolation. See [security boundaries](../SECURITY.md#buildtest-execution-is-not-a-sandbox).
+
 ## Acceptance is per layer
 
 | Evidence | What it proves | What it does not prove |
