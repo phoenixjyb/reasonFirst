@@ -100,7 +100,7 @@ class LocalChildInputTests(unittest.TestCase):
     def test_validation_preserves_allowlist_then_uses_selected_absolute_executable(self):
         command_runner = runner.CommandRunner(self.settings, self.manager)
         with patch.dict(os.environ, {"PATH": "changed-path", "RF_CHILD_MARKER": "changed"}), \
-                patch.object(runner.subprocess, "run", side_effect=self.completed) as run:
+                patch.object(runner, "run_bounded_command", return_value={"returncode": 0, "timed_out": False}) as run:
             result = command_runner.run(self.wid, ["pytest", "-q"])
         args, kwargs = run.call_args
         self.assertEqual(Path(args[0][0]), self.executables["pytest"])
@@ -112,7 +112,7 @@ class LocalChildInputTests(unittest.TestCase):
         self.assertNotIn("RF_PRIVATE_TOKEN", kwargs["env"])
         self.assertNotIn("SSH_AUTH_SOCK", kwargs["env"])
         self.assertEqual(kwargs["env"]["HOME"], str(self.manager.home_dir / self.wid))
-        with patch.object(runner.subprocess, "run") as forbidden:
+        with patch.object(runner, "run_bounded_command") as forbidden:
             for argv in ([str(self.executables["pytest"])], ["unapproved"]):
                 with self.subTest(argv=argv), self.assertRaises(RuntimeError):
                     command_runner.run(self.wid, argv)
