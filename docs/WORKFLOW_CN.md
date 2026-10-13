@@ -89,6 +89,8 @@ Finish 会请求确认。仍需审查执行者提出的操作：低层 commit/pu
 
 对于确实失败且与当前 HEAD 匹配的 CI，`resume --from-ci` 会准备修复交接；只有明确希望继续执行该 workspace 时，才使用 `resume --launch` 或 `actual-coder continue` 启动所选 backend。CI 已成功时，不要为了附带的 CI 上下文凭空修改代码。人工审查和合并仍是独立操作。
 
+**Unreleased 源码行为：**`resume` / `continue` 省略 `--agent` 时沿用任务最近一次记录的 worker 选择；没有已选记录时，依次采用 TaskSpec 中明确指定的后端、当前默认规则。显式传入后端名可主动切换，`--agent auto` 则重新按当前默认值和仓库偏好选择。沿用的 worker 不可用时，命令停止并给出指引，handoff 会包含选择原因。保留的是后端选择，模型、推理强度及其他 worker 设置仍来自当前用户配置；handoff 记录本身不能证明已执行或执行成功。已发布的 v0.5.3 包尚未包含此变更，使用该版本时请显式传入 `--agent`。详见[快速上手的选择规则](QUICKSTART_CN.md)。
+
 ## 分层验收
 
 | 证据 | 能证明什么 | 不能证明什么 |
