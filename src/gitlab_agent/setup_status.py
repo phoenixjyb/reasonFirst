@@ -233,8 +233,13 @@ def build_setup_status(
     machine_ready = python_ok and bool(executable_paths["git"]) and bool(
         executable_paths["uv"]
     )
-    control_plane_ready = (machine_ready and bool(config["valid"])
-                           and not config.get("missing_fields") and worker_available)
+    configured = (machine_ready and bool(config["valid"])
+                  and not config.get("missing_fields"))
+    read_only_ready = configured and bool(config.get("has_api_token"))
+    control_plane_ready = (
+        configured and worker_available if mode == "cli-only"
+        else read_only_ready and (mode == "standard" or worker_available)
+    )
     tunnel_client_available = bool(executable_paths["tunnel-client"])
     tunnel_recorded = bool(
         state is not None
@@ -288,12 +293,24 @@ def build_setup_status(
             "message": "Existing config is preserved but lacks: " + ", ".join(config["missing_fields"])
                        + ". Review the configuration locally; no grants or credentials were inferred.",
         })
+    if config["valid"] and not config.get("has_api_token") and mode != "cli-only":
+        next_actions.append({
+            "id": "configure-read-api-token",
+            "message": (
+                "A GitLab API token is required for ChatGPT repository reads. "
+                "A Git-only credential does not establish read-MCP prerequisites; "
+                "configure the API token locally before connecting."
+            ),
+        })
     if not worker_available:
         next_actions.append(
             {
                 "id": "configure-worker",
                 "message": (
-                    "Install/sign in to Codex CLI, Copilot CLI, or start Codex Desktop."
+                    ("Optional for repository reads. When ready to implement a task, "
+                     if mode == "standard" else "Before coding, ")
+                    + "install/sign in to Codex CLI, Copilot CLI, or start Codex Desktop; "
+                    "run 'reasonfirst worker list', then 'reasonfirst worker use BACKEND'."
                 ),
             }
         )
@@ -402,6 +419,8 @@ def build_setup_status(
         "setup_state": setup_state,
         "readiness": {
             "machine_prerequisites": machine_ready,
+            "read_only_prerequisites": read_only_ready,
+            "coding_worker_available": worker_available,
             "control_plane_prerequisites": control_plane_ready,
             "tunnel_client_available": tunnel_client_available,
             "tunnel_recorded": tunnel_recorded,

@@ -74,6 +74,8 @@ uv run reasonfirst setup
 
 The packaged route does not require keeping a ReasonFirst checkout. Its versioned assets and download verification are recorded on the [v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3). The source route remains fully supported for contributors, audits, private patches and editable installs; the install guide also covers building wheel/source packages. Both use the same private config, SetupState, project grants and tunnel identities; switching route does not require recreating account resources. See **[Install & update](docs/INSTALL.md)** · **[中文](docs/INSTALL_CN.md)**.
 
+**Read before choosing a worker:** the [Unreleased source change](docs/INSTALL.md#read-first-setup) adds `--worker later` to standard setup. It lets you connect normal ChatGPT for repository reading and discussion, then select a coding worker for an agreed implementation task. The published v0.5.3 wheel and source tag retain their existing wizard worker requirement.
+
 
 ## Guides by task
 

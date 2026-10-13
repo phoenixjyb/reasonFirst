@@ -4,6 +4,8 @@
 
 **在 ReasonFirst 中的定位：**这是一份执行引擎/运维指南，不是另一种主要产品模式。正常主流程从 ChatGPT（或其他强推理界面）开始，在那里完成架构、诊断、范围和验收标准；本指南负责配置和运行已批准任务的 worker 侧。脱离 ChatGPT 的直接 CLI 使用仍适合测试、恢复和自动化。
 
+**首次只读接入：**先按[安装与更新](INSTALL_CN.md)选择打包或源码路径，再完成[首次 ChatGPT 读取](GETTING_STARTED_CN.md)。包含 **Unreleased 源码变更**的检出支持 `uv run reasonfirst setup --mode standard --worker later`；standard 也可在未检测到 worker 且未显式指定时继续只读接入。已发布的 v0.5.3 wheel/tag 不支持 `--worker later`，`cli-only` 和 `full-chat` 仍需要对应 worker。现有配置、worker 偏好和隧道标识按正常复用规则保留，`later` 不会被保存成后端。详见[版本范围](INSTALL_CN.md#read-first-setup)。
+
 ReasonFirst 将“判断该做什么”和“执行编码迭代”分开：用户与推理界面定义目标、约束和验收条件，ActualCoder 准备工作区并将任务交给 Codex CLI、GitHub Copilot CLI 或 Codex Desktop/App Server，再把实际 Git/MR/CI 结果交回审阅。原始 GitLab MCP 仍是只读证据接口；可选的 Bridge Preview 是权限更高的本地编排 MCP，可创建/读取受管 workspace、控制 App Server、审查未发布 diff 并执行受审 finish 流程。
 
 **本项目适合可信个人开发机和经过授权的仓库；worktree 不是安全沙箱。** 代码托管在 GitHub，但当前业务任务的 SCM/CI 适配器是 GitLab，不能据此认为已支持任意 GitHub 目标仓库。
@@ -25,6 +27,15 @@ uv run python scripts/check_repo_secrets.py --history
 ```
 
 这些回归测试使用临时 Git 仓库、模拟服务和本机 TLS 测试证书，不需要生产 GitLab 凭证或付费模型调用。依赖安装可能访问软件源。已有本地仓库可直接按[PR 检出指南](LOCAL_PR_REVIEW.md)创建独立 worktree，不必下载 ZIP、手工复制文件。
+
+如果已经完成只读接入，现在才开始实现任务，先安装或启动选定 worker 并完成其 provider 登录，再运行：
+
+```bash
+uv run reasonfirst worker list
+uv run reasonfirst worker use codex-cli
+```
+
+选择已安装的 `codex-cli`、`copilot-cli` 或 `codex-desktop`；全局安装省略 `uv run`。选择 worker 不会启动任务或验证登录，不需要重复 GitLab/隧道配置。已有配置时复用它，并跳到[API 与 Git 验证](#3-分别验证-api-与-git)，不要重新创建配置文件。
 
 ## 2. 区分三个目录
 
