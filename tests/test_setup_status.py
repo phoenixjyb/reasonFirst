@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
 from gitlab_agent.config import AgentSettings
-from gitlab_agent.setup_state import SetupState
+from gitlab_agent.setup_state import SetupState, save_setup_state
 from gitlab_agent.setup_status import build_setup_status
 
 
@@ -112,6 +113,101 @@ class SetupStatusTests(unittest.TestCase):
         action_ids = [item["id"] for item in result["plan"]["actions"]]
         self.assertNotIn("install-tunnel-client", action_ids)
         self.assertNotIn("verify-chatgpt", action_ids)
+
+    def _status_from_config(
+        self, mode: str, *, git_only: bool = False, coding_worker: bool = False,
+    ) -> dict[str, object]:
+        token = "fixture-" + uuid.uuid4().hex
+        credential_key = "GITLAB_GIT_TOKEN" if git_only else "GITLAB_TOKEN"
+        self.config.write_text(
+            "GITLAB_BASE_URL=https://gitlab.example.test\n"
+            f"{credential_key}={token}\n"
+            "GITLAB_ALLOWED_PROJECTS=team/project\n",
+            encoding="utf-8",
+        )
+        state_file = Path(self.temp.name) / "setup.yaml"
+        save_setup_state(
+            SetupState(
+                mode=mode, config_file=str(self.config),
+                selected_worker="codex-cli" if coding_worker else None,
+                completed_phases=("system", "gitlab"),
+            ),
+            state_file,
+        )
+        config_before = self.config.read_bytes()
+        state_before = state_file.read_bytes()
+        installed = {"git", "uv", "tunnel-client"}
+        if coding_worker:
+            installed.add("codex")
+
+        with patch.dict(
+            os.environ,
+            {
+                "HOME": self.temp.name,
+                "USERPROFILE": self.temp.name,
+                "GITLAB_AGENT_ENV_FILE": str(self.config),
+            },
+            clear=True,
+        ):
+            result = build_setup_status(
+                state_path=state_file,
+                which=lambda name: f"/tools/{name}" if name in installed else None,
+                system_name="Linux", machine="x86_64",
+                desktop_socket=self.desktop_socket,
+            )
+        self.assertEqual(self.config.read_bytes(), config_before)
+        self.assertEqual(state_file.read_bytes(), state_before)
+        self.assertNotIn(token, repr(result))
+        return result
+
+    def test_standard_read_setup_does_not_require_a_coding_worker(self) -> None:
+        result = self._status_from_config("standard")
+        self.assertTrue(result["readiness"]["control_plane_prerequisites"])
+        self.assertTrue(result["readiness"]["read_only_prerequisites"])
+        self.assertFalse(result["readiness"]["coding_worker_available"])
+        self.assertFalse(result["readiness"]["ready"])
+        self.assertEqual(result["readiness"]["chatgpt_connection"], "not_verified")
+        actions = {item["id"]: item for item in result["plan"]["actions"]}
+        self.assertIn("configure-tunnel", actions)
+        self.assertIn("configure-worker", actions)
+        self.assertIn("optional", actions["configure-worker"]["message"].lower())
+
+    def test_execution_modes_still_require_a_coding_worker(self) -> None:
+        for mode in ("cli-only", "full-chat"):
+            with self.subTest(mode=mode):
+                result = self._status_from_config(mode)
+                self.assertTrue(result["readiness"]["read_only_prerequisites"])
+                self.assertFalse(result["readiness"]["coding_worker_available"])
+                self.assertFalse(result["readiness"]["control_plane_prerequisites"])
+                self.assertFalse(result["readiness"]["ready"])
+                self.assertEqual(
+                    result["readiness"]["chatgpt_connection"], "not_verified",
+                )
+                action = next(
+                    item for item in result["plan"]["actions"]
+                    if item["id"] == "configure-worker"
+                )
+                self.assertNotIn("optional", action["message"].lower())
+
+    def test_git_only_credential_does_not_establish_read_api_prerequisites(self) -> None:
+        for mode in ("standard", "cli-only", "full-chat"):
+            with self.subTest(mode=mode):
+                result = self._status_from_config(mode, git_only=True, coding_worker=True)
+                self.assertTrue(result["config"]["valid"])
+                self.assertTrue(result["config"]["has_git_credential"])
+                self.assertFalse(result["config"]["has_api_token"])
+                self.assertFalse(result["readiness"]["read_only_prerequisites"])
+                self.assertTrue(result["readiness"]["coding_worker_available"])
+                self.assertEqual(
+                    result["readiness"]["control_plane_prerequisites"],
+                    mode == "cli-only",
+                )
+                self.assertFalse(result["readiness"]["ready"])
+                action_ids = [item["id"] for item in result["plan"]["actions"]]
+                if mode == "cli-only":
+                    self.assertNotIn("configure-read-api-token", action_ids)
+                else:
+                    self.assertIn("configure-read-api-token", action_ids)
 
     def test_missing_config_worker_and_tunnel_become_actionable_plan(self) -> None:
         def only_core(name: str) -> str | None:

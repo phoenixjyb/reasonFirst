@@ -254,16 +254,20 @@ def candidate_settings(
     base_url: str,
     api_token: str,
     project: str,
-    default_backend: str,
+    default_backend: str | None,
     current: AgentSettings | None = None,
 ) -> AgentSettings:
-    """Build an in-memory candidate for verification before writing config."""
+    """Build an in-memory candidate for verification before writing config.
+
+    A deferred backend keeps the current preference, or the default for a new
+    config. It does not introduce a new backend value.
+    """
     endpoint = validate_base_url(base_url.strip().rstrip("/"))
     token = api_token.strip()
     if not token:
         raise ValueError("GitLab API token is required for guided setup")
     key = assert_project_allowed(project, set())
-    if default_backend not in CANONICAL_WORKERS:
+    if default_backend is not None and default_backend not in CANONICAL_WORKERS:
         raise ValueError("Unsupported worker backend")
 
     if current is not None:
@@ -279,7 +283,9 @@ def candidate_settings(
             git_token=git_token,
             allowed_projects=set(current.allowed_projects) | {key},
             require_write_allowlist=True,
-            default_backend=default_backend,
+            default_backend=(
+                default_backend if default_backend is not None else current.default_backend
+            ),
         )
 
     return AgentSettings(
@@ -318,5 +324,5 @@ def candidate_settings(
         max_file_bytes=1000000,
         git_author_name=None,
         git_author_email=None,
-        default_backend=default_backend,
+        default_backend=default_backend or "auto",
     )

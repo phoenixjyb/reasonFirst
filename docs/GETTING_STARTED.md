@@ -1,8 +1,21 @@
-# First-time setup: from your Mac to a GitLab conversation in ChatGPT
+# First-time setup: read your GitLab project in ChatGPT
 
-> **Detailed/manual operator guide.** For v0.5.2, normal users should start with [Install & update](INSTALL.md) and then run `reasonfirst setup`. This page remains fully supported as the detailed source/manual route and operational reference; it is not deprecated.
+> Start with [Install & update](INSTALL.md) for packaged or source installation. The current published release is v0.5.3; worker deferral is an **Unreleased source change**. This page provides a short first-read path and retains the detailed manual operator route below.
 
 [简体中文](GETTING_STARTED_CN.md) · [Documentation index](README.md) · [Architecture](ARCHITECTURE.md) · [Daily tunnel operations](TUNNEL_LIFECYCLE.md)
+
+## Start here: the first read connection
+
+1. Choose the packaged or source [installation route](INSTALL.md) for macOS, Windows or Linux. Prepare access to your exact GitLab project and the intended ChatGPT workspace; the [permission checklist](#prerequisites) explains the separate account requirements.
+2. In a reviewed source checkout containing the **Unreleased** change, run `uv run reasonfirst setup --mode standard --worker later` to connect for reading before choosing a worker. Standard interactive setup also offers `later` and can continue when no worker is detected and none was explicitly requested. The published v0.5.3 wheel/tag still requires a worker in its wizard; the [manual read connection](#manual-route) remains available without one. See [version scope and worker deferral](INSTALL.md#read-first-setup).
+3. Complete the wizard's GitLab and tunnel steps, then run `reasonfirst chatgpt handoff` for the browser steps and live-read prompt. Use `uv run reasonfirst chatgpt handoff` from a source checkout. If already connected, reuse the existing tunnel and app.
+4. Select that app in **normal ChatGPT**, run the returned prompt, and verify identity, project access and file content at the resolved commit. Continue discussing the task in that conversation. [Add a worker](#add-worker) when you are ready for an approved implementation task.
+
+The standard read connection needs no coding worker or worker login. Deferring
+worker selection does not launch a coding agent or replace an existing worker
+preference. `cli-only` and `full-chat` still require their coding workers.
+Local setup/status does not prove the ChatGPT read succeeded; the live prompt is
+the acceptance check.
 
 ## The intended ReasonFirst workflow
 
@@ -24,9 +37,12 @@ If your goal is the **fully chat-based implementation loop**, complete the read 
 
 On macOS hosts that need an HTTP(S) proxy, remember that a LaunchAgent does not automatically inherit the interactive shell's proxy variables. The Bridge guide and [troubleshooting](TROUBLESHOOTING.md) document the session-scoped proxy sync helper; do not persist proxy credentials into a plist just to make the worker connect.
 
-**Finish this guide in order before sending a repository-work prompt.** The result is a normal ChatGPT conversation that can read your explicitly approved GitLab project through ReasonFirst MCP. Installing Python packages or seeing a local health check pass is not that result.
+<a id="manual-route"></a>
+## Detailed manual connection route
 
-This is the recommended **macOS + Keychain + existing-profile/stdio** path. Linux users can use the same lifecycle helper with an explicit environment/file credential source; see [manual alternatives](SETUP_TUTORIAL.md). Windows lifecycle management is not supported by this helper; use the [Windows manual procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell). Do not run macOS commands there.
+**For the manual route below, complete its steps in order before sending a repository-work prompt.** The result is a normal ChatGPT conversation that can read your explicitly approved GitLab project through ReasonFirst MCP. Installing Python packages or seeing a local health check pass is not that result.
+
+This manual recipe uses **macOS + Keychain + existing-profile/stdio**. Linux users can use the same lifecycle helper with an explicit environment/file credential source; see [manual alternatives](SETUP_TUTORIAL.md). Windows lifecycle management is not supported by this legacy helper; use the [Windows manual procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell) for that route. The packaged guided setup is covered above. Do not run macOS commands on Windows.
 
 Already connected successfully? Go directly to [daily use](#daily-use). Already have some prerequisites? Reuse them; do not recreate a working tunnel, overwrite configuration, or reinstall a working client merely to follow every example.
 
@@ -308,7 +324,19 @@ publish changes or merge anything. The localhost Assistant is not part of this t
 
 After this succeeds, continue in **the same normal ChatGPT conversation**: describe the desired outcome, constraints and review expectations. ChatGPT can inspect more files/MRs/CI through the **read-only GitLab MCP** and propose a plan. The [workflow](WORKFLOW.md) and [manual handoff template](TASK_HANDOFF_TEMPLATE.md) explain how approved implementation reaches a coding worker. The read-only GitLab MCP does not submit local tasks or read unpublished worktree changes; the separate **Bridge Preview** can do managed workspace/App Server orchestration and unpublished review when the connected ChatGPT client/workspace permits write-capable custom MCP actions. If that capability is unavailable, use terminal ActualCoder—the execution model and review gates remain the same.
 
-For the first implementation, authenticate one supported worker—[Codex CLI](https://developers.openai.com/codex/cli/), [Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli), or Codex Desktop/App Server—confirm Git write permissions and project validation/runner readiness, then use the [controlled-task guide](ACTUAL_CODER_QUICKSTART.md) or [practice lab](PRACTICE_LAB.md). A completed read test is not permission to push. `start --no-launch` creates local workspace state; `finish --dry-run` runs configured tests; only a separately reviewed real `finish` publishes.
+<a id="add-worker"></a>
+### Add a worker for the first implementation
+
+Once you have agreed the task, install or start one supported worker—[Codex CLI](https://developers.openai.com/codex/cli/), [Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli), or Codex Desktop/App Server—and complete its provider sign-in. Inspect the available workers and select one:
+
+```bash
+reasonfirst worker list
+reasonfirst worker use codex-cli
+```
+
+Replace `codex-cli` with `copilot-cli` or `codex-desktop` if that is your installed backend. From a source checkout, prefix both commands with `uv run`. This selects the worker for implementation without repeating GitLab/tunnel setup; it does not launch a task or verify the worker's login.
+
+Confirm Git write permissions and project validation/runner readiness, then use the [controlled-task guide](ACTUAL_CODER_QUICKSTART.md) or [practice lab](PRACTICE_LAB.md). A completed read test is not permission to push. `start --no-launch` creates local workspace state; `finish --dry-run` runs configured tests; only a separately reviewed real `finish` publishes.
 
 <a id="daily-use"></a>
 ## Daily use and new projects — do not repeat onboarding

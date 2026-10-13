@@ -2,6 +2,8 @@
 
 ReasonFirst v0.5.3 supports **quick packaged installation and building from source** as two first-class routes. They converge on the same `reasonfirst` CLI, private GitLab config, non-secret setup state, tunnel IDs and review/publication policy.
 
+**New user:** choose a packaged or source route below, then complete the [first ChatGPT read](GETTING_STARTED.md). If you want to read and discuss a project before installing a coding worker, see [read-first setup](#read-first-setup) for the **Unreleased source change**; the published v0.5.3 wizard still requires a detected worker.
+
 ## Existing installation? Inspect before changing it
 
 **Installing a package does not update every running service.** Keep your existing
@@ -71,9 +73,9 @@ a service.
 
 ## Route A — quick packaged install (recommended for new users)
 
-Before the wizard, install Git, uv, and a supported coding worker such as Codex
-CLI. Setup detects the worker executable but does not install it or verify its
-provider login; complete that login before running a coding task. Have your
+Before the **published v0.5.3 wizard**, install Git, uv, and a supported coding
+worker such as Codex CLI. Setup detects the worker executable but does not install
+it or verify its provider login; complete that login before running a coding task. Have your
 GitLab URL, token, and exact project path ready. The [first-time prerequisites](GETTING_STARTED.md)
 cover account access and the separate ChatGPT tunnel connection.
 
@@ -163,6 +165,44 @@ On Windows PowerShell:
 ```
 
 The editable install follows the checkout. Keep a long-lived editable checkout on a reviewed branch/tag; use separate worktrees for PR experiments.
+
+<a id="read-first-setup"></a>
+## Read in ChatGPT before choosing a worker (Unreleased)
+
+Worker deferral is an **Unreleased source change**. The published v0.5.3 wheel
+and v0.5.3 source tag do not support `--worker later`. Use a reviewed source
+checkout containing this change; record its commit SHA as well as the package
+version. From that checkout, on macOS, Windows PowerShell or Linux:
+
+```bash
+uv run reasonfirst setup --mode standard --worker later
+```
+
+In standard interactive setup, you can also choose `later` at the worker prompt.
+When no worker is detected and no worker choice was supplied, standard setup can
+continue with the read connection. `cli-only` and `full-chat` still require their
+coding workers and reject `later`.
+
+Deferral retains any existing worker preference and tunnel identity; it does not
+store `later` as a backend. The normal GitLab project check and configuration
+review still apply. Follow the wizard's tunnel steps, then run
+`uv run reasonfirst chatgpt handoff` and complete the returned live-read prompt in
+normal ChatGPT. Local setup/status alone does not establish that connection.
+Reading and discussing the project does not launch a coding worker.
+
+When you have agreed an implementation task, install or start one supported
+worker and complete its provider sign-in. Then inspect and select it:
+
+```bash
+uv run reasonfirst worker list
+uv run reasonfirst worker use codex-cli
+```
+
+Choose `copilot-cli` or `codex-desktop` instead if that is your installed backend.
+For a global installation built from the reviewed source, omit `uv run` from
+these commands. Worker selection updates the execution preference without
+repeating GitLab or tunnel setup; executable discovery does not verify login.
+Continue with the [first implementation](GETTING_STARTED.md#add-worker).
 
 ## The routes share state
 

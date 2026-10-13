@@ -1,8 +1,20 @@
-# 首次接入：从你的 Mac 到 ChatGPT 中的 GitLab 对话
+# 首次接入：在 ChatGPT 中读取你的 GitLab 项目
 
-> **详细/手工运维指南。** v0.5.2 普通用户建议先看[安装与更新](INSTALL_CN.md)，然后运行 `reasonfirst setup`。本文作为源码/手工路径和运维参考继续正式支持，并未废弃。
+> 先按[安装与更新](INSTALL_CN.md)选择打包或源码路径。当前已发布版本为 v0.5.3；推迟 worker 配置属于 **Unreleased 源码变更**。本文先提供首次读取的简短流程，并保留下方的详细手工运维路径。
 
 [English](GETTING_STARTED.md) · [中文文档索引](README_CN.md) · [架构说明](ARCHITECTURE_CN.md) · [日常隧道操作](TUNNEL_LIFECYCLE_CN.md)
+
+## 从这里开始：完成首次只读连接
+
+1. 为 macOS、Windows 或 Linux 选择打包或源码[安装路径](INSTALL_CN.md)。准备准确 GitLab 项目和目标 ChatGPT workspace 的访问资格；[权限清单](#prerequisites)说明各自的账号要求。
+2. 在包含 **Unreleased** 变更的已审阅源码检出中，运行 `uv run reasonfirst setup --mode standard --worker later`，先连接读取、之后再选择 worker。standard 交互式配置也可选择 `later`；没有检测到 worker 且未显式指定时，可以继续只读接入。已发布的 v0.5.3 wheel/tag 的 wizard 仍要求 worker；无需 worker 的[手工只读连接](#manual-route)继续可用。详见[版本范围与推迟 worker 配置](INSTALL_CN.md#read-first-setup)。
+3. 按 wizard 完成 GitLab 和隧道步骤，再运行 `reasonfirst chatgpt handoff` 获取浏览器步骤与实时读取提示词。源码检出使用 `uv run reasonfirst chatgpt handoff`。如果已经接通，复用现有隧道和应用。
+4. 在**普通 ChatGPT**中选择该应用，执行返回的提示词，验证身份、项目访问以及固定提交上的文件内容。随后在同一对话中讨论任务；准备执行已批准的实现任务时，再[添加 worker](#add-worker)。
+
+标准只读连接不需要编程 worker 或其登录。推迟选择 worker 不会启动编程代理，
+也不会替换已有 worker 偏好。
+`cli-only` 和 `full-chat` 仍要求对应的编程 worker。本地 setup/status 不能证明
+ChatGPT 读取成功，实时提示词才是连接验收。
 
 ## ReasonFirst 的目标主流程
 
@@ -24,9 +36,12 @@ ActualCoder 也可以脱离 ChatGPT 被终端直接调用，用于测试、恢�
 
 如果 macOS 主机访问外部服务依赖 HTTP(S) 代理，要注意 LaunchAgent 默认不会自动继承交互式 shell 的代理变量。Bridge 文档与[故障排查](TROUBLESHOOTING_CN.md)已经提供会话级代理同步 helper；不要为了让 worker 联网而把代理凭证持久化到 plist。
 
-**按顺序完成本指南，再发送仓库工作提示词。** 验收目标是在普通 ChatGPT 对话中，通过 ReasonFirst MCP 读取你明确批准的 GitLab 项目。安装完 Python 包或本地健康检查通过，都不等于达到这个目标。
+<a id="manual-route"></a>
+## 详细手工连接路径
 
-本文主路径是 **macOS + Keychain + 已选定的 stdio profile**。Linux 可以使用同一生命周期助手，但须明确选择环境变量/文件凭证来源，见[手工替代方案](OPENAI_TUNNEL_TEAM_SETUP_CN.md)。本助手不支持 Windows 生命周期管理；Windows 应使用[手工操作](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell)，不要照搬 macOS 命令。
+**使用下方手工路径时，按顺序完成步骤后再发送仓库工作提示词。** 验收目标是在普通 ChatGPT 对话中，通过 ReasonFirst MCP 读取你明确批准的 GitLab 项目。安装完 Python 包或本地健康检查通过，都不等于达到这个目标。
+
+这份手工流程使用 **macOS + Keychain + 已选定的 stdio profile**。Linux 可以使用同一生命周期助手，但须明确选择环境变量/文件凭证来源，见[手工替代方案](OPENAI_TUNNEL_TEAM_SETUP_CN.md)。这个旧版助手不支持 Windows 生命周期管理；采用该路径的 Windows 用户使用[手工操作](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell)。打包后的引导式配置见上方流程；不要在 Windows 照搬 macOS 命令。
 
 已经成功接入？直接看[日常使用](#daily-use)。已经具备部分条件？复用它们，不要为了逐条执行示例而重建可用隧道、覆盖配置或重装正常客户端。
 
@@ -306,7 +321,19 @@ localhost Assistant 不属于本任务。
 
 成功后，在**同一普通 ChatGPT 对话**中说明目标、约束与审阅要求。ChatGPT 可通过**只读 GitLab MCP**继续检查文件/MR/CI 并给出方案。[工作流程](WORKFLOW_CN.md)与[人工交接模板](TASK_HANDOFF_TEMPLATE_CN.md)说明如何把已批准实现交给 coding worker。只读 GitLab MCP 不提交本地任务、也不读取未发布 worktree 修改；独立的 **Bridge Preview** 在所连接 ChatGPT 客户端/workspace 允许 write-capable custom MCP action 时，可完成受管 workspace/App Server 编排和未发布内容审查。如果该能力不可用，则使用终端 ActualCoder；执行模型和审查门保持一致。
 
-首次实现前，认证一个受支持 worker：[Codex CLI](https://developers.openai.com/codex/cli/)、[Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)，或 Codex Desktop/App Server；确认 Git 写权限、项目验证及 runner 就绪，再使用[受控任务指南](QUICKSTART_CN.md)或[演练](PRACTICE_LAB_CN.md)。读取验收不等于批准推送。`start --no-launch` 会创建本地工作区状态；`finish --dry-run` 会运行配置的测试；只有另行审阅确认的实际 `finish` 才发布。
+<a id="add-worker"></a>
+### 为首次实现添加 worker
+
+约定好任务后，安装或启动一个受支持 worker：[Codex CLI](https://developers.openai.com/codex/cli/)、[Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)，或 Codex Desktop/App Server，并完成其 provider 登录。检查可用 worker，再选择其中一个：
+
+```bash
+reasonfirst worker list
+reasonfirst worker use codex-cli
+```
+
+如果使用另一个已安装后端，将 `codex-cli` 替换为 `copilot-cli` 或 `codex-desktop`。源码检出中在两条命令前加 `uv run`。这会选择实现用的 worker，不必重复配置 GitLab/隧道，也不会启动任务或验证 worker 登录。
+
+确认 Git 写权限、项目验证及 runner 就绪，再使用[受控任务指南](QUICKSTART_CN.md)或[演练](PRACTICE_LAB_CN.md)。读取验收不等于批准推送。`start --no-launch` 会创建本地工作区状态；`finish --dry-run` 会运行配置的测试；只有另行审阅确认的实际 `finish` 才发布。
 
 <a id="daily-use"></a>
 ## 日常使用与新项目：不要重复首次接入
