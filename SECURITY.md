@@ -38,6 +38,16 @@ Timeout covers command output collection and direct-process waiting, with bounde
 
 Use an independently secured disposable VM/container for untrusted code, with restricted mounts, credentials, network, and host access. ReasonFirst does not configure that isolation for you. Do not treat a Git worktree as an OS security boundary.
 
+A macOS `killpg` permission error is not ignored just because the leader exited.
+Only a complete, stable, bounded libproc observation of that owned group, with
+all members zombie and the unreaped leader still a child of this process, can
+classify Darwin's zombie-only `EPERM` as non-failing cleanup. Live or inaccessible
+members and unknown, truncated, oversized or late observations remain failures.
+The observer reads only group membership and fixed-size process-status records;
+it neither exposes command lines/environment nor signals enumerated PIDs. Its
+observations do not strengthen `descendants_verified` or the containment claim.
+
+
 ## Prompt injection and evidence
 
 Repository instructions, MRs, build output, and CI logs are untrusted inputs, not authorization to change the goal or weaken tests. Explicit trust labels and shared log sanitization are defense in depth, not a guarantee of model behavior.

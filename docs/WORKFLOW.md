@@ -125,11 +125,23 @@ exits 124. Required project validation cannot pass from a timeout.
 
 On POSIX, the runner signals only its new session's process group, escalating
 from SIGTERM to SIGKILL **before** reaping the leader. It does not look up process
-names or scan the host. It assumes exclusive subprocess ownership; an unrelated
+names or request a host-wide process list. It assumes exclusive subprocess ownership; an unrelated
 SIGCHLD reaper is not supported. If `Popen.wait()` has already reaped the leader
 during interruption handling, the group identity is no longer used for signalling
 and cleanup is reported as incomplete. Windows uses the direct `Popen` process
 object only; Windows Job Object / descendant containment is not implemented here.
+
+On macOS, a group containing only unreaped zombies can return `EPERM` even
+though no running member remains to signal. Only for that error, the runner uses
+Darwin's group-scoped libproc API to check at most 256 members, with a 0.2-second
+observation budget per failed signal. Both membership queries must agree, every
+member must report zombie state, and the unreaped leader must still report this
+process as its parent. Incomplete API records, live members, missing ownership,
+changed membership, unsupported ABI or expired observations preserve the cleanup
+failure. This adds at most two observation budgets to the cleanup path; OS calls
+are checked before/after and are not forcibly interruptible. No names, command
+lines or environment values are exposed; no discovered PID is signalled.
+This is a narrow error classification, not independent descendant containment.
 
 The workspace mutation lock stays held through collection, termination, bounded
 drain and output closure. A pipe held by an escaped process can therefore yield a

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- On macOS, disambiguate process-group `EPERM` only after a bounded, group-scoped
+  libproc observation confirms an owned, unreaped leader and a complete stable
+  zombie-only membership. Live, inaccessible, oversized or uncertain groups
+  retain the cleanup error; no generic permission-error suppression is added.
+
 - Bound local validation stdout/stderr retention during collection rather than
   buffering whole streams before clipping. Preserve nonzero exits, timeout exit
   behavior and normalized UTF-8 byte counts; report stream EOF separately from

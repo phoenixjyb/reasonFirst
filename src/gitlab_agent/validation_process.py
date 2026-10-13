@@ -7,6 +7,7 @@ Windows cleanup is deliberately limited to the owned direct process handle.
 from __future__ import annotations
 
 import codecs
+import errno
 import io
 import locale
 import math
@@ -17,6 +18,8 @@ import signal
 import subprocess
 import time
 from typing import BinaryIO
+
+from ._darwin_process_group import owned_group_is_zombie_only
 
 
 _READ_BYTES = 8192
@@ -184,6 +187,12 @@ def _terminate(proc: subprocess.Popen, *, posix_group: bool) -> list[str]:
                 os.killpg(proc.pid, sig)
             except ProcessLookupError:
                 pass
+            except PermissionError as exc:
+                # Darwin may return EPERM for an unreaped zombie-only group.
+                # The leader alone is insufficient: reject live/inaccessible
+                # members and every incomplete observation. Never reap early.
+                if exc.errno != errno.EPERM or not owned_group_is_zombie_only(proc):
+                    errors.append("command_group_signal_failed")
             except BaseException:
                 errors.append("command_group_signal_failed")
             if sig == signal.SIGTERM:
