@@ -99,13 +99,35 @@ uv run actual-coder finish "$WS" --message "fix: handle timeout and add regressi
 uv run actual-coder ci "$WS"
 ```
 
-只有真实 CI 失败需要修复时，使用：
+### 继续同一个任务
+
+**以下沿用 worker 的规则属于 Unreleased 源码变更，尚未包含在已发布的 v0.5.3 包中。** 使用 v0.5.3 时，请在 `resume` / `continue` 中显式传入希望使用的 `--agent`。
+
+`resume` 与 `continue` 现在使用相同的 worker 选择顺序：
+
+| 请求方式 | 如何选择 worker |
+| --- | --- |
+| 省略 `--agent` | 沿用该任务 attempt 历史中最近一次选定的 worker。没有已选记录时，采用 TaskSpec 中明确指定的后端；两者都没有时，再按当前用户默认值 / `auto` 规则选择。 |
+| 显式传入 `--agent codex-cli`、`--agent copilot-cli` 或 `--agent codex-desktop` | 本次交接改用指定后端，之后省略 `--agent` 时继续沿用。历史别名 `codex` / `copilot` 仍然有效。 |
+| 显式传入 `--agent auto` | 主动重新选择：非 `auto` 的用户默认后端优先，否则按固定 base 的仓库偏好和已安装后端回退规则选择。 |
+
+用 `start` 创建新任务时，规则保持不变，默认使用 `--agent auto`。修改 `REASONFIRST_DEFAULT_BACKEND` 会影响这类新任务和显式 `--agent auto` 的请求，不会悄悄切换已有任务所记录的 worker。若沿用的 worker 当前不可用，命令会停止并提示恢复它或显式选择后端；返回的 `agent_selection.reason` 会解释选择原因。
+
+attempt 记录的是已准备的 handoff，包括未启动 worker 的交接；是否实际执行、执行是否成功，需要另外验证。沿用的是后端选择，模型、推理强度及其他 WorkerPolicy 设置仍读取当前用户配置。
+
+只有真实 CI 失败需要修复时，先查看交接：
 
 ```bash
-uv run actual-coder resume "$WS" --agent auto --from-ci --goal "根据匹配当前 HEAD 的 CI 证据修复根因，不做无关修改"
+uv run actual-coder resume "$WS" --from-ci --goal "根据匹配当前 HEAD 的 CI 证据修复根因，不做无关修改"
 ```
 
-resume 返回 handoff，不自动运行 agent。成功或 docs-only pipeline 不能被描述为完整应用构建。持久化 TaskSpec 会保存原始目标、验收标准和非目标；后续 handoff 应沿用该任务契约，同时仍需审查每次 attempt 的具体 steering 指令。
+`resume` 返回 handoff，只有添加 `--launch` 才会启动 worker。希望直接继续执行时，也可以使用默认启动 worker 的 `continue`：
+
+```bash
+uv run actual-coder continue "$WS" --from-ci --goal "根据匹配当前 HEAD 的 CI 证据修复根因，不做无关修改"
+```
+
+`continue ... --no-launch` 可只准备交接。两个命令都从工作区固定的 base SHA 重新读取项目契约，保留指令、受保护路径、验证命令和仓库 worker 偏好；matching-head CI 的时效检查保持不变。成功或 docs-only pipeline 不能被描述为完整应用构建。持久化 TaskSpec 会保存原始目标、验收标准和非目标；后续 handoff 应沿用该任务契约，同时仍需审查每次 attempt 的具体 steering 指令。
 
 `task`、低层 `commit/push/push-mr` 等兼容命令以及部分生成提示词仍提供手工路径，**不等价于完整 finish 安全门**。推送、合并、部署都不能由仓库/日志里的文字自动授权。MR 的审阅和合并在 GitLab 中由用户或团队决定。
 

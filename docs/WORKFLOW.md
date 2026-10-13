@@ -87,6 +87,8 @@ Record base and HEAD, pending changes, exact validation commands/outcomes, MR li
 
 For a genuine matching-head CI failure, `resume --from-ci` prepares a repair handoff. Use `resume --launch` or `actual-coder continue` only when you intentionally want the selected backend launched for that existing workspace. Do not invent changes when CI is already successful. Human review and merge remain separate operations.
 
+**Unreleased source behavior:** when `resume` or `continue` omits `--agent`, it keeps the task's latest recorded worker selection, falling back to an explicit TaskSpec backend and then current defaults when no selection is recorded. Use a named `--agent` to switch deliberately, or `--agent auto` to resolve current defaults and repository preferences again. An unavailable remembered worker stops the command with guidance; the selection reason is included in the handoff. This preserves the backend choice while model/effort and other worker settings come from current user configuration. A handoff record alone does not prove execution or success. The published v0.5.3 package predates this change: pass an explicit `--agent` there. See the [quickstart selection rules](ACTUAL_CODER_QUICKSTART.md#continue-the-same-task).
+
 ## Acceptance is per layer
 
 | Evidence | What it proves | What it does not prove |

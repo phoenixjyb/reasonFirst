@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import contextlib
 import io
+import json
+import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from gitlab_agent.config import AgentSettings
+from gitlab_agent import cli
 from gitlab_agent.worker_policy import WorkerPolicy, resolve_worker_policy
+from gitlab_agent.workspace import WorkspaceManager
 
 from gitlab_agent.cli import (
     _agent_prompt,
@@ -1213,7 +1219,7 @@ project:
             ]
         )
         self.assertEqual(continue_args.command, "continue")
-        self.assertEqual(continue_args.agent, "auto")
+        self.assertIsNone(continue_args.agent)
         self.assertFalse(continue_args.no_launch)
 
         inspect_only = parser.parse_args(
@@ -1237,6 +1243,364 @@ project:
         status = FakeManager().status("abc123")
         with self.assertRaises(ValueError):
             _agent_prompt(status, agent="unknown")
+
+
+class ResumeWorkerSelectionTests(unittest.TestCase):
+    """Exercise selection through the CLI with actual persisted workspace state."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        seed = root / "seed"
+        seed.mkdir()
+
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", *args], cwd=seed, check=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+
+        git("init", "-b", "main")
+        git("config", "user.name", "Test User")
+        git("config", "user.email", "test@example.invalid")
+        (seed / "README.md").write_text("Synthetic task\n", encoding="utf-8")
+        (seed / ".actualcoder.yaml").write_text(
+            "version: 1\nagents:\n  preferred: [copilot-cli, codex-cli]\n"
+            "instructions:\n  - Preserve the public API.\n",
+            encoding="utf-8",
+        )
+        git("add", "README.md", ".actualcoder.yaml")
+        git("commit", "-m", "Initial synthetic project")
+        self.remote = root / "remote.git"
+        git("clone", "--bare", str(seed), str(self.remote))
+        self.settings = AgentSettings(
+            config_file=root / ".env",
+            gitlab_base_url="https://gitlab.example.invalid",
+            api_token="", api_verify_ssl=True, api_trust_env=False,
+            git_token="", git_username="oauth2", git_trust_env=False,
+            allowed_projects={"team/project"}, require_write_allowlist=True,
+            workspace_root=root / "agent", branch_prefix="chatgpt/",
+            default_base_ref="main", allowed_executables={"python"},
+            command_timeout_seconds=30, max_output_bytes=120000,
+            max_file_bytes=1000000, git_author_name="Agent Test",
+            git_author_email="agent@example.invalid", default_backend="codex-cli",
+        )
+        self.manager = self._reload_manager()
+        created = self.manager.create_workspace("team/project", task_slug="resume-worker")
+        self.workspace_id = str(created["workspace_id"])
+        self.available = {"codex", "codex-cli", "copilot", "copilot-cli", "codex-desktop"}
+        discovery = patch(
+            "gitlab_agent.cli._backend_path",
+            side_effect=lambda agent, **kwargs: (
+                f"/synthetic-workers/{agent}" if agent in self.available else None
+            ),
+        )
+        discovery.start()
+        self.addCleanup(discovery.stop)
+
+    def _reload_manager(self) -> WorkspaceManager:
+        return WorkspaceManager(self.settings, url_resolver=lambda project: str(self.remote))
+
+    def _task(self, requested: str = "auto") -> dict[str, object]:
+        return self.manager.ensure_task_spec(
+            self.workspace_id, task_slug="resume-worker", goal="Original durable goal",
+            requested_backend=requested,
+            acceptance_criteria=["Keep compatibility"], non_goals=["No unrelated rewrite"],
+        )
+
+    def _attempt(self, selected: str, *, requested: str = "auto") -> dict[str, object]:
+        return self.manager.record_attempt(
+            self.workspace_id, source="start", goal="Original durable goal",
+            requested_backend=requested, selected_backend=selected,
+            ci_context_included=False, worker_policy={"backend": "codex"},
+        )
+
+    def _invoke(self, *args: str):
+        # Reloading ensures the new invocation uses disk state, not object caching.
+        self.manager = self._reload_manager()
+        output = io.StringIO()
+        errors = io.StringIO()
+        with (
+            patch("gitlab_agent.cli.WorkspaceManager", return_value=self.manager),
+            patch("gitlab_agent.cli.GitLabAPI", return_value=object()),
+            patch("gitlab_agent.cli._launch_handoff", return_value={"returncode": 0}) as launch,
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(errors),
+        ):
+            code = cli.main(
+                list(args), prog="actual-coder", resolved_settings=self.settings,
+            )
+        decoder = json.JSONDecoder()
+        remaining = output.getvalue().strip()
+        payloads = []
+        while remaining:
+            payload, end = decoder.raw_decode(remaining)
+            payloads.append(payload)
+            remaining = remaining[end:].strip()
+        self.assertTrue(payloads, errors.getvalue())
+        return code, payloads, launch
+
+    def _resume(self, *args: str) -> dict[str, object]:
+        code, payloads, launch = self._invoke("resume", self.workspace_id, *args)
+        self.assertEqual(code, 0, payloads)
+        launch.assert_not_called()
+        return payloads[0]
+
+    def test_omitted_agent_is_distinct_from_explicit_auto_for_cli_aliases(self) -> None:
+        for prog in ("actual-coder", "codingagent", "gitlab-agent"):
+            for command in ("resume", "continue"):
+                with self.subTest(prog=prog, command=command):
+                    parser = _build_parser(prog=prog)
+                    self.assertIsNone(parser.parse_args([command, self.workspace_id]).agent)
+                    self.assertEqual(
+                        parser.parse_args([command, self.workspace_id, "--agent", "auto"]).agent,
+                        "auto",
+                    )
+        self.assertEqual(
+            _build_parser(prog="actual-coder").parse_args(
+                ["start", "team/project", "--goal", "Inspect the repository"]
+            ).agent,
+            "auto",
+        )
+
+    def test_resume_keeps_each_supported_worker_after_user_default_changes(self) -> None:
+        self._task("copilot-cli")
+        for selected in ("codex-cli", "copilot-cli", "codex-desktop"):
+            with self.subTest(selected=selected):
+                previous = self._attempt(selected)
+                self.settings = replace(
+                    self.settings,
+                    default_backend="copilot-cli" if selected != "copilot-cli" else "codex-cli",
+                )
+                result = self._resume()
+                self.assertEqual(result["agent"], selected)
+                self.assertEqual(result["agent_selection"]["preference_source"], "task-attempt")
+                self.assertEqual(result["agent_selection"]["previous_attempt_id"], previous["attempt_id"])
+                self.assertIn("last selected", result["agent_selection"]["reason"])
+                self.assertEqual(result["attempt"]["selected_backend"], selected)
+                self.assertEqual(result["attempt"]["source"], "resume")
+                expected_policy = "copilot" if selected == "copilot-cli" else "codex"
+                self.assertEqual(result["worker_policy"]["backend"], expected_policy)
+                self.assertEqual(result["attempt"]["worker_policy"], result["worker_policy"])
+
+    def test_latest_selection_wins_and_original_task_and_history_are_preserved(self) -> None:
+        spec = self._task("codex-cli")
+        self._attempt("codex-cli")
+        selected = self._attempt("copilot-cli")
+        before = self.manager.task_context(self.workspace_id)
+        self.settings = replace(self.settings, default_backend="codex-desktop")
+        result = self._resume()
+        after = self.manager.task_context(self.workspace_id)
+        self.assertEqual(result["agent"], "copilot-cli")
+        self.assertEqual(result["agent_selection"]["previous_attempt_id"], selected["attempt_id"])
+        self.assertEqual(after["task_spec"], spec)
+        self.assertEqual(after["attempts"][:-1], before["attempts"])
+        self.assertEqual(after["attempt_count"], before["attempt_count"] + 1)
+        self.assertEqual(after["attempts"][-1]["goal"], "Original durable goal")
+        for text in ("Original durable goal", "Keep compatibility", "No unrelated rewrite", "Preserve the public API."):
+            self.assertIn(text, result["agent_prompt"])
+
+    def test_explicit_auto_reselects_user_default_and_remembers_new_selection(self) -> None:
+        self._task("codex-cli")
+        self._attempt("codex-cli")
+        self.settings = replace(self.settings, default_backend="copilot-cli")
+        explicit = self._resume("--agent", "auto")
+        self.assertEqual(explicit["agent"], "copilot-cli")
+        self.assertEqual(explicit["agent_requested"], "auto")
+        self.assertEqual(explicit["agent_selection"]["preference_source"], "user")
+        self.settings = replace(self.settings, default_backend="codex-cli")
+        remembered = self._resume()
+        self.assertEqual(remembered["agent"], "copilot-cli")
+        self.assertEqual(remembered["agent_selection"]["previous_attempt_id"], explicit["attempt"]["attempt_id"])
+
+    def test_explicit_worker_switch_is_remembered_on_next_invocation(self) -> None:
+        self._task("codex-cli")
+        self._attempt("copilot-cli")
+        explicit = self._resume("--agent", "codex-desktop")
+        self.assertEqual(explicit["agent"], "codex-desktop")
+        self.assertEqual(explicit["agent_selection"]["reason"], "explicit backend selection")
+        remembered = self._resume()
+        self.assertEqual(remembered["agent"], "codex-desktop")
+        self.assertEqual(remembered["agent_selection"]["previous_attempt_id"], explicit["attempt"]["attempt_id"])
+        self.assertEqual(self.manager.task_context(self.workspace_id)["task_spec"]["requested_backend"], "codex-cli")
+
+    def test_task_spec_worker_is_used_before_first_attempt(self) -> None:
+        spec = self._task("copilot-cli")
+        result = self._resume()
+        self.assertEqual(result["agent"], "copilot-cli")
+        self.assertEqual(result["agent_selection"]["preference_source"], "task-spec")
+        self.assertIn("original requested", result["agent_selection"]["reason"])
+        self.assertEqual(self.manager.task_context(self.workspace_id)["task_spec"], spec)
+
+    def test_legacy_worker_aliases_remain_usable_in_saved_attempts(self) -> None:
+        self._task()
+        for selected in ("codex", "copilot"):
+            with self.subTest(selected=selected):
+                self._attempt(selected)
+                result = self._resume()
+                self.assertEqual(result["agent"], selected)
+                self.assertEqual(result["agent_selection"]["preference_source"], "task-attempt")
+
+    def test_auto_task_without_attempts_uses_current_user_default(self) -> None:
+        self._task()
+        self.settings = replace(self.settings, default_backend="codex-desktop")
+        result = self._resume()
+        self.assertEqual(result["agent"], "codex-desktop")
+        self.assertEqual(result["agent_selection"]["preference_source"], "user")
+
+    def test_auto_task_without_attempts_uses_pinned_project_preference(self) -> None:
+        self._task()
+        self.settings = replace(self.settings, default_backend="auto")
+        result = self._resume()
+        self.assertEqual(result["agent"], "copilot-cli")
+        self.assertEqual(result["agent_selection"]["preference_source"], "project")
+
+    def test_legacy_workspace_without_task_fields_falls_back_and_creates_task(self) -> None:
+        state_path = self.manager._state_path(self.workspace_id)
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
+        raw.pop("task_spec", None)
+        raw.pop("attempts", None)
+        state_path.write_text(json.dumps(raw), encoding="utf-8")
+        self.settings = replace(self.settings, default_backend="copilot-cli")
+        result = self._resume("--goal", "Recover this legacy task")
+        context = self.manager.task_context(self.workspace_id)
+        self.assertEqual(result["agent"], "copilot-cli")
+        self.assertEqual(result["agent_selection"]["preference_source"], "user")
+        self.assertEqual(context["task_spec"]["requested_backend"], "auto")
+        self.assertEqual(context["task_spec"]["goal"], "Recover this legacy task")
+        self.assertEqual(context["attempt_count"], 1)
+
+    def test_attempt_can_recover_worker_when_task_spec_is_absent(self) -> None:
+        self._attempt("copilot-cli")
+        result = self._resume("--goal", "Recover task with history")
+        self.assertEqual(result["agent"], "copilot-cli")
+        self.assertEqual(result["agent_selection"]["preference_source"], "task-attempt")
+        self.assertEqual(self.manager.task_context(self.workspace_id)["task_spec"]["requested_backend"], "copilot-cli")
+
+    def test_empty_legacy_selection_does_not_hide_previous_worker(self) -> None:
+        self._task("codex-cli")
+        selected = self._attempt("copilot-cli")
+        self._attempt("")
+        result = self._resume()
+        self.assertEqual(result["agent"], "copilot-cli")
+        self.assertEqual(result["agent_selection"]["previous_attempt_id"], selected["attempt_id"])
+
+    def test_unavailable_remembered_worker_fails_without_writes_or_launch(self) -> None:
+        self._task()
+        self._attempt("copilot-cli")
+        self.available -= {"copilot", "copilot-cli"}
+        state_path = self.manager._state_path(self.workspace_id)
+        before = state_path.read_bytes()
+        code, payloads, launch = self._invoke("resume", self.workspace_id, "--launch")
+        self.assertEqual(code, 1, payloads)
+        self.assertIn("copilot-cli", payloads[0]["error"])
+        self.assertIn("--agent", payloads[0]["error"])
+        self.assertEqual(state_path.read_bytes(), before)
+        launch.assert_not_called()
+
+    def test_unavailable_task_spec_worker_fails_before_first_attempt(self) -> None:
+        self._task("codex-desktop")
+        self.available.remove("codex-desktop")
+        state_path = self.manager._state_path(self.workspace_id)
+        before = state_path.read_bytes()
+        code, payloads, launch = self._invoke("continue", self.workspace_id)
+        self.assertEqual(code, 1, payloads)
+        self.assertIn("codex-desktop", payloads[0]["error"])
+        self.assertIn("--agent", payloads[0]["error"])
+        self.assertEqual(state_path.read_bytes(), before)
+        launch.assert_not_called()
+
+    def test_unknown_saved_worker_fails_before_legacy_task_migration(self) -> None:
+        for selected in ("retired-worker", "auto"):
+            with self.subTest(selected=selected):
+                self._attempt(selected)
+                state_path = self.manager._state_path(self.workspace_id)
+                before = state_path.read_bytes()
+                code, payloads, launch = self._invoke("continue", self.workspace_id, "--no-launch")
+                self.assertEqual(code, 1, payloads)
+                self.assertIn(selected, payloads[0]["error"])
+                self.assertIn("--agent", payloads[0]["error"])
+                self.assertEqual(state_path.read_bytes(), before)
+                self.assertIsNone(self.manager.task_context(self.workspace_id)["task_spec"])
+                launch.assert_not_called()
+
+    def test_explicit_auto_recovers_from_unavailable_remembered_worker(self) -> None:
+        self._task()
+        self._attempt("copilot-cli")
+        self.available -= {"copilot", "copilot-cli"}
+        result = self._resume("--agent", "auto")
+        self.assertEqual(result["agent"], "codex-cli")
+        self.assertEqual(result["agent_selection"]["preference_source"], "user")
+
+    def test_explicit_unavailable_backend_still_allows_offline_handoff(self) -> None:
+        self._task()
+        self.available.remove("codex-desktop")
+        result = self._resume("--agent", "codex-desktop")
+        self.assertEqual(result["agent"], "codex-desktop")
+        self.assertFalse(result["agent_selection"]["installed"])
+
+    def test_continue_without_launch_remembers_selection_for_later_resume(self) -> None:
+        self._task()
+        self._attempt("copilot-cli")
+        code, payloads, launch = self._invoke("continue", self.workspace_id, "--no-launch")
+        self.assertEqual(code, 0, payloads)
+        launch.assert_not_called()
+        self.assertEqual(payloads[0]["agent"], "copilot-cli")
+        self.assertEqual(payloads[0]["attempt"]["source"], "continue")
+        resumed = self._resume()
+        self.assertEqual(resumed["agent_selection"]["previous_attempt_id"], payloads[0]["attempt"]["attempt_id"])
+
+    def test_continue_launch_receives_remembered_desktop_worker(self) -> None:
+        self._task()
+        self._attempt("codex-desktop")
+        code, payloads, launch = self._invoke("continue", self.workspace_id)
+        self.assertEqual(code, 0, payloads)
+        launch.assert_called_once()
+        handoff = launch.call_args.args[0]
+        self.assertEqual(handoff["agent"], "codex-desktop")
+        self.assertEqual(handoff["worker_policy"]["backend"], "codex")
+        self.assertEqual(handoff["agent_selection"]["preference_source"], "task-attempt")
+        self.assertEqual(payloads[0]["agent_selection"], handoff["agent_selection"])
+
+    def test_resume_launch_receives_remembered_copilot_worker(self) -> None:
+        self._task()
+        self._attempt("copilot-cli")
+        code, payloads, launch = self._invoke("resume", self.workspace_id, "--launch")
+        self.assertEqual(code, 0, payloads)
+        launch.assert_called_once()
+        handoff = launch.call_args.args[0]
+        self.assertEqual(handoff["agent"], "copilot-cli")
+        self.assertEqual(handoff["worker_policy"]["backend"], "copilot")
+        self.assertEqual(handoff["agent_selection"]["preference_source"], "task-attempt")
+
+    def test_stale_ci_still_rejects_before_attempt_recording_or_launch(self) -> None:
+        self._task()
+        self._attempt("copilot-cli")
+        state_path = self.manager._state_path(self.workspace_id)
+        before = state_path.read_bytes()
+        with patch(
+            "gitlab_agent.cli.collect_ci_feedback",
+            return_value={"found": True, "stale_for_workspace": True, "pipeline": {"sha": "stale-sha"}},
+        ):
+            code, payloads, launch = self._invoke("continue", self.workspace_id, "--from-ci")
+        self.assertEqual(code, 1, payloads)
+        self.assertIn("stale for the current workspace HEAD", payloads[0]["error"])
+        self.assertEqual(state_path.read_bytes(), before)
+        launch.assert_not_called()
+
+    def test_matching_ci_keeps_remembered_worker_and_marks_untrusted_context(self) -> None:
+        self._task()
+        self._attempt("copilot-cli")
+        with patch(
+            "gitlab_agent.cli.collect_ci_feedback",
+            return_value={"found": True, "stale_for_workspace": False, "repair_context": "Synthetic failing test output"},
+        ):
+            result = self._resume("--from-ci")
+        self.assertEqual(result["agent"], "copilot-cli")
+        self.assertTrue(result["attempt"]["ci_context_included"])
+        self.assertIn("Synthetic failing test output", result["agent_prompt"])
+        self.assertIn("untrusted external/build output", result["agent_prompt"])
 
 
 if __name__ == "__main__":
