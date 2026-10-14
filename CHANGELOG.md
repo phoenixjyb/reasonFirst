@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-No additional changes recorded.
+- Add opt-in, interactive Antigravity CLI support (`antigravity-cli`, alias `agy`)
+  for standard/CLI-only terminal tasks. Request `--sandbox`, use the managed
+  worktree and a fresh task handoff, and require an interactive terminal at launch.
+- Add optional Antigravity model/effort settings, executable-only discovery and
+  accurate policy evidence. Preserve Codex/Copilot auto fallback order and reject
+  unsupported Antigravity policy controls rather than dropping them.
+- Keep full-chat Bridge execution, headless streaming, provider conversation
+  resumption and runtime permission verification outside this adapter. No version,
+  dependency or persisted-schema change; not in the released v0.5.3 wheel.
 
 ## 0.5.3
 

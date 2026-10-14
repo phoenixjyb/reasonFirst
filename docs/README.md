@@ -1,5 +1,7 @@
 # Documentation index
 
+Unreleased worker adapter: [Antigravity CLI](ANTIGRAVITY_CLI.md) · [中文指南](ANTIGRAVITY_CLI_CN.md).
+
 **English** · [简体中文](README_CN.md)
 
 These guides describe the source revision containing them, not necessarily the last release tag. See [v0.5.3 release notes](RELEASE_NOTES_0.5.3.md), [the main README](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) and the [changelog](../CHANGELOG.md).

@@ -1,5 +1,7 @@
 # ReasonFirst
 
+> **Unreleased 源码：**可选的 [Antigravity CLI（`agy`）执行者](docs/ANTIGRAVITY_CLI_CN.md)，仅支持交互式终端；v0.5.3 安装包不含此功能。
+
 [English](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) · **简体中文** · **[文档站点](https://phoenixjyb.github.io/reasonFirst/)** · [首次完整接入](docs/GETTING_STARTED_CN.md) · [文档索引](docs/README_CN.md)
 
 <!-- Paired with README.md in this change; base 61f464ebbb8906817e32802be22df4012881ece5. -->

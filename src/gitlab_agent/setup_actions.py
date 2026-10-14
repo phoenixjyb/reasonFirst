@@ -26,7 +26,8 @@ from .setup_config import (
 from .tls import api_client_options, validate_base_url
 
 
-CANONICAL_WORKERS = ("auto", "codex-cli", "copilot-cli", "codex-desktop")
+CANONICAL_WORKERS = ("auto", "codex-cli", "copilot-cli", "codex-desktop", "antigravity-cli")
+WORKER_CHOICES = (*CANONICAL_WORKERS, "agy")
 
 
 def detect_workers(
@@ -47,6 +48,12 @@ def detect_workers(
             "name": "copilot-cli",
             "available": bool(resolve("copilot")),
             "path": resolve("copilot"),
+            "authentication_verified": False,
+        },
+        {
+            "name": "antigravity-cli",
+            "available": bool(resolve("agy")),
+            "path": resolve("agy"),
             "authentication_verified": False,
         },
         {
@@ -202,6 +209,8 @@ def plan_worker_use(
     desktop_socket: Path | None = None,
 ) -> dict[str, Any]:
     choice = backend.strip()
+    if choice == "agy":
+        choice = "antigravity-cli"
     if choice not in CANONICAL_WORKERS:
         raise ValueError(
             "worker must be one of: " + ", ".join(CANONICAL_WORKERS)

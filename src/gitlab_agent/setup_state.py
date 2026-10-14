@@ -12,7 +12,7 @@ import yaml
 SETUP_STATE_VERSION = 1
 DEFAULT_SETUP_STATE_PATH = Path("~/.config/reasonfirst/setup.yaml").expanduser()
 SETUP_MODES = {"standard", "full-chat", "cli-only"}
-SETUP_WORKERS = {"auto", "codex-cli", "copilot-cli", "codex-desktop"}
+SETUP_WORKERS = {"auto", "codex-cli", "copilot-cli", "codex-desktop", "antigravity-cli"}
 SETUP_PHASES = {
     "system",
     "gitlab",
@@ -82,6 +82,8 @@ class SetupState:
             )
 
         worker = _optional_text(data.get("selected_worker"), field="selected_worker")
+        if worker == "agy":
+            worker = "antigravity-cli"
         if worker is not None and worker not in SETUP_WORKERS:
             raise ValueError(
                 "selected_worker must be one of: " + ", ".join(sorted(SETUP_WORKERS))

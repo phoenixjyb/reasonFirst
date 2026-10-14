@@ -49,6 +49,9 @@ _SETTING_FIELDS = frozenset({
     "codex_sandbox_mode", "codex_approval_policy", "codex_network_access",
     "copilot_model", "copilot_reasoning_effort", "copilot_execution_mode",
     "copilot_disable_builtin_mcps", "copilot_allow_tools", "copilot_deny_tools",
+    # Terminal-only fields: validated here, not added to worker_requests. The
+    # managed Bridge still supports only its existing worker surfaces.
+    "antigravity_model", "antigravity_reasoning_effort",
 })
 
 
@@ -136,11 +139,13 @@ def _settings(settings: AgentSettings) -> None:
     for name in ("copilot_allow_tools", "copilot_deny_tools"):
         _strings(getattr(settings, name), ordered=True)
     _choice(settings.default_backend,
-            {"auto", "codex", "codex-cli", "copilot", "copilot-cli", "codex-desktop"})
+            {"auto", "codex", "codex-cli", "copilot", "copilot-cli", "codex-desktop", "antigravity-cli", "agy"})
     _choice(settings.codex_reasoning_effort, {"minimal", "low", "medium", "high", "xhigh", "max"})
     _choice(settings.codex_execution_mode, {"interactive", "exec"})
     _choice(settings.codex_sandbox_mode, {"read-only", "workspace-write"})
     _choice(settings.codex_approval_policy, {"on-request", "never"})
+    _text(settings.antigravity_model, optional=True)
+    _choice(settings.antigravity_reasoning_effort, {"low", "medium", "high", "xhigh", "max"}, optional=True)
     _text(settings.copilot_model, optional=True)
     _choice(settings.copilot_reasoning_effort, {"low", "medium", "high", "xhigh"}, optional=True)
     _choice(settings.copilot_execution_mode, {"interactive", "programmatic"})

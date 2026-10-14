@@ -13,7 +13,7 @@ from typing import Callable
 from . import __version__
 from .config import AgentSettings, resolve_env_file
 from .setup_actions import (
-    CANONICAL_WORKERS,
+    WORKER_CHOICES,
     apply_project_add,
     apply_worker_use,
     candidate_settings,
@@ -120,13 +120,15 @@ def _choose_worker(
     if not available:
         raise RuntimeError(
             "No supported coding worker is available. Install/sign in to Codex CLI, "
-            "Copilot CLI, or start Codex Desktop, then rerun setup."
+            "Copilot CLI, Antigravity CLI (agy), or start Codex Desktop, then rerun setup."
         )
 
     if requested:
         choice = requested
     else:
         current_choice = current.default_backend if current is not None else "auto"
+        if current_choice == "agy":
+            current_choice = "antigravity-cli"
         default = (
             current_choice
             if current_choice == "auto" or current_choice in available
@@ -134,7 +136,7 @@ def _choose_worker(
         )
         print("Detected workers: " + ", ".join(available))
         choice = _prompt(
-            "Worker (auto/codex-cli/copilot-cli/codex-desktop)",
+            "Worker (auto/codex-cli/copilot-cli/codex-desktop/antigravity-cli)",
             default=default,
             input_fn=input_fn,
         )
@@ -142,7 +144,7 @@ def _choose_worker(
     plan = plan_worker_use(choice)
     if not bool(plan.get("ok")):
         raise RuntimeError(str(plan.get("message") or "Selected worker is unavailable"))
-    return choice
+    return str(plan["backend"])
 
 
 def _persist_progress(
@@ -650,6 +652,8 @@ def _run_guided_setup(
     mode = args.mode or (state.mode if state is not None else "standard")
     if mode not in SETUP_MODES:
         raise ValueError("Unsupported setup mode")
+    if mode == "full-chat" and args.worker in {"agy", "antigravity-cli"}:
+        raise RuntimeError("Antigravity CLI supports standard or cli-only setup, not the full-chat Bridge")
 
     base_url = args.gitlab_url or _prompt(
         "GitLab URL",
@@ -689,6 +693,9 @@ def _run_guided_setup(
         current=current,
         input_fn=input_fn,
     )
+
+    if mode == "full-chat" and worker == "antigravity-cli":
+        raise RuntimeError("Antigravity CLI supports standard or cli-only setup, not the full-chat Bridge")
 
     candidate = candidate_settings(
         base_url=base_url,
@@ -1346,7 +1353,7 @@ def _build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--ref", default=None, help="Project ref (default: configured/main)")
     setup.add_argument(
         "--worker",
-        choices=CANONICAL_WORKERS,
+        choices=WORKER_CHOICES,
         default=None,
         help="Prefill the worker preference; secrets are never accepted on argv",
     )
@@ -1373,7 +1380,7 @@ def _build_parser() -> argparse.ArgumentParser:
     worker_sub = worker.add_subparsers(dest="worker_command", required=True)
     worker_sub.add_parser("list", help="List detected coding workers")
     worker_use = worker_sub.add_parser("use", help="Persist a worker preference")
-    worker_use.add_argument("backend", choices=CANONICAL_WORKERS)
+    worker_use.add_argument("backend", choices=WORKER_CHOICES)
     worker_use.add_argument("--json", action="store_true")
     worker_use.add_argument(
         "--state-file",
@@ -1690,7 +1697,7 @@ def main(argv: list[str] | None = None) -> int:
             previous = load_setup_state(args.state_file) or SetupState()
             state = replace(
                 previous,
-                selected_worker=args.backend,
+                selected_worker=str(plan["backend"]),
                 completed_phases=tuple(
                     phase
                     for phase in ("system", "gitlab", "worker", "tunnel", "chatgpt-read", "bridge", "ready")

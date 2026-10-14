@@ -112,14 +112,14 @@ def run_doctor(
         )
 
     installed_agents: list[str] = []
-    for agent, executable in (("codex", "codex"), ("copilot", "copilot")):
+    for agent, executable in (("codex", "codex"), ("copilot", "copilot"), ("antigravity", "agy")):
         resolved = resolve_executable(executable)
         if resolved:
             installed_agents.append(agent)
         _check(
             checks,
             f"agent_{agent}",
-            "pass" if resolved else "warn",
+            "pass" if resolved else ("skip" if agent == "antigravity" else "warn"),
             (
                 f"{agent} CLI is installed"
                 if resolved
