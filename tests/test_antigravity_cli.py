@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from gitlab_agent import cli, setup_actions, setup_config
+from gitlab_agent import cli, setup_actions, setup_config, setup_inspection, setup_status
 from gitlab_agent.config import AgentSettings
 from gitlab_agent.doctor import run_doctor
 from gitlab_agent.project_config import parse_project_config
@@ -98,20 +98,26 @@ class AntigravityPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             env = {"GITLAB_AGENT_ENV_FILE": str(root / "missing"),
+                   "GITLAB_WORKSPACE_ROOT": str(root / "state"),
                    "GITLAB_BASE_URL": "https://gitlab.example.invalid"}
             with patch.dict(os.environ, env, clear=True):
                 s = AgentSettings.load()
+                self.assertEqual(s.workspace_root, root / "state")
                 self.assertIsNone(s.antigravity_model)
                 self.assertIsNone(s.antigravity_reasoning_effort)
             env.update(REASONFIRST_DEFAULT_BACKEND="agy", REASONFIRST_ANTIGRAVITY_MODEL="fixture",
                        REASONFIRST_ANTIGRAVITY_REASONING_EFFORT="max")
             with patch.dict(os.environ, env, clear=True):
                 s = AgentSettings.load()
+                self.assertEqual(s.workspace_root, root / "state")
             self.assertEqual(s.default_backend, "agy")
             p = resolve_worker_policy(s, "antigravity")
             self.assertEqual((p.model, p.reasoning_effort), ("fixture", "max"))
             env["REASONFIRST_ANTIGRAVITY_REASONING_EFFORT"] = "ultra"
-            with patch.dict(os.environ, env, clear=True), self.assertRaises(RuntimeError):
+            with patch.dict(os.environ, env, clear=True), self.assertRaisesRegex(
+                RuntimeError,
+                r"REASONFIRST_ANTIGRAVITY_REASONING_EFFORT must be one of:",
+            ):
                 AgentSettings.load()
 
 
@@ -160,14 +166,21 @@ class AntigravitySelectionTests(unittest.TestCase):
         self.assertFalse(plan["authentication_verified"])
 
     def test_agent_list_and_config_report_correct_provider(self):
-        with patch.object(cli.shutil, "which", return_value="/fixture/agy"):
-            listing = cli._available_agents()
-        a = next(a for a in listing["agents"] if a["agent"] == "antigravity-cli")
-        self.assertEqual(a["aliases"], ["agy"])
-        self.assertEqual(a["executable"], "agy")
-        self.assertFalse(a["authentication_checked"])
         with tempfile.TemporaryDirectory() as td:
-            c = cli._safe_config(settings(Path(td)))
+            root = Path(td)
+            with patch.object(cli.shutil, "which", side_effect=lambda n: str(root / n) if n == "agy" else None), \
+                 patch.object(cli, "managed_app_server_socket", return_value=root / "missing"):
+                listing = cli._available_agents()
+            a = next(a for a in listing["agents"] if a["agent"] == "antigravity-cli")
+            self.assertEqual(a["aliases"], ["agy"])
+            self.assertEqual(a["executable"], "agy")
+            self.assertTrue(a["installed"])
+            self.assertEqual(a["path"], str(root / "agy"))
+            self.assertFalse(a["authentication_checked"])
+            desktop = next(a for a in listing["agents"] if a["agent"] == "codex-desktop")
+            self.assertFalse(desktop["installed"])
+            self.assertIsNone(desktop["path"])
+            c = cli._safe_config(settings(root))
         self.assertEqual(c["worker_defaults"]["antigravity-cli"]["backend"], "antigravity")
 
     def test_setup_state_roundtrip_preserves_other_fields(self):
@@ -186,30 +199,75 @@ class AntigravitySelectionTests(unittest.TestCase):
             config = Path(td) / "agent.env"
             before = "# Keep this comment\nGITLAB_BASE_URL=https://gitlab.example.invalid\nGITLAB_ALLOWED_PROJECTS=team/project\n"
             config.write_text(before)
+            before_bytes = config.read_bytes()
+            backup_root = Path(td) / "backups"
+            apply_env_updates = setup_actions.apply_env_updates
+
+            def apply_updates(path, updates):
+                return apply_env_updates(path, updates, backup_root=backup_root)
+
             with patch.dict(os.environ, {}, clear=True), \
                  patch.object(setup_config, "selected_user_config_path", return_value=config), \
-                 patch.object(setup_actions, "selected_user_config_path", return_value=config):
+                 patch.object(setup_actions, "selected_user_config_path", return_value=config), \
+                 patch.object(setup_actions, "apply_env_updates", side_effect=apply_updates):
                 plan = setup_actions.plan_worker_use("agy", which=lambda n: "/fixture/agy" if n == "agy" else None,
                                                     desktop_socket=Path(td) / "missing")
                 result = setup_actions.apply_worker_use(plan)
             self.assertTrue(result["writes_performed"])
             self.assertEqual(config.read_text(), before + "REASONFIRST_DEFAULT_BACKEND=antigravity-cli\n")
+            backup = Path(result["config_change"]["backup_file"])
+            self.assertTrue(backup.resolve().is_relative_to(backup_root.resolve()))
+            self.assertEqual(backup.read_bytes(), before_bytes)
 
     def test_detection_does_not_launch_provider_or_claim_bridge_support(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td); config = settings(root); config.config_file.write_text("")
-            with patch("subprocess.run", side_effect=AssertionError("no provider process")):
+            build_inventory = setup_status.build_deployment_inventory
+            real_read_config_bytes = setup_inspection.read_config_bytes
+            read_paths = []
+
+            def deployment_inventory(**kwargs):
+                return build_inventory(home=root, **kwargs)
+
+            def read_fixture_config(path):
+                read_paths.append(path)
+                self.assertEqual(path, config.config_file)
+                return real_read_config_bytes(path)
+
+            with patch.dict(os.environ, {
+                "GITLAB_AGENT_ENV_FILE": str(config.config_file),
+                "HOME": str(root),
+                "USERPROFILE": str(root),
+            }, clear=True), \
+                 patch("subprocess.run", side_effect=AssertionError("no provider process")), \
+                 patch.object(setup_status, "resolve_tunnel_client", return_value=None), \
+                 patch.object(setup_status, "build_deployment_inventory", side_effect=deployment_inventory), \
+                 patch.object(setup_inspection, "read_config_bytes", side_effect=read_fixture_config):
                 workers = setup_actions.detect_workers(which=lambda n: str(root / n) if n == "agy" else None,
                                                         desktop_socket=root / "missing")
-                result = build_setup_status(
-                    which=lambda n: str(root / n) if n in {"agy", "git", "uv"} else None,
-                    settings_loader=lambda: config, setup_state_loader=lambda _: SetupState(mode="full-chat"),
-                    state_path=root / "setup.yaml", desktop_socket=root / "missing", system_name="Darwin")
+                for system_name, machine in (("Darwin", "arm64"), ("Windows", "AMD64")):
+                    with self.subTest(system_name=system_name, machine=machine):
+                        read_paths.clear()
+                        result = build_setup_status(
+                            which=lambda n: str(root / n) if n in {"agy", "git", "uv"} else None,
+                            settings_loader=lambda: config, setup_state_loader=lambda _: SetupState(mode="full-chat"),
+                            state_path=root / "setup.yaml", desktop_socket=root / "missing",
+                            system_name=system_name, machine=machine)
+                        self.assertTrue(read_paths)
+                        for path in read_paths:
+                            self.assertEqual(path, config.config_file)
+                        self.assertTrue(result["config"]["valid"])
+                        self.assertEqual(result["config"]["source"], "explicit_file")
+                        self.assertEqual(result["system"]["platform_system"], system_name)
+                        self.assertEqual(result["system"]["architecture"], machine)
+                        a = next(w for w in result["workers"] if w["name"] == "antigravity-cli")
+                        self.assertTrue(a["available"])
+                        self.assertFalse(a["authentication_verified"])
+                        self.assertFalse(result["readiness"]["ready"])
+                        self.assertTrue(any(a["id"] == "configure-codex-bridge-worker" for a in result["plan"]["actions"]))
             a = next(w for w in workers if w["name"] == "antigravity-cli")
             self.assertTrue(a["available"])
             self.assertFalse(a["authentication_verified"])
-            self.assertFalse(result["readiness"]["ready"])
-            self.assertTrue(any(a["id"] == "configure-codex-bridge-worker" for a in result["plan"]["actions"]))
 
     def test_doctor_optional_backend_detection(self):
         with tempfile.TemporaryDirectory() as td:
