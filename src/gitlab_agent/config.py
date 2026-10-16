@@ -125,6 +125,8 @@ class AgentSettings:
     copilot_disable_builtin_mcps: bool = True
     copilot_allow_tools: tuple[str, ...] = ()
     copilot_deny_tools: tuple[str, ...] = ("shell(git push)",)
+    antigravity_model: str | None = None
+    antigravity_reasoning_effort: str | None = None
 
     @classmethod
     def load(cls) -> "AgentSettings":
@@ -196,6 +198,8 @@ class AgentSettings:
                     "copilot",
                     "copilot-cli",
                     "codex-desktop",
+                    "antigravity-cli",
+                    "agy",
                 },
             ),
             codex_model=os.getenv("REASONFIRST_CODEX_MODEL", "gpt-5.6-sol").strip()
@@ -221,6 +225,15 @@ class AgentSettings:
                 {"on-request", "never"},
             ),
             codex_network_access=env_bool("REASONFIRST_CODEX_NETWORK_ACCESS", False),
+            antigravity_model=os.getenv("REASONFIRST_ANTIGRAVITY_MODEL", "").strip() or None,
+            antigravity_reasoning_effort=(
+                env_choice(
+                    "REASONFIRST_ANTIGRAVITY_REASONING_EFFORT", "high",
+                    {"low", "medium", "high", "xhigh", "max"},
+                )
+                if os.getenv("REASONFIRST_ANTIGRAVITY_REASONING_EFFORT", "").strip()
+                else None
+            ),
             copilot_model=os.getenv("REASONFIRST_COPILOT_MODEL", "").strip() or None,
             copilot_reasoning_effort=(
                 env_choice(

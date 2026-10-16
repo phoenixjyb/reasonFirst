@@ -1,5 +1,7 @@
 # ReasonFirst
 
+> **Unreleased source:** optional [Antigravity CLI (`agy`) worker](docs/ANTIGRAVITY_CLI.md), interactive terminal only; not included in the v0.5.3 package.
+
 **English** · [简体中文](README_CN.md) · **[Documentation site](https://phoenixjyb.github.io/reasonFirst/)** · [First-time setup](docs/GETTING_STARTED.md) · [Documentation index](docs/README.md)
 
 > **Reasoning-first coding orchestration.**

@@ -127,6 +127,7 @@ def build_setup_status(
         ("tunnel-client", False),
         ("codex", False),
         ("copilot", False),
+        ("agy", False),
     ):
         path = (
             resolve_tunnel_client(which=resolve)
@@ -175,6 +176,12 @@ def build_setup_status(
             "name": "copilot-cli",
             "available": bool(executable_paths["copilot"]),
             "path": executable_paths["copilot"],
+            "authentication_verified": False,
+        },
+        {
+            "name": "antigravity-cli",
+            "available": bool(executable_paths["agy"]),
+            "path": executable_paths["agy"],
             "authentication_verified": False,
         },
         {
@@ -351,7 +358,7 @@ def build_setup_status(
                 "id": "configure-codex-bridge-worker",
                 "message": (
                     "Full-chat Bridge worker control currently requires Codex App Server "
-                    "(Codex CLI/App Server or Codex Desktop). Copilot CLI remains valid "
+                    "(Codex CLI/App Server or Codex Desktop). Copilot/Antigravity CLI remain valid "
                     "for the standard terminal ActualCoder path."
                 ),
             }

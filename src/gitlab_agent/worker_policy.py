@@ -67,6 +67,11 @@ def default_worker_policy(backend: str) -> WorkerPolicy:
             approval_policy="on-request",
             network_access=False,
         )
+    if backend == "antigravity":
+        return WorkerPolicy(
+            backend="antigravity", model=None, reasoning_effort=None,
+            execution_mode="interactive", sandbox_mode="terminal",
+        )
     if backend == "copilot":
         return WorkerPolicy(
             backend="copilot",
@@ -91,6 +96,12 @@ def resolve_worker_policy(settings: AgentSettings, backend: str) -> WorkerPolicy
             sandbox_mode=settings.codex_sandbox_mode,
             approval_policy=settings.codex_approval_policy,
             network_access=settings.codex_network_access,
+        )
+    if backend == "antigravity":
+        return WorkerPolicy(
+            backend="antigravity", model=settings.antigravity_model,
+            reasoning_effort=settings.antigravity_reasoning_effort,
+            execution_mode="interactive", sandbox_mode="terminal",
         )
     if backend == "copilot":
         return WorkerPolicy(
@@ -117,6 +128,27 @@ def launch_policy_evidence(
     Desktop upgrades this evidence at runtime through App Server.
     """
 
+    if policy.backend == "antigravity":
+        # Validate the exact supported request before labelling it as encoded.
+        _antigravity_argv(policy, "<agent_prompt>")
+        return {
+            "status": "launch_arguments_encoded",
+            "verification_scope": "launch-arguments",
+            "runtime_verified": False,
+            "surface": "antigravity-cli",
+            "requested": policy.to_dict(),
+            "sandbox_requested": True,
+            "permissions_source": "provider-settings-not-inspected",
+            "permissions_verified": False,
+            "conversation_strategy": "fresh-task-handoff",
+            "note": (
+                "Antigravity terminal sandbox was requested with --sandbox. "
+                "Model/effort are inherited unless explicitly supplied. "
+                "Provider mode, permissions, MCP tools, hooks and network policy "
+                "are inherited and not inspected or verified; unsandboxed grants "
+                "may still apply. CLI exit zero is not task or test acceptance."
+            ),
+        }
     return {
         "status": "launch_arguments_encoded",
         "verification_scope": "launch-arguments",
@@ -191,6 +223,30 @@ def _copilot_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
     return argv
 
 
+def _antigravity_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
+    """The observed agy 1.3.4 interactive interface, without permission expansion."""
+    if (policy.execution_mode != "interactive" or policy.sandbox_mode != "terminal"
+            or policy.approval_policy is not None or policy.network_access is not None
+            or policy.disable_builtin_mcps or policy.allow_tools or policy.deny_tools):
+        raise ValueError("Unsupported Antigravity policy; only interactive terminal sandbox requests are supported")
+    if policy.reasoning_effort is not None and policy.reasoning_effort not in {
+        "low", "medium", "high", "xhigh", "max",
+    }:
+        raise ValueError("Unsupported Antigravity reasoning effort")
+    argv = ["agy", "--sandbox"]
+    if policy.model is not None:
+        if (not isinstance(policy.model, str) or not policy.model.strip()
+                or any(ord(char) < 32 or ord(char) == 127 for char in policy.model)):
+            raise ValueError("Invalid Antigravity model")
+        # Equals form keeps option-like values and spaces within a single value.
+        argv.append("--model=" + policy.model)
+    if policy.reasoning_effort is not None:
+        argv.append("--effort=" + policy.reasoning_effort)
+    # The fixed prefix in _agent_prompt prevents task text being parsed as a flag.
+    argv.extend(["--prompt-interactive", prompt])
+    return argv
+
+
 def build_worker_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
     """Build direct subprocess argv; never invokes a shell."""
 
@@ -198,6 +254,8 @@ def build_worker_argv(policy: WorkerPolicy, prompt: str) -> list[str]:
         return _codex_argv(policy, prompt)
     if policy.backend == "copilot":
         return _copilot_argv(policy, prompt)
+    if policy.backend == "antigravity":
+        return _antigravity_argv(policy, prompt)
     raise ValueError(f"Unsupported coding backend {policy.backend!r}")
 
 

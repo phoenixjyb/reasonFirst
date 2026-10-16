@@ -49,6 +49,8 @@ SUPPORTED_CODING_AGENTS = {
     "copilot": "copilot",
     "copilot-cli": "copilot",
     "codex-desktop": "codex",
+    "antigravity-cli": "agy",
+    "agy": "agy",
 }
 DEFAULT_AGENT_ORDER = ["codex", "copilot"]
 AGENT_CHOICES = [
@@ -58,6 +60,8 @@ AGENT_CHOICES = [
     "copilot",
     "copilot-cli",
     "codex-desktop",
+    "antigravity-cli",
+    "agy",
 ]
 
 
@@ -66,7 +70,14 @@ def _policy_backend_for_agent(agent: str) -> str:
         return "codex"
     if agent in {"copilot", "copilot-cli"}:
         return "copilot"
+    if agent in {"antigravity-cli", "agy"}:
+        return "antigravity"
     raise ValueError(f"Unsupported coding agent {agent!r}")
+
+
+def _cli_surface(backend: str) -> str:
+    return {"codex": "codex-cli", "copilot": "copilot-cli",
+            "antigravity": "antigravity-cli"}[backend]
 
 
 def _policy_for_agent(settings: AgentSettings, agent: str) -> WorkerPolicy:
@@ -328,11 +339,7 @@ def _handoff(
             if agent == "codex-desktop"
             else launch_policy_evidence(
                 policy,
-                surface=(
-                    "codex-cli"
-                    if policy_backend == "codex"
-                    else "copilot-cli"
-                ),
+                surface=_cli_surface(policy_backend),
             )
         ),
         "agent_argv_shape": (
@@ -412,7 +419,8 @@ def _select_agent(
         raise RuntimeError(
             "No supported coding backend is installed for --agent auto. "
             "Run 'actual-coder agents' and install/sign in to Codex CLI, "
-            "GitHub Copilot CLI, or start Codex Desktop."
+            "GitHub Copilot CLI, or start Codex Desktop. Antigravity CLI is opt-in: "
+            "use --agent antigravity-cli or configure it as your default."
         )
 
     selected = installed[0]
@@ -837,7 +845,7 @@ def _launch_handoff(
 
     policy_evidence = launch_policy_evidence(
         policy,
-        surface=("codex-cli" if policy_backend == "codex" else "copilot-cli"),
+        surface=_cli_surface(policy_backend),
     )
     if policy_backend == "codex":
         verifier_factory = codex_policy_client_factory or (
@@ -862,6 +870,17 @@ def _launch_handoff(
         }
 
     argv = _agent_launch_argv(agent, prompt, worker_policy=policy)
+    resolved_executable = None
+    if policy_backend == "antigravity":
+        # Interactive-only means an unavailable TTY must not silently turn into
+        # print/headless mode. Discovery does not load provider state or sign in.
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise RuntimeError("Antigravity CLI requires an interactive terminal; prepare a handoff without --launch instead")
+        path = _backend_path(agent)
+        if path is None:
+            raise RuntimeError("Antigravity CLI executable agy is not available on PATH")
+        resolved_executable = str(Path(path).absolute())
+        argv = [resolved_executable, *argv[1:]]
     proc = launch(
         argv,
         cwd=cwd,
@@ -874,6 +893,7 @@ def _launch_handoff(
         "worker_policy_evidence": policy_evidence,
         "cwd": str(cwd),
         "returncode": int(proc.returncode),
+        **({"resolved_executable": resolved_executable} if resolved_executable else {}),
     }
 
 
@@ -1091,7 +1111,7 @@ def _prepare_resume(
 
 def _available_agents() -> dict[str, object]:
     agents: list[dict[str, object]] = []
-    for name in ("codex", "copilot", "codex-desktop"):
+    for name in ("codex", "copilot", "codex-desktop", "antigravity-cli"):
         executable = SUPPORTED_CODING_AGENTS[name]
         resolved = _backend_path(name)
         agents.append(
@@ -1100,7 +1120,8 @@ def _available_agents() -> dict[str, object]:
                 "aliases": (
                     ["codex-cli"]
                     if name == "codex"
-                    else (["copilot-cli"] if name == "copilot" else [])
+                    else (["copilot-cli"] if name == "copilot"
+                          else (["agy"] if name == "antigravity-cli" else []))
                 ),
                 "surface": (
                     "desktop-app-server"
@@ -1144,6 +1165,7 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
         "worker_defaults": {
             "codex": resolve_worker_policy(settings, "codex").to_dict(),
             "copilot": resolve_worker_policy(settings, "copilot").to_dict(),
+            "antigravity-cli": resolve_worker_policy(settings, "antigravity").to_dict(),
             "codex-desktop": {
                 **resolve_worker_policy(settings, "codex").to_dict(),
                 "execution_surface": "desktop-app-server",
@@ -1151,6 +1173,7 @@ def _safe_config(settings: AgentSettings) -> dict[str, object]:
             "aliases": {
                 "codex-cli": "codex",
                 "copilot-cli": "copilot",
+                "agy": "antigravity-cli",
             },
         },
     }

@@ -66,6 +66,28 @@ class ServiceConfigurationTests(unittest.TestCase):
         self.assertEqual(str(failure.exception), code)
         return failure.exception
 
+    def test_terminal_antigravity_settings_do_not_expand_bridge_projection(self):
+        original = self.capture()
+        configured = self.capture(settings=replace(self.settings,
+            antigravity_model="fixture-model", antigravity_reasoning_effort="max"))
+        self.assertEqual(configured.projection(LAUNCH), original.projection(LAUNCH))
+        self.assertEqual(configured.settings.antigravity_model, "fixture-model")
+        self.assertEqual(set(configured.projection(LAUNCH)["worker_requests"]), {"codex", "copilot"})
+
+    def test_antigravity_default_is_inventory_not_bridge_worker_support(self):
+        for backend in ("agy", "antigravity-cli"):
+            with self.subTest(backend=backend):
+                configured = self.capture(settings=replace(self.settings, default_backend=backend))
+                self.assertEqual(configured.projection(LAUNCH)["agent_policy"]["default_backend"], backend)
+                self.assertNotIn("antigravity", configured.projection(LAUNCH)["worker_requests"])
+
+    def test_invalid_terminal_antigravity_settings_remain_invalid(self):
+        for overrides in ({"antigravity_model": []}, {"antigravity_model": "bad\nmodel"},
+                          {"antigravity_reasoning_effort": "ultra"}):
+            with self.subTest(overrides=overrides):
+                self.assert_code("invalid_configuration_policy", self.capture,
+                                 settings=replace(self.settings, **overrides))
+
     def test_projection_has_service_domain_and_explicit_allowlisted_sections(self):
         captured = self.capture(approval_timeout_seconds=60, gitlab_auth_mode="git-only")
         projection = captured.projection(LAUNCH)
