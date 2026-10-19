@@ -1289,6 +1289,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
+    from .service_cli import add_service_parser
+    add_service_parser(sub)
+
     deployment = sub.add_parser("deployment", help="Review or record a known legacy registration; never activate it")
     deployment_sub = deployment.add_subparsers(dest="deployment_command", required=True)
     for name in ("plan", "status", "adopt"):
@@ -1540,6 +1543,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "service":
+        from .service_cli import main as service_main
+        return service_main(arguments[1:])
     parser = _build_parser()
     args = parser.parse_args(argv)
 

@@ -22,6 +22,7 @@ These guides describe the source revision containing them, not necessarily the l
 | Detailed/manual first-time setup and first prompt | [Operator setup](GETTING_STARTED.md) | [详细首次接入](GETTING_STARTED_CN.md) |
 | Product and supported capabilities | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) | [项目说明](../README_CN.md) |
 | Start the required service and manage its lifecycle | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) |
+| Inspect static service evidence and preview a blocked login plan | [Service planning](SERVICE_PLANNING.md) | [服务计划](SERVICE_PLANNING_CN.md) |
 | Before using a newly proposed GitLab project | [Access preflight and user grants](PROJECT_ACCESS.md) | [项目预检与用户授权](PROJECT_ACCESS_CN.md) |
 | Rehearse ChatGPT, Codex and three rounds of one MR | [Practice lab](PRACTICE_LAB.md) | [实战演练](PRACTICE_LAB_CN.md) |
 | Run the full chat-only managed-worker → MR → matching-head CI loop | **[Chat-only E2E](CHAT_ONLY_PRACTICE.md)** | **[全聊天 E2E](CHAT_ONLY_PRACTICE_CN.md)** |
