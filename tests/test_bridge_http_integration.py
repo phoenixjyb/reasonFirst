@@ -20,15 +20,18 @@ import uuid
 
 
 PROBE = r'''
-import asyncio, json, os, sys
+import asyncio, importlib.util, json, os, sys
 from pathlib import Path
 from mcp import Client
 from gitlab_agent import bridge_http, bridge_mcp
 from gitlab_agent.bridge_preview import controller
+spec = importlib.util.spec_from_file_location("bridge_http_client_fixture", sys.argv[4])
+fixture = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fixture)
 async def check():
     versions = []
     for era in ("auto", "legacy"):
-        async with Client(sys.argv[1], mode=era) as client:
+        async with fixture.loopback_mcp_client(sys.argv[1], mode=era) as client:
             http_tools = await client.list_tools()
             versions.append(client.protocol_version)
         os.environ["RF_CODEX_BRIDGE_STATE_DIR"] = sys.argv[3]
@@ -128,7 +131,8 @@ class HTTPIntegrationTests(unittest.TestCase):
                 failure.exception.close()
                 probe = subprocess.run(
                     [sys.executable, "-I", "-B", "-c", PROBE, base + path, mode,
-                     str(self.root / "inventory-state")],
+                     str(self.root / "inventory-state"),
+                     str(Path(__file__).with_name("http_client_fixture.py").resolve())],
                     cwd=self.root, env=self.env, capture_output=True, text=True,
                     timeout=30, check=False,
                 )
