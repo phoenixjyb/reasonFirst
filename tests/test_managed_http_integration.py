@@ -32,7 +32,6 @@ from gitlab_agent.bridge_preview.bridge_config import ExecutionTarget
 from gitlab_agent.config import AgentSettings
 from gitlab_agent.upgrade import service_child, service_children, service_configuration, service_managed, service_runtime, service_trust
 from gitlab_agent.worker_policy import default_worker_policy
-from mcp import Client
 import mcp
 import uvicorn
 
@@ -46,6 +45,15 @@ FALSE_FLAGS = (
 )
 SELECTED_ROUTE: str | None = None
 SELECTED_ROOT: Path | None = None
+
+# Explicit file loading also works for the packaged -I route, whose sys.path
+# intentionally excludes this checkout and the adjacent test directory.
+_fixture_spec = importlib.util.spec_from_file_location(
+    "managed_http_client_fixture", Path(__file__).with_name("http_client_fixture.py"),
+)
+_fixture_module = importlib.util.module_from_spec(_fixture_spec)
+_fixture_spec.loader.exec_module(_fixture_module)
+loopback_mcp_client = _fixture_module.loopback_mcp_client
 
 
 def local_authority(root):
@@ -360,7 +368,7 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         expected = {tool.name: tool.model_dump(mode="json") for tool in await reference.list_tools()}
         self.assertEqual(len(expected), 12 if mode == "read-only" else 22)
 
-        async with Client(self.url, mode="auto", read_timeout_seconds=3) as client:
+        async with loopback_mcp_client(self.url, mode="auto", read_timeout_seconds=3) as client:
             self.assertEqual(client.protocol_version, PROTOCOL)
             catalog = await client.list_tools()
             self.assertEqual({tool.name: tool.model_dump(mode="json") for tool in catalog.tools}, expected)
@@ -412,7 +420,7 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         finally:
             service.leave_maintenance(lease)
 
-        async with Client(self.url, mode="auto", read_timeout_seconds=3) as client:
+        async with loopback_mcp_client(self.url, mode="auto", read_timeout_seconds=3) as client:
             catalog = await client.list_tools()
             self.assertEqual({tool.name: tool.model_dump(mode="json") for tool in catalog.tools}, expected)
             await self.harmless_call(client)
@@ -499,7 +507,7 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "HOME": str(changed_cwd), "USERPROFILE": str(changed_cwd),
             }), chdir(changed_cwd), \
                     patch.object(AgentSettings, "load", side_effect=AssertionError("parent_settings_reload")):
-                async with Client(self.url, mode="auto", read_timeout_seconds=5) as client:
+                async with loopback_mcp_client(self.url, mode="auto", read_timeout_seconds=5) as client:
                     listing = await client.call_tool("reasonfirst_files", {"workspace_id": wid})
                     reading = await client.call_tool("reasonfirst_read", {"workspace_id": wid, "path": "selected.txt"})
                 self.assertFalse(listing.is_error)
@@ -563,7 +571,7 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "workspace_id": wid, "kind": "local", "target": configuration.configured_target().to_dict(),
             }
             ctrl._state["sessions"]["synthetic-thread"]["workspace_id"] = wid
-            async with Client(self.url, mode="auto", read_timeout_seconds=8) as client:
+            async with loopback_mcp_client(self.url, mode="auto", read_timeout_seconds=8) as client:
                 reading = await client.call_tool("reasonfirst_read", {"workspace_id": wid, "path": "selected.txt"})
                 self.assertFalse(reading.is_error)
                 unavailable = await client.call_tool("reasonfirst_ci", {"thread_id": "synthetic-thread"})
@@ -779,7 +787,7 @@ class ManagedHTTPIntegrationTests(unittest.IsolatedAsyncioTestCase):
         })
         ctrl._app_current_thread[app_key] = "synthetic-thread"
         with patch.object(controller, "_run_json", return_value={"agent_prompt": "synthetic fixture"}):
-            async with Client(self.url, mode="auto", read_timeout_seconds=3) as client:
+            async with loopback_mcp_client(self.url, mode="auto", read_timeout_seconds=3) as client:
                 result = await client.call_tool("reasonfirst_codex_continue", {
                     "thread_id": "synthetic-thread", "goal": "synthetic fixture",
                 })
