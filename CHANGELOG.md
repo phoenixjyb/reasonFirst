@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add read-only `reasonfirst service status --json`, deterministic login plan,
+  and `repair --dry-run` output for bounded static service evidence. Plans remain
+  non-executable and blocked pending runtime ownership, readiness, stable-runtime,
+  configuration, credential-reference and native-platform evidence. No service
+  lifecycle, repair application, version, or schema change is included. See the
+  bilingual [service planning guide](docs/SERVICE_PLANNING.md) /
+  [中文指南](docs/SERVICE_PLANNING_CN.md).
+- Reject static evidence that disappears or changes directory identity during
+  reading; distinguish internal inspection errors from invalid service arguments.
 - Add opt-in, interactive Antigravity CLI support (`antigravity-cli`, alias `agy`)
   for standard/CLI-only terminal tasks. Request `--sandbox`, use the managed
   worktree and a fresh task handoff, and require an interactive terminal at launch.
