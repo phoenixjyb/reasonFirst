@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 
 from .config import AgentSettings
-from .workspace import WorkspaceManager, _clip
+from .workspace import WorkspaceManager
 from .python_runtime import PythonBindings
+from .validation_process import run_bounded_command
 
 
 _SECRET_NAME_FRAGMENTS = (
@@ -97,7 +97,7 @@ class CommandRunner:
                     effective_argv = [absolute, *effective_argv[1:]]
                     resolution = {**resolution, "resolved_argv": effective_argv}
                 env = self._safe_env(workspace_id)
-                options = {}
+                encoding = None
                 if resolution["python_binding"]:
                     # Pin the chosen interpreter, not an inherited Python home or
                     # locale-dependent pipe encoding. Do not add flags to argv.
@@ -109,67 +109,24 @@ class CommandRunner:
                             env.pop(key)
                     env["PYTHONIOENCODING"] = "utf-8"
                     env["PYTHONDONTWRITEBYTECODE"] = "1"
-                    options = {"encoding": "utf-8", "errors": "replace"}
-                proc = subprocess.run(
+                    encoding = "utf-8"
+                result = run_bounded_command(
                     effective_argv,
                     cwd=cwd,
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
                     env=env,
-                    **options,
+                    encoding=encoding,
                     timeout=timeout,
-                    check=False,
+                    max_output_bytes=self.settings.max_output_bytes,
                 )
-        except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout or ""
-            stderr = exc.stderr or ""
-            if isinstance(stdout, bytes):
-                stdout = stdout.decode("utf-8", errors="replace")
-            if isinstance(stderr, bytes):
-                stderr = stderr.decode("utf-8", errors="replace")
-            out, out_truncated, out_bytes = _clip(
-                str(stdout), self.settings.max_output_bytes // 2
-            )
-            err, err_truncated, err_bytes = _clip(
-                str(stderr), self.settings.max_output_bytes // 2
-            )
-            return {
-                "workspace_id": workspace_id,
-                "argv": argv,
-                "execution": resolution,
-                "timed_out": True,
-                "timeout_seconds": timeout,
-                "returncode": None,
-                "stdout": out,
-                "stderr": err,
-                "stdout_truncated": out_truncated,
-                "stderr_truncated": err_truncated,
-                "stdout_original_bytes": out_bytes,
-                "stderr_original_bytes": err_bytes,
-            }
         except OSError:
             if self.child_context is not None:
                 raise RuntimeError("child_launch_failed") from None
             raise
 
-        stdout, stdout_truncated, stdout_bytes = _clip(
-            proc.stdout, self.settings.max_output_bytes // 2
-        )
-        stderr, stderr_truncated, stderr_bytes = _clip(
-            proc.stderr, self.settings.max_output_bytes // 2
-        )
         return {
             "workspace_id": workspace_id,
             "argv": argv,
             "execution": resolution,
-            "timed_out": False,
             "timeout_seconds": timeout,
-            "returncode": proc.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "stdout_truncated": stdout_truncated,
-            "stderr_truncated": stderr_truncated,
-            "stdout_original_bytes": stdout_bytes,
-            "stderr_original_bytes": stderr_bytes,
+            **result,
         }
