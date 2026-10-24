@@ -28,11 +28,25 @@ The high-level `finish` path reads project policy from the immutable workspace b
 
 ## Build/test execution is not a sandbox
 
-An approved `python`, `uv`, `npm`, `make`, or test runner can execute arbitrary repository-controlled code, read other host paths, and make network requests. Stripping obvious environment secrets is not isolation from filesystem credentials or network services. The general runner's displayed output cap is not a guarantee of bounded subprocess buffering; process-tree termination and resource isolation remain follow-up work.
+An approved `python`, `uv`, `npm`, `make`, or test runner can execute arbitrary repository-controlled code, read other host paths, and make network requests. Stripping obvious environment secrets is not isolation from filesystem credentials or network services. The Unreleased host `CommandRunner` bounds stdout/stderr retention while draining the pipes; it does not buffer the complete output before clipping. This applies to local `run`, project validation and local finish validation, not every subprocess, remote SSH/container runner, or coding-worker transport. The published v0.5.3 runner predates this change.
+
+On POSIX, validation launches a new session and timeout/interruption cleanup signals its process group before reaping the owned leader. On Windows, cleanup targets only the owned direct process; it is **not** Windows process-tree termination. Descendants that leave a POSIX group, Windows descendants, and background processes after a normal exit are not contained. Pipe EOF is not proof that all descendants have stopped. `cleanup.descendants_verified` remains false. Cleanup errors fail the operation; they do not establish an idle or safe-to-publish workspace. Stop and review before further work after such an error.
+
+Timeout covers command output collection and direct-process waiting, with bounded cleanup grace/reap/drain periods. Executable/binding preflight and OS process creation are not forcibly interruptible by this deadline. This runner is not a CPU, memory, disk or process-count limit on repository code. See [validation output and cleanup evidence](docs/WORKFLOW.md#validation-output-and-cleanup-evidence).
 
 `finish --dry-run` runs validation commands and may change files. It means no commit/push, not no execution. `start --no-launch` creates local state and may fetch repositories; it means no coding-agent launch. The HTTPS maintenance preview is different: it inspects local inputs without changing live endpoint/state/ref files; `--check-tls` explicitly opts into a network probe.
 
 Use an independently secured disposable VM/container for untrusted code, with restricted mounts, credentials, network, and host access. ReasonFirst does not configure that isolation for you. Do not treat a Git worktree as an OS security boundary.
+
+A macOS `killpg` permission error is not ignored just because the leader exited.
+Only a complete, stable, bounded libproc observation of that owned group, with
+all members zombie and the unreaped leader still a child of this process, can
+classify Darwin's zombie-only `EPERM` as non-failing cleanup. Live or inaccessible
+members and unknown, truncated, oversized or late observations remain failures.
+The observer reads only group membership and fixed-size process-status records;
+it neither exposes command lines/environment nor signals enumerated PIDs. Its
+observations do not strengthen `descendants_verified` or the containment claim.
+
 
 ## Prompt injection and evidence
 

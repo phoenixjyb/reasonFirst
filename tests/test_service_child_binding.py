@@ -393,6 +393,16 @@ class ControllerChildBindingTests(unittest.TestCase):
                 }), b"")
             return subprocess.CompletedProcess(argv, 0, "synthetic command result", "")
 
+        def validation(argv, **kwargs):
+            # The host validator now owns Popen capture/cleanup rather than
+            # subprocess.run. Record the new boundary in the same launch ledger;
+            # retain all three-launch, selected-input and secrecy assertions.
+            self.assertEqual(argv[0], self.context.python_invocation)
+            self.assertEqual(kwargs["max_output_bytes"], self.configuration.settings.max_output_bytes)
+            result = run(argv, **kwargs)
+            return {"returncode": result.returncode, "timed_out": False,
+                    "stdout": result.stdout, "stderr": result.stderr}
+
         def plan(**kwargs):
             self.assertIs(kwargs["settings"], self.configuration.settings)
             manager, runner = kwargs["manager"], kwargs["runner"]
@@ -404,6 +414,7 @@ class ControllerChildBindingTests(unittest.TestCase):
 
         with (
             patch.object(c.subprocess, "run", side_effect=run),
+            patch("gitlab_agent.runner.run_bounded_command", side_effect=validation),
             patch.object(service_children.ServiceChildContext, "resolve_executable", return_value=self.context.python_invocation),
             patch.object(c, "build_finish_plan", side_effect=plan),
             patch.object(c, "execute_finish", return_value={"synthetic": True}) as publish,
