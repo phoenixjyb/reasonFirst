@@ -78,6 +78,8 @@ uv run reasonfirst setup
 
 打包路径不要求长期保留 ReasonFirst 源码目录，版本化附件与下载验收记录见 [v0.5.3 Release](https://github.com/phoenixjyb/reasonFirst/releases/tag/v0.5.3)。源码路径继续正式支持贡献、审计、私有 patch 与 editable 安装；安装指南也提供 wheel/源码包构建命令。两条路径共用同一私有配置、SetupState、项目授权与 tunnel identity；切换路径不需要重新创建账号侧资源。详见 **[安装与更新](docs/INSTALL_CN.md)** · **[English](docs/INSTALL.md)**。
 
+**先读取，再选择 worker：**[Unreleased 源码变更](docs/INSTALL_CN.md#read-first-setup)为 standard 配置新增 `--worker later`。先连接普通 ChatGPT 读取、讨论仓库，约定好实现任务后再选择编程 worker。已发布的 v0.5.3 wheel 和源码 tag 仍保留原来的 wizard worker 要求。
+
 
 ## 按任务选择指南
 

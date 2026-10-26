@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Let standard guided setup connect GitLab and prepare the ChatGPT read path
+  before a coding worker is installed. Choose `--worker later` or defer in the
+  interactive prompt; standard setup also continues when no worker is detected
+  and none was explicitly requested. Keep existing worker preferences and tunnel
+  identities, and add a worker later with `reasonfirst worker use`.
+- Separate static read-only prerequisites from worker availability in setup
+  status. CLI-only/full-chat setup still requires a worker; explicit unavailable
+  worker choices still fail, and local inventory never asserts live ChatGPT
+  acceptance or provider authentication.
+
 - Preserve the task's latest recorded worker selection when `actual-coder resume`
   or `continue` omits `--agent`. Older tasks fall back to an explicit TaskSpec
   backend, then current user defaults / automatic selection. New-task selection

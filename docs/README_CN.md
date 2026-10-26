@@ -8,9 +8,9 @@
 
 ## 从推理优先主流程开始
 
-**新用户：**先看 **[安装与更新](INSTALL_CN.md)**，快速打包安装和从源码构建都支持；两条路径都进入 `reasonfirst setup`。需要详细手工运维或旧生命周期背景时，再看[首次完整接入](GETTING_STARTED_CN.md)。
+**新用户：**先看 **[安装与更新](INSTALL_CN.md)**，选择打包或源码安装，再按简短流程完成[首次 ChatGPT 读取](GETTING_STARTED_CN.md)。**Unreleased 源码变更**允许在 standard 配置中[稍后再选择 worker](INSTALL_CN.md#read-first-setup)；已发布的 v0.5.3 下载包仍保留 worker 前置要求。首次接入指南也保留详细手工运维流程和旧生命周期背景。
 
-**主产品闭环：**普通 ChatGPT 读取并推理仓库/MR/CI 证据，定义任务和验收标准；ReasonFirst 将获批任务交给编程 worker；实现与 CI 的有界证据再回到 ChatGPT + 人工审查。[CLI 快速上手](QUICKSTART_CN.md)应被视为这条闭环中的执行引擎/运维参考。脱离 ChatGPT 的直接 CLI 使用对测试、恢复和自动化仍有价值，但属于次要能力。可选 **Bridge Preview** 权限更高，启用前先阅读[架构说明](ARCHITECTURE_CN.md)。**已经接入：**使用[日常 start/status/stop/restart](TUNNEL_LIFECYCLE_CN.md)。
+**主产品闭环：**普通 ChatGPT 读取并推理仓库/MR/CI 证据，定义任务和验收标准；ReasonFirst 将获批任务交给编程 worker；实现与 CI 的有界证据再回到 ChatGPT + 人工审查。[CLI 快速上手](QUICKSTART_CN.md)应被视为这条闭环中的执行引擎/运维参考。脱离 ChatGPT 的直接 CLI 使用对测试、恢复和自动化仍有价值，但属于次要能力。可选 **Bridge Preview** 权限更高，启用前先阅读[架构说明](ARCHITECTURE_CN.md)。**已经接入：**复用现有应用与 runtime。旧版前台助手见[日常 start/status/stop/restart](TUNNEL_LIFECYCLE_CN.md)。**详细手工路径：**参见[运维指南](OPENAI_TUNNEL_TEAM_SETUP_CN.md)和 [Windows 手工流程](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell)；Windows 引导式安装使用上方安装指南。
 
 ## 当前文档入口
 
@@ -19,7 +19,7 @@
 | v0.5.3 发布说明与范围 | [0.5.3 发布说明](RELEASE_NOTES_0.5.3_CN.md) | [0.5.3 release notes](RELEASE_NOTES_0.5.3.md) |
 | 安装/更新：打包路径或源码路径 | **[安装与更新](INSTALL_CN.md)** | **[Install & update](INSTALL.md)** |
 | Mac、Windows、Linux 实机结果 | [三平台实测记录](PLATFORM_VALIDATION_CN.md) | [Platform validation](PLATFORM_VALIDATION.md) |
-| 详细/手工首次接入与第一条普通 ChatGPT 提示词 | [详细首次接入](GETTING_STARTED_CN.md) | [Operator setup](GETTING_STARTED.md) |
+| 首次 ChatGPT 读取、稍后选择 worker，以及详细手工连接 | [首次接入](GETTING_STARTED_CN.md) | [First-time setup](GETTING_STARTED.md) |
 | 产品与能力 | [项目说明](https://github.com/phoenixjyb/reasonFirst/blob/main/README_CN.md) | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) |
 | 启动必需服务与生命周期管理 | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) |
 | 使用新提出的 GitLab 项目之前 | [项目预检与用户授权](PROJECT_ACCESS_CN.md) | [Project access](PROJECT_ACCESS.md) |
@@ -42,7 +42,7 @@
 
 ## 第一次 ChatGPT 对话之前的必需步骤
 
-完成前置条件，启动选定 Tunnel/MCP，保持其 Terminal 运行，检查本地就绪，然后在普通 ChatGPT 输入框选择真实应用。随后调用 `gitlab_whoami`、`check_project_access`，并在 `resolved_commit_sha` 读取文件。本地健康、单独身份成功、消息里写一个连接名称，都不等于项目读取端到端验收。
+完成前置条件，启动并保持选定 Tunnel/MCP 运行，检查本地就绪，然后在普通 ChatGPT 输入框选择真实应用。引导式安装可运行 `reasonfirst chatgpt handoff` 获取浏览器步骤和首次读取提示词；源码检出在命令前加 `uv run`。调用 `gitlab_whoami`、`check_project_access`，并在 `resolved_commit_sha` 读取文件。本地健康、单独身份成功、消息里写一个连接名称，都不等于项目读取端到端验收。
 
 Keychain 是 Mac 指南推荐的 runtime-key 来源，不是所有平台强制组件。OpenAI tunnel key、Tunnel ID、GitLab token、本地 allowlist、编程代理登录分别不同。Platform 隧道权限、ChatGPT workspace 权限、GitLab/本地项目授权也互不替代。完整指南在每个停止点指明应由谁处理；不能假定上次 shell export 在新 Terminal 仍存在。
 
