@@ -972,6 +972,75 @@ def _selection_for_request(
     return _select_agent(requested)
 
 
+def _selection_for_resume(
+    manager: WorkspaceManager,
+    settings: AgentSettings,
+    *,
+    requested: str | None,
+    task_context: dict[str, object],
+    project: str,
+    ref: str,
+) -> dict[str, object]:
+    """Reuse the last handoff's worker unless this invocation overrides it."""
+
+    remembered: str | None = None
+    previous_attempt_id: str | None = None
+    preference_source = "task-spec"
+    if requested is None:
+        attempts = task_context.get("attempts")
+        if isinstance(attempts, list):
+            # History is appended in selection order. Timestamps need not be unique.
+            for attempt in reversed(attempts):
+                if isinstance(attempt, dict) and attempt.get("selected_backend"):
+                    remembered = str(attempt["selected_backend"])
+                    previous_attempt_id = str(attempt.get("attempt_id") or "")
+                    preference_source = "task-attempt"
+                    break
+        if remembered is None:
+            spec = task_context.get("task_spec")
+            if isinstance(spec, dict):
+                original = str(spec.get("requested_backend") or "auto")
+                if original != "auto":
+                    remembered = original
+
+    if remembered is None:
+        return _selection_for_request(
+            manager,
+            settings,
+            requested=requested if requested is not None else "auto",
+            project=project,
+            ref=ref,
+            refresh_remote=False,
+        )
+
+    origin = (
+        "the task's last selected worker"
+        if preference_source == "task-attempt"
+        else "the task's original requested worker"
+    )
+    recovery = (
+        "Run 'actual-coder agents' and use --agent with an available worker, "
+        "or use --agent auto to re-evaluate the current defaults."
+    )
+    if remembered not in SUPPORTED_CODING_AGENTS:
+        raise RuntimeError(
+            f"Cannot reuse {origin}: stored backend {remembered!r} is unsupported. "
+            + recovery
+        )
+    selection = _select_agent(remembered)
+    if not selection["installed"]:
+        raise RuntimeError(
+            f"Cannot reuse {origin}: backend {remembered!r} is unavailable. "
+            "Restore its CLI on PATH or start its managed Desktop App Server. "
+            + recovery
+        )
+    selection["preference_source"] = preference_source
+    selection["reason"] = f"reused {origin} {remembered!r}"
+    if previous_attempt_id:
+        selection["previous_attempt_id"] = previous_attempt_id
+    return selection
+
+
 def _prepare_resume(
     manager: WorkspaceManager,
     settings: AgentSettings,
@@ -979,7 +1048,7 @@ def _prepare_resume(
     *,
     workspace_id: str,
     goal: str,
-    requested_agent: str,
+    requested_agent: str | None = None,
     from_ci: bool = False,
     ci_tail_bytes: int = 12000,
     ci_max_failed_jobs: int = 3,
@@ -1019,6 +1088,15 @@ def _prepare_resume(
     )
     original_goal = str(raw_spec.get("goal") or "") if raw_spec else ""
     effective_goal = goal.strip() or original_goal
+
+    selection = _selection_for_resume(
+        manager,
+        settings,
+        requested=requested_agent,
+        task_context=existing_task,
+        project=project,
+        ref=base_sha,
+    )
     if not raw_spec:
         task_slug = str(resume_status.get("branch") or "recovered").split("/")[-1]
         _ensure_workspace_task_spec(
@@ -1026,17 +1104,8 @@ def _prepare_resume(
             workspace_id=workspace_id,
             task_slug=task_slug,
             goal=effective_goal,
-            requested_backend=requested_agent,
+            requested_backend=str(selection["requested"]),
         )
-
-    selection = _selection_for_request(
-        manager,
-        settings,
-        requested=requested_agent,
-        project=project,
-        ref=base_sha,
-        refresh_remote=False,
-    )
 
     ci_feedback: dict[str, object] | None = None
     ci_context: str | None = None
@@ -1436,7 +1505,8 @@ def _build_parser(
     p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
-        default="codex",
+        default=None,
+        help="Coding backend (default: reuse the task's worker; auto re-evaluates current defaults)",
     )
     p.add_argument(
         "--from-ci",
@@ -1470,8 +1540,8 @@ def _build_parser(
     p.add_argument(
         "--agent",
         choices=AGENT_CHOICES,
-        default="auto",
-        help="Coding backend (default: auto, honoring the user default)",
+        default=None,
+        help="Coding backend (default: reuse the task's worker; auto re-evaluates current defaults)",
     )
     p.add_argument(
         "--from-ci",

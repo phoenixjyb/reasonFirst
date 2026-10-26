@@ -88,7 +88,7 @@ Set a persistent user default once:
 REASONFIRST_DEFAULT_BACKEND=codex-cli
 ```
 
-Accepted values are `auto`, `codex-cli`, `copilot-cli`, and `codex-desktop` (historical `codex` / `copilot` aliases remain accepted). Selection precedence is: an explicit `--agent` value first; when `--agent auto` is used, a non-`auto` user default is authoritative; otherwise ReasonFirst uses repository preference and then installed fallback.
+Accepted values are `auto`, `codex-cli`, `copilot-cli`, and `codex-desktop` (historical `codex` / `copilot` aliases remain accepted). New tasks created with `start` still default to `--agent auto`: a non-`auto` user default is authoritative; otherwise ReasonFirst uses repository preference and then installed fallback. An explicit backend name overrides that choice. For an existing task, the Unreleased source behavior described below preserves its selected worker when `--agent` is omitted.
 
 The default Codex policy is:
 
@@ -188,25 +188,41 @@ uv run actual-coder ci "$WS"
 
 Finish asks for human confirmation. First controlled publication creates an MR; later finishes update its recorded branch/MR. `--yes` is explicit scripted confirmation, not a way around validation. `--allow-secret-match` is only for reviewed false positives and cannot override incomplete history coverage. A real secret must be revoked and removed from unpublished history, not merely deleted in a new commit.
 
+### Continue the same task
+
+**Unreleased source change:** the worker retention described here is not in the published v0.5.3 package. With v0.5.3, pass the desired `--agent` explicitly when resuming or continuing a task.
+
+Both `resume` and `continue` now use the same worker-selection rules:
+
+| Request | Worker choice |
+| --- | --- |
+| Omit `--agent` | Keep the latest selected worker recorded in this task's attempt history. If there is no recorded selection, use an explicit backend from its TaskSpec; if neither exists, resolve the current user default / `auto` policy. |
+| Pass `--agent codex-cli`, `--agent copilot-cli`, or `--agent codex-desktop` | Use that backend for this handoff and future resumes that omit `--agent`. Historical `codex` / `copilot` aliases still work. |
+| Pass `--agent auto` | Deliberately resolve again: a non-`auto` user default remains authoritative; otherwise use pinned-base repository preferences and installed fallback. |
+
+Changing your user default affects new `start` tasks and explicit `--agent auto` requests; it does not silently switch a task with a recorded worker. If that remembered worker is unavailable, ReasonFirst stops with guidance to restore it or make an explicit selection. The returned `agent_selection.reason` explains the choice.
+
+Attempt metadata records a prepared handoff, including handoffs made without launching. Execution and success need separate evidence. Worker retention only selects the backend; its model, reasoning effort and other WorkerPolicy settings are read from the current user configuration.
+
 If CI truly fails, either inspect the resumed handoff first:
 
 ```bash
-uv run actual-coder resume "$WS" --agent auto --from-ci --goal "Repair the matching-head CI failure without unrelated changes"
+uv run actual-coder resume "$WS" --from-ci --goal "Repair the matching-head CI failure without unrelated changes"
 ```
 
 or launch the selected worker immediately after the handoff is emitted:
 
 ```bash
-uv run actual-coder resume "$WS" --agent auto --from-ci --launch --goal "Repair the matching-head CI failure without unrelated changes"
+uv run actual-coder resume "$WS" --from-ci --launch --goal "Repair the matching-head CI failure without unrelated changes"
 ```
 
-The convenience alias `continue` uses `--agent auto` and launches by default:
+The convenience command `continue` preserves the same worker choice and launches by default:
 
 ```bash
 uv run actual-coder continue "$WS" --from-ci --goal "Repair the matching-head CI failure without unrelated changes"
 ```
 
-Use `continue ... --no-launch` to inspect without starting a worker. Resume/continue reload the repository contract from the workspace's pinned base SHA, so instructions, protected paths, validation commands, and worker selection remain tied to the reviewed base policy rather than whatever is currently on the remote branch. Matching-head CI freshness checks still apply.
+Use `continue ... --no-launch` to inspect without starting a worker. `resume` only launches when you add `--launch`. Both commands reload the repository contract from the workspace's pinned base SHA, keeping instructions, protected paths, validation commands and repository worker preferences tied to the reviewed base policy. Matching-head CI freshness checks still apply.
 
 Build a bounded, redacted, read-only evidence bundle at any point:
 
