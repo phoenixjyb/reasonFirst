@@ -8,9 +8,9 @@ These guides describe the source revision containing them, not necessarily the l
 
 ## Start with the reasoning-first workflow
 
-**New user:** start with **[Install & update](INSTALL.md)**. Quick packaged installation and building from source are both available; both routes converge on `reasonfirst setup`. Use [First-time setup](GETTING_STARTED.md) when you need the detailed/manual operator procedure or legacy lifecycle background.
+**New user:** start with **[Install & update](INSTALL.md)**, choose a packaged or source installation, then follow the short [first ChatGPT read](GETTING_STARTED.md) path. The **Unreleased source change** supports [choosing a worker later](INSTALL.md#read-first-setup) in standard setup; published v0.5.3 downloads retain their worker prerequisite. The first-time guide also preserves the detailed/manual operator procedure and legacy lifecycle background.
 
-**Primary product loop:** normal ChatGPT reads and reasons over repository/MR/CI evidence, defines the task and acceptance criteria, ReasonFirst hands the approved task to a coding worker, and bounded implementation/CI evidence returns to ChatGPT + human review. Use the [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) as the execution-engine/operator reference inside that loop. Direct CLI-only use remains useful for testing, recovery and automation, but is secondary. The optional **Bridge Preview** is a more privileged orchestration surface; read [Architecture](ARCHITECTURE.md) before enabling it. **Already connected:** use [daily start/status/stop/restart](TUNNEL_LIFECYCLE.md). **Advanced/manual/Windows:** use [the manual guide](SETUP_TUTORIAL.md) and [Windows procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell).
+**Primary product loop:** normal ChatGPT reads and reasons over repository/MR/CI evidence, defines the task and acceptance criteria, ReasonFirst hands the approved task to a coding worker, and bounded implementation/CI evidence returns to ChatGPT + human review. Use the [CLI quickstart](ACTUAL_CODER_QUICKSTART.md) as the execution-engine/operator reference inside that loop. Direct CLI-only use remains useful for testing, recovery and automation, but is secondary. The optional **Bridge Preview** is a more privileged orchestration surface; read [Architecture](ARCHITECTURE.md) before enabling it. **Already connected:** reuse the existing app and runtime. For the legacy foreground helper, see [daily start/status/stop/restart](TUNNEL_LIFECYCLE.md). **Detailed manual routes:** see [the operator guide](SETUP_TUTORIAL.md) and [Windows procedure](OPENAI_TUNNEL_TEAM_SETUP_CN.md#windows-powershell); guided installation on Windows uses the install guide above.
 
 ## Current entry points
 
@@ -19,7 +19,7 @@ These guides describe the source revision containing them, not necessarily the l
 | v0.5.3 release notes and scope | [0.5.3 release notes](RELEASE_NOTES_0.5.3.md) | [0.5.3 发布说明](RELEASE_NOTES_0.5.3_CN.md) |
 | Install/update: packaged or source route | **[Install & update](INSTALL.md)** | **[安装与更新](INSTALL_CN.md)** |
 | Real-machine macOS, Windows, and Linux results | [Platform validation](PLATFORM_VALIDATION.md) | [三平台实测记录](PLATFORM_VALIDATION_CN.md) |
-| Detailed/manual first-time setup and first prompt | [Operator setup](GETTING_STARTED.md) | [详细首次接入](GETTING_STARTED_CN.md) |
+| First ChatGPT read, later worker setup, and detailed manual connection | [First-time setup](GETTING_STARTED.md) | [首次接入](GETTING_STARTED_CN.md) |
 | Product and supported capabilities | [ReasonFirst](https://github.com/phoenixjyb/reasonFirst/blob/main/README.md) | [项目说明](../README_CN.md) |
 | Start the required service and manage its lifecycle | [Tunnel lifecycle](TUNNEL_LIFECYCLE.md) | [隧道生命周期](TUNNEL_LIFECYCLE_CN.md) |
 | Inspect static service evidence and preview a blocked login plan | [Service planning](SERVICE_PLANNING.md) | [服务计划](SERVICE_PLANNING_CN.md) |
@@ -43,7 +43,7 @@ These guides describe the source revision containing them, not necessarily the l
 
 ## Required before the first ChatGPT prompt
 
-Complete prerequisites, start the selected tunnel/MCP, keep its Terminal running, check local readiness, and select the actual app in the normal ChatGPT composer. Then call `gitlab_whoami`, `check_project_access` and read files at `resolved_commit_sha`. Local health, identity alone, or the name of a connector in a message is not end-to-end project-read acceptance.
+Complete prerequisites, start and keep the selected tunnel/MCP running, check local readiness, and select the actual app in the normal ChatGPT composer. Guided installations can use `reasonfirst chatgpt handoff` for the browser steps and first-read prompt; prefix it with `uv run` from a source checkout. Call `gitlab_whoami`, `check_project_access` and read files at `resolved_commit_sha`. Local health, identity alone, or the name of a connector in a message is not end-to-end project-read acceptance.
 
 Keychain is the recommended runtime-key source in the Mac guide, not a mandatory component for every platform. The OpenAI tunnel key, tunnel ID, GitLab token, local allowlist and coding-agent login are different things. Platform tunnel permissions, ChatGPT workspace permissions and GitLab/local project grants are also separate. The first-time guide identifies the responsible user/admin at each stop point. Never assume an earlier shell export survived a new Terminal.
 

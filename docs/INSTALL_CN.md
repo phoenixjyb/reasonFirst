@@ -2,6 +2,8 @@
 
 ReasonFirst v0.5.3 正式支持**快速打包安装和从源码构建**两条路径。两条路径最终进入同一个 `reasonfirst` CLI，并共用私有 GitLab 配置、非秘密 setup state、Tunnel ID 与 review/publication policy。
 
+**新用户：**先选择下文的打包或源码路径，再完成[第一条 ChatGPT 读取](GETTING_STARTED_CN.md)。如果希望先读取、讨论项目，之后再安装编程 worker，请看[先只读接入](#read-first-setup)中的 **Unreleased 源码变更**；已发布的 v0.5.3 wizard 仍要求检测到一个 worker。
+
 ## 已有安装？先检查，不要重新配置
 
 **安装新包不等于所有后台服务都已升级。** 保留现有配置、工作区、源码检出、旧运行环境
@@ -55,7 +57,7 @@ v0.5.2 的另一个需显式审批的命令可[登记已知 macOS 服务的注�
 
 ## 路径 A——快速打包安装（新用户推荐）
 
-进入向导前，先安装 Git、uv 和一个受支持的编程 worker，例如 Codex CLI。
+进入**已发布的 v0.5.3 向导**前，先安装 Git、uv 和一个受支持的编程 worker，例如 Codex CLI。
 Setup 会查找 worker 可执行文件，但不会安装它，也不会验证 provider 登录；
 执行编程任务前需完成该登录。准备好 GitLab URL、token 和准确项目路径。
 [首次接入准备](GETTING_STARTED_CN.md)说明账号权限及另行完成的 ChatGPT 隧道连接。
@@ -145,6 +147,39 @@ Windows PowerShell：
 ```
 
 editable 安装会跟随该源码目录。长期目录应保持在已审阅 branch/tag；PR 实验使用独立 worktree。
+
+<a id="read-first-setup"></a>
+## 先在 ChatGPT 读取，再选择 worker（Unreleased）
+
+推迟 worker 配置属于 **Unreleased 源码变更**，已发布的 v0.5.3 wheel 和
+v0.5.3 源码 tag 都不支持 `--worker later`。请使用包含该变更的已审阅源码检出，
+并同时记录准确 commit SHA 与包版本。在该目录中，macOS、Windows PowerShell
+和 Linux 均使用：
+
+```bash
+uv run reasonfirst setup --mode standard --worker later
+```
+
+standard 交互式配置也允许在 worker 提示处选择 `later`。没有检测到 worker、
+且没有显式提供 worker 选择时，standard 配置可以继续完成只读连接。
+`cli-only` 和 `full-chat` 仍要求对应的编程 worker，并拒绝 `later`。
+
+推迟配置会保留已有 worker 偏好和隧道标识，不会把 `later` 保存成后端。
+GitLab 项目预检和配置审阅仍照常执行。按 wizard 完成隧道步骤，再运行
+`uv run reasonfirst chatgpt handoff`，在普通 ChatGPT 中执行返回的实时读取提示词。
+本地 setup/status 本身不能证明 ChatGPT 已接通。读取和讨论项目不会启动编程 worker。
+
+约定好实现任务后，安装或启动一个受支持 worker，并完成其 provider 登录，再检查和选择：
+
+```bash
+uv run reasonfirst worker list
+uv run reasonfirst worker use codex-cli
+```
+
+如果使用的是另一个已安装后端，可将 `codex-cli` 替换为 `copilot-cli` 或
+`codex-desktop`。使用从这份已审阅源码构建的全局安装时，省略命令前的 `uv run`。
+选择 worker 只更新执行偏好，不必重新配置 GitLab 或隧道；检测到可执行文件不等于
+验证登录。随后按[首次实现](GETTING_STARTED_CN.md#add-worker)继续。
 
 ## 两条路径共用状态
 

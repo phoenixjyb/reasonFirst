@@ -114,10 +114,17 @@ def _choose_worker(
     *,
     requested: str | None,
     current: AgentSettings | None,
+    allow_defer: bool = False,
     input_fn: Callable[[str], str] = input,
-) -> str:
+) -> str | None:
+    if requested == "later":
+        if not allow_defer:
+            raise ValueError("Configuring a worker later is only supported in standard mode")
+        return None
     available = _available_worker_names()
     if not available:
+        if allow_defer and requested is None:
+            return None
         raise RuntimeError(
             "No supported coding worker is available. Install/sign in to Codex CLI, "
             "Copilot CLI, Antigravity CLI (agy), or start Codex Desktop, then rerun setup."
@@ -135,12 +142,17 @@ def _choose_worker(
             else "auto"
         )
         print("Detected workers: " + ", ".join(available))
+        choices = "/".join((*CANONICAL_WORKERS, "later") if allow_defer else CANONICAL_WORKERS)
         choice = _prompt(
-            "Worker (auto/codex-cli/copilot-cli/codex-desktop/antigravity-cli)",
+            f"Worker ({choices})",
             default=default,
             input_fn=input_fn,
         )
 
+    if choice == "later":
+        if not allow_defer:
+            raise ValueError("Configuring a worker later is only supported in standard mode")
+        return None
     plan = plan_worker_use(choice)
     if not bool(plan.get("ok")):
         raise RuntimeError(str(plan.get("message") or "Selected worker is unavailable"))
@@ -151,7 +163,7 @@ def _persist_progress(
     *,
     state_path: Path,
     mode: str,
-    worker: str,
+    worker: str | None,
     config_file: str,
     phases: set[str],
 ) -> Path:
@@ -164,7 +176,7 @@ def _persist_progress(
     state = replace(
         previous,
         mode=mode,
-        selected_worker=worker,
+        selected_worker=worker if worker is not None else previous.selected_worker,
         config_file=config_file,
         completed_phases=completed,
         installed_version=__version__,
@@ -208,10 +220,13 @@ def _print_human_status(payload: dict[str, object]) -> None:
         for item in workers
         if isinstance(item, dict) and bool(item.get("available"))
     ]
-    print(
-        f"{_mark(bool(available_workers))} workers detected: "
-        + (", ".join(available_workers) if available_workers else "none")
-    )
+    if not available_workers and payload.get("mode") == "standard":
+        print("[optional] coding worker: configure later when implementing a task")
+    else:
+        print(
+            f"{_mark(bool(available_workers))} workers detected: "
+            + (", ".join(available_workers) if available_workers else "none")
+        )
     print(
         f"{_mark(bool(readiness.get('tunnel_client_available')))} "
         "tunnel-client available"
@@ -644,7 +659,7 @@ def _run_guided_setup(
     # boundaries. Exported values are never silently unset or overwritten.
     assert_no_effective_env_override(
         ["GITLAB_BASE_URL", "GITLAB_TOKEN", "GITLAB_ALLOWED_PROJECTS",
-         "GITLAB_VERIFY_SSL", "GITLAB_REQUIRE_WRITE_ALLOWLIST", "REASONFIRST_DEFAULT_BACKEND"]
+         "GITLAB_VERIFY_SSL", "GITLAB_REQUIRE_WRITE_ALLOWLIST"]
     )
     effective_config = current.config_file if current is not None else resolve_env_file().expanduser()
     if effective_config.exists():
@@ -652,6 +667,8 @@ def _run_guided_setup(
     mode = args.mode or (state.mode if state is not None else "standard")
     if mode not in SETUP_MODES:
         raise ValueError("Unsupported setup mode")
+    if args.worker == "later" and mode != "standard":
+        raise ValueError("--worker later is only supported with --mode standard")
     if mode == "full-chat" and args.worker in {"agy", "antigravity-cli"}:
         raise RuntimeError("Antigravity CLI supports standard or cli-only setup, not the full-chat Bridge")
 
@@ -691,8 +708,11 @@ def _run_guided_setup(
     worker = _choose_worker(
         requested=args.worker,
         current=current,
+        allow_defer=mode == "standard",
         input_fn=input_fn,
     )
+    if worker is not None:
+        assert_no_effective_env_override(["REASONFIRST_DEFAULT_BACKEND"])
 
     if mode == "full-chat" and worker == "antigravity-cli":
         raise RuntimeError("Antigravity CLI supports standard or cli-only setup, not the full-chat Bridge")
@@ -728,6 +748,8 @@ def _run_guided_setup(
         "ref": preflight.get("ref") or ref,
         "resolved_commit_sha": preflight.get("resolved_commit_sha"),
         "worker": worker,
+        "worker_deferred": worker is None,
+        "worker_next": ("Install/sign in to a coding worker, then run reasonfirst worker list and reasonfirst worker use BACKEND; existing connection identity is reused." if worker is None else None),
         "worker_authentication_verified": False,
         "config_file": str(selected_user_config_path()),
         "allowed_projects_after": after_projects,
@@ -741,7 +763,12 @@ def _run_guided_setup(
         print(f"GitLab: {plan['gitlab_base_url']}")
         print(f"Project: {project}")
         print(f"Resolved SHA: {plan['resolved_commit_sha']}")
-        print(f"Worker: {worker} (login not asserted by executable detection)")
+        if worker is None:
+            print("Worker: configure later (optional for repository reads)")
+            if current is not None:
+                print(f"Existing worker preference retained: {current.default_backend}")
+        else:
+            print(f"Worker: {worker} (login not asserted by executable detection)")
         print(f"Mode: {mode}")
         print(f"Config: {plan['config_file']}")
         print("No secret value will be printed or stored in setup progress.")
@@ -759,23 +786,22 @@ def _run_guided_setup(
             "message": "No configuration change was made.",
         }
 
-    config_change = apply_env_updates(
-        selected_user_config_path(),
-        {
-            "GITLAB_BASE_URL": candidate.gitlab_base_url,
-            "GITLAB_TOKEN": api_token,
-            "GITLAB_ALLOWED_PROJECTS": ",".join(after_projects),
-            "GITLAB_VERIFY_SSL": "true",
-            "GITLAB_REQUIRE_WRITE_ALLOWLIST": "true",
-            "REASONFIRST_DEFAULT_BACKEND": worker,
-        },
-    )
+    config_updates = {
+        "GITLAB_BASE_URL": candidate.gitlab_base_url,
+        "GITLAB_TOKEN": api_token,
+        "GITLAB_ALLOWED_PROJECTS": ",".join(after_projects),
+        "GITLAB_VERIFY_SSL": "true",
+        "GITLAB_REQUIRE_WRITE_ALLOWLIST": "true",
+    }
+    if worker is not None:
+        config_updates["REASONFIRST_DEFAULT_BACKEND"] = worker
+    config_change = apply_env_updates(selected_user_config_path(), config_updates)
     state_file = _persist_progress(
         state_path=args.state_file,
         mode=mode,
         worker=worker,
         config_file=str(selected_user_config_path()),
-        phases={"system", "gitlab", "worker"},
+        phases={"system", "gitlab"} | ({"worker"} if worker is not None else set()),
     )
 
     tunnel_result: dict[str, object] = {
@@ -1356,9 +1382,9 @@ def _build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--ref", default=None, help="Project ref (default: configured/main)")
     setup.add_argument(
         "--worker",
-        choices=WORKER_CHOICES,
+        choices=(*WORKER_CHOICES, "later"),
         default=None,
-        help="Prefill the worker preference; secrets are never accepted on argv",
+        help="Prefill worker preference, or use later for read-first standard setup",
     )
     setup.add_argument(
         "--skip-chatgpt",
@@ -1611,6 +1637,8 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print("ReasonFirst local control setup complete.")
                 print(str(payload.get("next") or ""))
+                if payload.get("worker_deferred"):
+                    print(str(payload.get("worker_next") or ""))
             elif payload.get("cancelled"):
                 print(str(payload.get("message") or "Cancelled."), file=sys.stderr)
             else:

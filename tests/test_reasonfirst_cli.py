@@ -4,14 +4,18 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
+import uuid
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
-from gitlab_agent import __version__, reasonfirst_cli
+from gitlab_agent import __version__, reasonfirst_cli, setup_actions
 from gitlab_agent.config import AgentSettings
-from gitlab_agent.setup_state import SetupState
+from gitlab_agent.setup_config import apply_env_updates, read_env_assignments
+from gitlab_agent.setup_state import SetupState, load_setup_state, save_setup_state
 
 
 STATUS = {
@@ -881,6 +885,357 @@ class ReasonFirstCLITests(unittest.TestCase):
             reasonfirst_cli.main(["--version"])
         self.assertEqual(raised.exception.code, 0)
         self.assertEqual(f"reasonfirst {__version__}", out.getvalue().strip())
+
+
+class ReadFirstSetupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.config = self.root / "gitlab.env"
+        self.state_file = self.root / "setup.yaml"
+        self.token = "fixture-" + uuid.uuid4().hex
+        self.preflight = {
+            "ok": True,
+            "ref": "main",
+            "resolved_commit_sha": "a" * 40,
+            "writes_performed": False,
+        }
+
+    def args(
+        self, *, mode: str | None = "standard", worker: str | None = None,
+        skip_chatgpt: bool = True,
+    ) -> argparse.Namespace:
+        argv = [
+            "setup", "--state-file", str(self.state_file),
+            "--gitlab-url", "https://gitlab.example.test",
+            "--project", "team/project", "--ref", "main", "--json",
+        ]
+        if mode is not None:
+            argv.extend(["--mode", mode])
+        if worker is not None:
+            argv.extend(["--worker", worker])
+        if skip_chatgpt:
+            argv.append("--skip-chatgpt")
+        return reasonfirst_cli._build_parser().parse_args(argv)
+
+    @contextlib.contextmanager
+    def isolated(self, *, workers: tuple[str, ...] = (), environment=None):
+        inventory = [
+            {
+                "name": name, "available": name in workers,
+                "path": f"/tools/{name}" if name in workers else None,
+                "authentication_verified": False,
+            }
+            for name in ("codex-cli", "copilot-cli", "codex-desktop")
+        ]
+        env = {
+            "HOME": str(self.root),
+            "USERPROFILE": str(self.root),
+            "GITLAB_AGENT_ENV_FILE": str(self.config),
+            **(environment or {}),
+        }
+        writer = partial(apply_env_updates, backup_root=self.root / "backups")
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(reasonfirst_cli.sys.stdin, "isatty", return_value=True),
+            patch.object(reasonfirst_cli, "detect_workers", return_value=inventory),
+            patch.object(setup_actions, "detect_workers", return_value=inventory),
+            patch.object(reasonfirst_cli, "apply_env_updates", new=writer),
+            patch.object(setup_actions, "apply_env_updates", new=writer),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            yield
+
+    def write_existing_config(self, backend: str | None = None) -> None:
+        text = (
+            "# Retain existing project grants and unrelated settings.\n"
+            "GITLAB_BASE_URL=https://gitlab.example.test\n"
+            f"GITLAB_TOKEN={self.token}\n"
+            "GITLAB_ALLOWED_PROJECTS=team/existing,team/other\n"
+            "GITLAB_VERIFY_SSL=true\n"
+            "GITLAB_REQUIRE_WRITE_ALLOWLIST=true\n"
+            "GITLAB_DEFAULT_BASE_REF=main\n"
+        )
+        if backend is not None:
+            text += f"export REASONFIRST_DEFAULT_BACKEND='{backend}'\n"
+        self.config.write_text(text, encoding="utf-8")
+
+    def write_existing_state(self, worker: str | None) -> SetupState:
+        phases = ["system", "gitlab", "tunnel", "chatgpt-read", "bridge"]
+        if worker is not None:
+            phases.insert(2, "worker")
+        state = SetupState(
+            mode="standard", selected_worker=worker, config_file=str(self.config),
+            tunnel_id="tunnel_" + "a" * 32, tunnel_runtime="existing-read",
+            tunnel_client_path="/tools/existing-tunnel-client",
+            bridge_tunnel_id="tunnel_" + "b" * 32, bridge_runtime="existing-bridge",
+            completed_phases=tuple(phases), installed_version="0.5.3",
+            last_verified_at="2026-10-12T12:00:00+00:00",
+        )
+        save_setup_state(state, self.state_file)
+        return state
+
+    def assert_connection_identity_preserved(
+        self, before: SetupState, after: SetupState,
+    ) -> None:
+        for field in (
+            "mode", "config_file", "tunnel_id", "tunnel_runtime",
+            "tunnel_client_path", "bridge_tunnel_id", "bridge_runtime",
+        ):
+            self.assertEqual(getattr(after, field), getattr(before, field), field)
+
+    def test_fresh_setup_without_worker_reaches_read_tunnel_handoff(self) -> None:
+        tunnel_id = "tunnel_" + "c" * 32
+        runtime_key = "fixture-" + uuid.uuid4().hex
+        answers = iter(["y", "y", tunnel_id, "n"])
+        secrets = iter([self.token, runtime_key])
+
+        def preflight(settings, project, *, ref):
+            self.assertFalse(self.config.exists())
+            self.assertFalse(self.state_file.exists())
+            self.assertEqual(settings.default_backend, "auto")
+            self.assertEqual(project, "team/project")
+            return self.preflight
+
+        def connect(**kwargs):
+            saved = load_setup_state(self.state_file)
+            self.assertIsNotNone(saved)
+            self.assertIsNone(saved.selected_worker)
+            self.assertNotIn("worker", saved.completed_phases)
+            self.assertTrue(self.config.is_file())
+            return {
+                "ok": True, "ready": True, "alias": kwargs["alias"],
+                "tunnel_id": kwargs["tunnel_id"],
+            }
+
+        with (
+            self.isolated(),
+            patch.object(reasonfirst_cli, "preflight_project", side_effect=preflight),
+            patch.object(reasonfirst_cli, "resolve_tunnel_client",
+                         return_value="/tools/tunnel-client"),
+            patch.object(reasonfirst_cli, "resolve_read_mcp",
+                         return_value="/tools/reasonfirst-gitlab-mcp"),
+            patch.object(reasonfirst_cli, "open_handoff_pages", return_value={}),
+            patch.object(reasonfirst_cli, "connect_runtime", side_effect=connect) as runtime,
+        ):
+            code, result = reasonfirst_cli._run_guided_setup(
+                self.args(skip_chatgpt=False),
+                input_fn=lambda _: next(answers), secret_fn=lambda _: next(secrets),
+            )
+
+        self.assertEqual(code, 0)
+        runtime.assert_called_once()
+        self.assertIsNone(result["worker"])
+        self.assertTrue(result["worker_deferred"])
+        self.assertTrue(result["local_tunnel_ready"])
+        self.assertFalse(result["ready"])
+        self.assertFalse(result["chatgpt_ready"])
+        self.assertIn("gitlab_whoami", result["tunnel"]["handoff"]["acceptance_prompt"])
+        self.assertNotIn("REASONFIRST_DEFAULT_BACKEND", read_env_assignments(self.config))
+        saved = load_setup_state(self.state_file)
+        self.assertIsNone(saved.selected_worker)
+        self.assertNotIn("worker", saved.completed_phases)
+        self.assertIn("tunnel", saved.completed_phases)
+        self.assertEqual(saved.tunnel_id, tunnel_id)
+        self.assertNotIn(self.token, repr(result))
+        self.assertNotIn(runtime_key, repr(result))
+        self.assertNotIn(runtime_key, self.config.read_text(encoding="utf-8"))
+        self.assertNotIn(runtime_key, self.state_file.read_text(encoding="utf-8"))
+
+    def test_deferred_setup_preflight_failure_or_decline_writes_nothing(self) -> None:
+        for preflight_ok in (False, True):
+            with self.subTest(preflight_ok=preflight_ok):
+                with (
+                    self.isolated(),
+                    patch.object(
+                        reasonfirst_cli, "preflight_project",
+                        return_value={**self.preflight, "ok": preflight_ok},
+                    ),
+                    patch.object(reasonfirst_cli, "_guided_tunnel_after_local") as tunnel,
+                ):
+                    code, result = reasonfirst_cli._run_guided_setup(
+                        self.args(), input_fn=lambda _: "n",
+                        secret_fn=lambda _: self.token,
+                    )
+                self.assertEqual(code, 1)
+                self.assertFalse(result["writes_performed"])
+                tunnel.assert_not_called()
+                self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_deferral_preserves_existing_backend_alias_grants_and_metadata(self) -> None:
+        for backend in ("copilot-cli", "codex", "copilot"):
+            with self.subTest(backend=backend):
+                self.write_existing_config(backend)
+                previous = self.write_existing_state("copilot-cli")
+
+                def preflight(settings, project, *, ref):
+                    self.assertEqual(settings.default_backend, backend)
+                    return self.preflight
+
+                with (
+                    self.isolated(),
+                    patch.object(reasonfirst_cli, "preflight_project", side_effect=preflight),
+                ):
+                    code, result = reasonfirst_cli._run_guided_setup(
+                        self.args(worker="later"), input_fn=lambda _: "y",
+                        secret_fn=lambda _: "",
+                    )
+
+                self.assertEqual(code, 0)
+                self.assertTrue(result["worker_deferred"])
+                self.assertIsNone(result["worker"])
+                values = read_env_assignments(self.config)
+                self.assertEqual(values["REASONFIRST_DEFAULT_BACKEND"], backend)
+                self.assertEqual(
+                    set(values["GITLAB_ALLOWED_PROJECTS"].split(",")),
+                    {"team/existing", "team/other", "team/project"},
+                )
+                self.assertIn(
+                    f"export REASONFIRST_DEFAULT_BACKEND='{backend}'",
+                    self.config.read_text(encoding="utf-8"),
+                )
+                self.assertNotIn(
+                    "REASONFIRST_DEFAULT_BACKEND",
+                    result["config_change"]["updated_keys"],
+                )
+                saved = load_setup_state(self.state_file)
+                self.assert_connection_identity_preserved(previous, saved)
+                self.assertEqual(saved.selected_worker, previous.selected_worker)
+                self.assertEqual(saved.completed_phases, previous.completed_phases)
+
+    def test_deferral_preserves_exported_backend_without_copying_it_into_config(self) -> None:
+        self.write_existing_config("copilot-cli")
+
+        def preflight(settings, project, *, ref):
+            self.assertEqual(settings.default_backend, "codex-desktop")
+            return self.preflight
+
+        with (
+            self.isolated(environment={"REASONFIRST_DEFAULT_BACKEND": "codex-desktop"}),
+            patch.object(reasonfirst_cli, "preflight_project", side_effect=preflight),
+        ):
+            code, result = reasonfirst_cli._run_guided_setup(
+                self.args(worker="later"), input_fn=lambda _: "y", secret_fn=lambda _: "",
+            )
+            self.assertEqual(os.environ["REASONFIRST_DEFAULT_BACKEND"], "codex-desktop")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            read_env_assignments(self.config)["REASONFIRST_DEFAULT_BACKEND"], "copilot-cli",
+        )
+        self.assertNotIn("REASONFIRST_DEFAULT_BACKEND", result["config_change"]["updated_keys"])
+
+    def test_available_worker_can_be_explicitly_deferred_from_prompt(self) -> None:
+        prompts = []
+
+        def answer(prompt):
+            prompts.append(prompt)
+            return "later" if prompt.startswith("Worker ") else "y"
+
+        with (
+            self.isolated(workers=("codex-cli",)),
+            patch.object(reasonfirst_cli, "preflight_project", return_value=self.preflight),
+        ):
+            code, result = reasonfirst_cli._run_guided_setup(
+                self.args(), input_fn=answer, secret_fn=lambda _: self.token,
+            )
+        self.assertEqual(code, 0)
+        self.assertTrue(result["worker_deferred"])
+        worker_prompt = next(prompt for prompt in prompts if prompt.startswith("Worker "))
+        self.assertIn("later", worker_prompt)
+        self.assertIsNone(load_setup_state(self.state_file).selected_worker)
+
+    def test_explicit_worker_requests_do_not_silently_defer_when_unavailable(self) -> None:
+        for mode in ("standard", "cli-only", "full-chat"):
+            for worker in ("auto", "codex-cli", "copilot-cli", "codex-desktop"):
+                with self.subTest(mode=mode, worker=worker):
+                    with (
+                        self.isolated(),
+                        patch.object(reasonfirst_cli, "preflight_project") as preflight,
+                        self.assertRaises(RuntimeError),
+                    ):
+                        reasonfirst_cli._run_guided_setup(
+                            self.args(mode=mode, worker=worker),
+                            input_fn=lambda _: "y", secret_fn=lambda _: self.token,
+                        )
+                    preflight.assert_not_called()
+                    self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_worker_deferral_is_rejected_outside_standard_setup(self) -> None:
+        for mode in ("cli-only", "full-chat"):
+            with self.subTest(mode=mode):
+                with (
+                    self.isolated(workers=("codex-cli",)),
+                    patch.object(reasonfirst_cli, "preflight_project") as preflight,
+                    self.assertRaisesRegex(ValueError, "standard"),
+                ):
+                    reasonfirst_cli._run_guided_setup(
+                        self.args(mode=mode, worker="later"),
+                        input_fn=lambda _: "y", secret_fn=lambda _: self.token,
+                    )
+                preflight.assert_not_called()
+                self.assertEqual(list(self.root.iterdir()), [])
+        for mode in ("cli-only", "full-chat"):
+            with self.subTest(mode=mode, source="saved"):
+                save_setup_state(SetupState(mode=mode), self.state_file)
+                before = self.state_file.read_bytes()
+                with (
+                    self.isolated(workers=("codex-cli",)),
+                    patch.object(reasonfirst_cli, "preflight_project") as preflight,
+                    self.assertRaisesRegex(ValueError, "standard"),
+                ):
+                    reasonfirst_cli._run_guided_setup(
+                        self.args(mode=None, worker="later"),
+                        input_fn=lambda _: "y", secret_fn=lambda _: self.token,
+                    )
+                preflight.assert_not_called()
+                self.assertEqual(self.state_file.read_bytes(), before)
+                self.assertFalse(self.config.exists())
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            reasonfirst_cli._build_parser().parse_args(["worker", "use", "later"])
+
+    def test_explicit_worker_change_still_rejects_exported_backend_override(self) -> None:
+        with (
+            self.isolated(
+                workers=("codex-cli",),
+                environment={"REASONFIRST_DEFAULT_BACKEND": "copilot-cli"},
+            ),
+            patch.object(reasonfirst_cli, "preflight_project") as preflight,
+            self.assertRaisesRegex(RuntimeError, "REASONFIRST_DEFAULT_BACKEND"),
+        ):
+            reasonfirst_cli._run_guided_setup(
+                self.args(worker="codex-cli"),
+                input_fn=lambda _: "y", secret_fn=lambda _: self.token,
+            )
+        preflight.assert_not_called()
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_worker_use_after_deferral_preserves_existing_read_connection(self) -> None:
+        self.write_existing_config()
+        previous = self.write_existing_state(None)
+        before = read_env_assignments(self.config)
+        output = io.StringIO()
+        with (
+            self.isolated(workers=("copilot-cli",)),
+            contextlib.redirect_stdout(output),
+        ):
+            code = reasonfirst_cli.main([
+                "worker", "use", "copilot-cli",
+                "--state-file", str(self.state_file), "--json",
+            ])
+
+        self.assertEqual(code, 0)
+        result = json.loads(output.getvalue())
+        self.assertFalse(result["authentication_verified"])
+        saved = load_setup_state(self.state_file)
+        self.assert_connection_identity_preserved(previous, saved)
+        self.assertEqual(saved.selected_worker, "copilot-cli")
+        self.assertEqual(
+            set(saved.completed_phases), set(previous.completed_phases) | {"worker"},
+        )
+        after = read_env_assignments(self.config)
+        self.assertEqual(after.pop("REASONFIRST_DEFAULT_BACKEND"), "copilot-cli")
+        self.assertEqual(after, before)
 
 
 if __name__ == "__main__":
