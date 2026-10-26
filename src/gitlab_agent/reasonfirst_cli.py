@@ -142,7 +142,7 @@ def _choose_worker(
             else "auto"
         )
         print("Detected workers: " + ", ".join(available))
-        choices = "/".join((*CANONICAL_WORKERS, "later") if allow_defer else CANONICAL_WORKERS)
+        choices = "/".join((*WORKER_CHOICES, "later") if allow_defer else WORKER_CHOICES)
         choice = _prompt(
             f"Worker ({choices})",
             default=default,
