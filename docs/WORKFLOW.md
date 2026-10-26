@@ -152,6 +152,8 @@ KeyboardInterrupt/SystemExit is propagated after successful cleanup.
 Normal-exit background processes and escaped descendants still require external
 isolation. See [security boundaries](../SECURITY.md#buildtest-execution-is-not-a-sandbox).
 
+**Unreleased source behavior:** when `resume` or `continue` omits `--agent`, it keeps the task's latest recorded worker selection, falling back to an explicit TaskSpec backend and then current defaults when no selection is recorded. Use a named `--agent` to switch deliberately, or `--agent auto` to resolve current defaults and repository preferences again. An unavailable remembered worker stops the command with guidance; the selection reason is included in the handoff. This preserves the backend choice while model/effort and other worker settings come from current user configuration. A handoff record alone does not prove execution or success. The published v0.5.3 package predates this change: pass an explicit `--agent` there. See the [quickstart selection rules](ACTUAL_CODER_QUICKSTART.md#continue-the-same-task).
+
 ## Acceptance is per layer
 
 | Evidence | What it proves | What it does not prove |

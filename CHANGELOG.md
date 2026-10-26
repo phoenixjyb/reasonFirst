@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Preserve the task's latest recorded worker selection when `actual-coder resume`
+  or `continue` omits `--agent`. Older tasks fall back to an explicit TaskSpec
+  backend, then current user defaults / automatic selection. New-task selection
+  is unchanged; explicit backend names override the remembered choice and
+  explicit `--agent auto` deliberately resolves the current selection policy.
+- Report the selection reason and stop with recovery guidance when a remembered
+  worker is unavailable. Keep current user WorkerPolicy settings and existing
+  launch controls: `resume` requires `--launch`; `continue` launches unless
+  `--no-launch` is set. Handoff records remain selection intent, not proof that
+  a worker ran or succeeded.
+
 - On macOS, disambiguate process-group `EPERM` only after a bounded, group-scoped
   libproc observation confirms an owned, unreaped leader and a complete stable
   zombie-only membership. Live, inaccessible, oversized or uncertain groups
