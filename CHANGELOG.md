@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add explicit read-only native service-manager observation with bounded queries of
+  two fixed candidate service IDs per platform (launchd, systemd user, Windows
+  Scheduled Tasks). Default service status and all plans remain static and
+  non-executing; manager state never proves runtime ownership, readiness or
+  login/reboot acceptance. See the bilingual service planning guides.
 - Let standard guided setup connect GitLab and prepare the ChatGPT read path
   before a coding worker is installed. Choose `--worker later` or defer in the
   interactive prompt; standard setup also continues when no worker is detected

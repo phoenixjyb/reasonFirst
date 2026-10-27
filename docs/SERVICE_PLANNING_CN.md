@@ -39,3 +39,26 @@ Bridge 与隧道保持为不同角色。规划器不会根据静态或记录的�
 同级文件活动；这些一致性检查不构成原子文件系统快照。
 
 English: [Service inventory and planning](SERVICE_PLANNING.md).
+
+
+## Slice 2A：显式触发的原生服务管理器只读观察（未发布）
+
+默认 service status 仍只收集静态证据，不调用系统管理器。需要原生只读
+观察时显式执行：
+
+    reasonfirst service status --native --json
+
+每个操作系统仅查询两个固定的候选标识：macOS 图形用户域的
+com.reasonfirst.v4-mcp 与 com.reasonfirst.v4-tunnel；Linux systemd
+用户实例的 reasonfirst-v4-mcp.service 与 reasonfirst-v4-tunnel.service；
+Windows ReasonFirst 任务目录中的 V4 MCP 与 V4 Tunnel。这些标识只是
+查询目标，不证明已有服务采用此名称。“未在该标识找到”不等于全机
+没有服务。GUI 域、systemd 用户管理器或 Windows 计划任务模块不可用
+时，应报告 unknown/unavailable，不能当作健康通过。
+
+不会返回原生命令输出、已安装命令的参数、任意路径、环境变量值或凭据。
+管理器状态不等于进程身份、运行时归属、健康状况、版本、真实登录启动或
+端到端连接证明。登录设置仅提供配置线索。不扫描进程，不接管、安装、
+注册、启动、停止、修复或修改服务，不读取凭据。查询超时最多清理其自身
+短生命周期查询子进程，而不是 ReasonFirst/tunnel 服务。计划依然阻塞
+且不可执行；真实机器的归属核验与平台验收仍需独立完成。
