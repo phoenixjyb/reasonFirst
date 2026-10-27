@@ -49,3 +49,37 @@ reports changed evidence. Parent checks compare directory identities, allowing
 unrelated sibling activity. These consistency checks are not an atomic snapshot.
 
 For the Chinese guide, see [服务清点与计划](SERVICE_PLANNING_CN.md).
+
+
+## Slice 2A: opt-in native manager observations (unreleased)
+
+Default service status remains static and never invokes an OS manager. To
+request read-only service-manager evidence explicitly:
+
+    reasonfirst service status --native --json
+
+The observer queries only TWO fixed candidate identifiers per supported OS:
+macOS GUI user domain: com.reasonfirst.v4-mcp and com.reasonfirst.v4-tunnel.
+Linux systemd user: reasonfirst-v4-mcp.service and reasonfirst-v4-tunnel.service.
+Windows Scheduled Tasks under the ReasonFirst task folder: V4 MCP and V4 Tunnel.
+These candidate names are NOT proof that any installed service uses them.
+A negative result means only "not found at a known identifier", not a
+whole-host absence. If the GUI domain, systemd user manager, or Windows task
+module is inaccessible, the observer reports unknown/unavailable, not healthy.
+
+Native stdout/stderr, installed command arguments, arbitrary target paths,
+environment values, and credentials are never returned. Manager activity is
+not verified process identity, runtime ownership, health, version, actual login
+startup, or successful end-to-end connection. Login settings are only
+configuration indicators. No process enumeration, service adoption, installed
+service modification, registration, start/stop/repair, or credential access.
+A query timeout can clean up ONLY the short-lived query subprocess, not a
+ReasonFirst or tunnel service. Plans remain blocked and non-executable.
+Actual platform acceptance and ownership verification remain outstanding.
+
+Native diagnostics use pinned system executables rather than PATH-resolved
+commands. On Linux, only the current UID's standard /run/user/UID directory
+and matching local Unix D-Bus address may be passed to systemctl --user;
+missing or nonstandard bus context produces an unknown/unavailable result,
+not a fabricated healthy state. On Windows, the native PowerShell path is
+resolved from the OS system directory. No login environment is synthesized.

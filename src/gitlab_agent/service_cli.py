@@ -19,6 +19,9 @@ def add_service_parser(subparsers):
     for action in ("status", "plan", "repair"):
         command = actions.add_parser(action)
         command.add_argument("--json", action="store_true")
+        if action == "status":
+            command.add_argument("--native", action="store_true",
+                                 help="Opt-in bounded read-only OS service-manager queries")
         if action == "plan":
             command.add_argument("--autostart", choices=("login",), required=True)
         if action == "repair":
@@ -45,6 +48,12 @@ def main(argv: list[str]) -> int:
                 evidence = collect_service_evidence()
                 if args.service_command == "status":
                     payload = service_status(evidence)
+                    if args.native:
+                        # No native subprocess in ordinary status/plan/repair.
+                        from .native_service_observation import observe_native_services
+                        payload["native_services"] = observe_native_services()
+                        payload["scope"] = "slice2a_opt_in_native_evidence"
+                        payload["target"]["native_observation"] = "bounded_named_query"
                     code = 0
                 else:
                     payload = build_service_plan(evidence)
