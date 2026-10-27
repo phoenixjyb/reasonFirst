@@ -76,3 +76,10 @@ service modification, registration, start/stop/repair, or credential access.
 A query timeout can clean up ONLY the short-lived query subprocess, not a
 ReasonFirst or tunnel service. Plans remain blocked and non-executable.
 Actual platform acceptance and ownership verification remain outstanding.
+
+Native diagnostics use pinned system executables rather than PATH-resolved
+commands. On Linux, only the current UID's standard /run/user/UID directory
+and matching local Unix D-Bus address may be passed to systemctl --user;
+missing or nonstandard bus context produces an unknown/unavailable result,
+not a fabricated healthy state. On Windows, the native PowerShell path is
+resolved from the OS system directory. No login environment is synthesized.

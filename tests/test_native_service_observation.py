@@ -29,7 +29,7 @@ class NativeServiceObservationTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual([x[0][-1] for x in calls],
                          ["reasonfirst-v4-mcp.service", "reasonfirst-v4-tunnel.service"])
-        self.assertTrue(all(x[0][0:2] == ["systemctl", "--user"] for x in calls))
+        self.assertTrue(all(x[0][0:2] == ["/usr/bin/systemctl", "--user"] for x in calls))
         self.assertTrue(all(x[1]["timeout"] == 3 and x[1]["max_output_bytes"] == 8192
                             for x in calls))
         self.assertFalse(report["owner_adopted"])
@@ -40,6 +40,44 @@ class NativeServiceObservationTests(unittest.TestCase):
             self.assertEqual(service["runtime_owner"], "not_verified")
             self.assertEqual(service["mcp_readiness"], "not_checked")
             self.assertEqual(service["login_acceptance"], "not_verified")
+
+    @patch.object(native.os, "getuid", return_value=1000, create=True)
+    def test_user_systemd_bus_is_preserved_only_for_current_uid(self, getuid):
+        calls = []
+        def query(argv, **options):
+            calls.append(options["env"])
+            return result("LoadState=loaded\nActiveState=inactive\nUnitFileState=disabled\n")
+        with patch.dict(native.os.environ, {
+            "XDG_RUNTIME_DIR": "/run/user/1000",
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+            "GITLAB_TOKEN": "secret-should-not-escape",
+        }):
+            native.observe_native_services(system_name="Linux", run=query)
+        self.assertEqual(len(calls), 2)
+        for env in calls:
+            self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
+            self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], "unix:path=/run/user/1000/bus")
+            self.assertNotIn("GITLAB_TOKEN", env)
+
+        calls.clear()
+        with patch.dict(native.os.environ, {
+            "XDG_RUNTIME_DIR": "/run/user/1001",
+            "DBUS_SESSION_BUS_ADDRESS": "tcp:host=untrusted.example,port=1234",
+        }):
+            native.observe_native_services(system_name="Linux", run=query)
+        for env in calls:
+            self.assertNotIn("XDG_RUNTIME_DIR", env)
+            self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", env)
+
+        calls.clear()
+        with patch.dict(native.os.environ, {
+            "XDG_RUNTIME_DIR": "/run/user/1000",
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/untrusted-bus",
+        }):
+            native.observe_native_services(system_name="Linux", run=query)
+        for env in calls:
+            self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
+            self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", env)
 
     def test_missing_unit_is_only_a_fixed_identifier_negative(self):
         report = native.observe_native_services(
@@ -80,8 +118,8 @@ class NativeServiceObservationTests(unittest.TestCase):
             return result("system = something\nstate = running\npid = 1234\n")
         report = native.observe_native_services(system_name="Darwin", run=query)
         self.assertEqual(commands, [
-            ["launchctl", "print", "gui/456/com.reasonfirst.v4-mcp"],
-            ["launchctl", "print", "gui/456/com.reasonfirst.v4-tunnel"],
+            ["/bin/launchctl", "print", "gui/456/com.reasonfirst.v4-mcp"],
+            ["/bin/launchctl", "print", "gui/456/com.reasonfirst.v4-tunnel"],
         ])
         self.assertTrue(all(x["registration"] == "registered" for x in report["services"]))
         self.assertTrue(all(x["manager_activity"] == "running" for x in report["services"]))

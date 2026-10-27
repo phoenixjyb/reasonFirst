@@ -27,6 +27,43 @@ TARGETS = {
 MAX_OUTPUT = 8192
 QUERY_TIMEOUT_SECONDS = 3
 
+# Only launch known system binaries, not a PATH-provided executable.
+_LAUNCHCTL = "/bin/launchctl"
+_SYSTEMCTL = "/usr/bin/systemctl"
+
+
+def _windows_system_powershell() -> str | None:
+    """Resolve the system PowerShell path through the OS, not environment/PATH."""
+    try:
+        import ctypes
+        if os.name != "nt":
+            return None
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.windll.kernel32.GetSystemDirectoryW(buffer, len(buffer))
+        if not 0 < length < len(buffer):
+            return None
+        return str(Path(buffer.value) / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def _trusted_user_bus_env() -> dict[str, str]:
+    """Preserve only the current user's standard Linux systemd bus context.
+
+    Never synthesize a user manager, inherit arbitrary D-Bus transports, or
+    redirect the query to another user's bus from unreviewed environment values.
+    """
+    if not hasattr(os, "getuid"):
+        return {}
+    runtime = f"/run/user/{os.getuid()}"
+    if os.environ.get("XDG_RUNTIME_DIR") != runtime:
+        return {}
+    result = {"XDG_RUNTIME_DIR": runtime}
+    session_bus = f"unix:path={runtime}/bus"
+    if os.environ.get("DBUS_SESSION_BUS_ADDRESS") == session_bus:
+        result["DBUS_SESSION_BUS_ADDRESS"] = session_bus
+    return result
+
 # Intentionally constant. No user-controlled values or shell expansion.
 _WIN_QUERY = r"""
 $ErrorActionPreference = 'Stop'
@@ -130,6 +167,8 @@ def observe_native_services(*, system_name: str | None = None,
     env = {key: val for key, val in os.environ.items()
            if key.upper() in {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR",
                               "PATHEXT", "COMSPEC", "TMP", "TEMP", "LANG", "LC_ALL"}}
+    if system == "linux":
+        env.update(_trusted_user_bus_env())
     services = []
     for role, identifier in TARGETS[system]:
         if system == "darwin":
@@ -138,13 +177,19 @@ def observe_native_services(*, system_name: str | None = None,
                 services.append({"role": role, "identifier_scope": "fixed_candidate",
                                  **_observation("unavailable", manager=manager)})
                 continue
-            argv = ["launchctl", "print", f"gui/{os.getuid()}/{identifier}"]
+            argv = [_LAUNCHCTL, "print", f"gui/{os.getuid()}/{identifier}"]
         elif system == "linux":
-            argv = ["systemctl", "--user", "show", "--no-pager",
+            argv = [_SYSTEMCTL, "--user", "show", "--no-pager",
                     "--property=LoadState,ActiveState,UnitFileState", identifier]
         else:
             name = "V4 MCP" if role == "bridge" else "V4 Tunnel"
-            argv = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            # Native Windows must not resolve a PATH-supplied PowerShell.
+            executable = _windows_system_powershell() if native else "powershell.exe"
+            if executable is None:
+                services.append({"role": role, "identifier_scope": "fixed_candidate",
+                                 **_observation("unavailable", manager=manager)})
+                continue
+            argv = [executable, "-NoProfile", "-NonInteractive", "-Command",
                     _WIN_QUERY.replace("TASK_PLACEHOLDER", name)]
         observed_at = datetime.now(timezone.utc).isoformat()
         try:
